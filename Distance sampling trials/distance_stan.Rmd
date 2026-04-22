@@ -1,0 +1,244 @@
+---
+title: "Distance in stan"
+author: "Len Thomas"
+date: "2026-04-21"
+format:
+  html:
+    code-fold: true
+  pdf: 
+    echo: false
+execute: 
+  cache: false
+---
+
+## Introduction
+
+```{r}
+#| code-summary: "Code: load libraries and define some constants"
+#| message: false
+#| warning: false
+
+#Load some libraries
+library(inlabru) 
+library(ggplot2)
+
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores() - 1)
+
+library(Distance)
+library(truncnorm)
+
+#Stan filenames
+cds_stan_file <- "cds.stan"
+```
+
+Here we demonstrate a model-based Bayesian distance sampling analysis using an HMC algorithm, implemented using Stan via the `R` package `rstan`. We use some simulated data as an initial test of the detection function fitting; we also use the Gulf of Mexico (/America) dolphin line transect dataset provided with the `inlabru` package (also available in `dsm`).  We make comparisons with other implementations such as from the `Distance` package.
+
+Initial detection function fitting Stan code is in the file `r cds_stan_file`, which should be read alongside the code in this file.  Thanks to Juan Morales for his online example code (from 2020, in an [Rpubs document](https://rpubs.com/pajaro/jsds)), which provided some inspiration, together with the excellent Stan [Function Reference](https://mc-stan.org/docs/functions-reference/index.html) and [Users Guide](https://mc-stan.org/docs/stan-users-guide/index.html).
+
+# Datasets
+
+## Simulated data
+
+```{r}
+#| code-summary: "Code: simulate data"
+
+sim_n <- 10000
+sim_w <- 100
+sim_sigma <- 1
+sim_x <- abs(rtruncnorm(sim_n, -sim_w, sim_w, mean = 0, sd = sim_sigma))
+```
+
+To create an easy initial dataset, we simulate `r sim_n` samples from a half-normal detection function with standard deviation `r sim_sigma` and truncation distance `r sim_w`.  The reason to have such a large truncation distance is that there is an analytical formula for the maximum likelihood estimate of the half-normal sigma parameter from untruncated data (Buckland et al. 2001, section 3.3.4.1):
+$$
+\hat{\sigma}^2 = \sum_{i=1}^n x_i^2 / n
+$$ {#eq-mle}
+
+where $x_i$ is the $i$th detected distance and $n$ is the sample size of observations.  With the truncation distance so much larger than the sigma value, we have something very close to untruncated data.  Hence we can readily check our estimate.
+
+## GoMx Dolphins
+
+```{r}
+#| code-summary: "Code: load dolphin data"
+mexdolphin <- mexdolphin_sf
+mesh <- mexdolphin$mesh
+
+w <- 8
+```
+
+We also load the dolphin data (code in this section adapted from an [`inlabru` vignette](https://inlabru-org.github.io/inlabru/articles/2d_lgcp_distancesampling.html)). @fig-map-data shows the sample and detection locations and @fig-plot-distances gives a histogram of the observed distances. There are `r nrow(mexdolphin$points)` observations.  The truncation distance used in previous analyses of these data is `r  w` m.
+
+```{r}
+#| code-summary: "Code: Map dolphin data"
+#| label: fig-map-data
+#| fig-cap: "Location of transects (lines) and observations (points) in Gulf of Mexico dolphin data"
+
+#Plot lines and point locations
+ggplot() +
+  gg(mexdolphin$ppoly) +
+  gg(mexdolphin$samplers, color = "grey") +
+  gg(mexdolphin$points, size = 1, alpha = 1) +
+  theme(
+    legend.key.width = unit(x = 0.2, "cm"),
+    legend.key.height = unit(x = 0.3, "cm")
+  ) +
+  theme(legend.text = element_text(size = 6)) +
+  labs( x = "longitude", y = "latitude")
+#  coord_sf(datum = fm_crs(mexdolphin$ppoly))
+```
+
+```{r}
+#| code-summary: "Code: Plot dolphin distances"
+#| label: fig-plot-distances
+#| fig-cap: "Histogram of detection distances.  Individual detection distances are marked as tick marks on the x-axis."
+#Plot distances
+ggplot(mexdolphin$points) +
+  geom_histogram(aes(x = distance),
+    breaks = seq(0, w, length.out = 9),
+    boundary = 0, fill = NA, color = "black"
+  ) +
+  geom_point(aes(x = distance), y = 0, pch = "|", cex = 4)
+```
+
+# Detection function fitting
+
+Initially we'll just fit the detection distances and won't go through to estimating density from the encounter rate data.
+
+## Simulated data
+
+```{r}
+#| code-summary: "Code: Analytic MLE"
+sim_sigma_hat <- sqrt(sum(sim_x^2)/sim_n)
+```
+
+Analytic evaluation of the MLE using @eq-mle gives `r sim_sigma_hat`.
+
+We then fit using the `Distance` package (where we can pass in the truncation distance - although we don't expect this to make any difference in this case).  A summary of the output is given below.
+
+```{r}
+#| code-summary: "Code: Fit sim data with Distance"
+#| warning: false
+
+cds_sim_res <- ds(sim_x, truncation = sim_w, nadj = 0, w = sim_w)
+summary(cds_sim_res)
+```
+
+The "(Intercept)" term is the log of the estimated sigma parameter.  So, exponentiating we get $\hat{\sigma}=$ `r exp(cds_sim_res$ddf$par[1])`.
+
+```{r}
+#| code-summary: "Code: Stan setup"
+#Specify data, parameters to return and initialization function for sigma
+sim_hyper_sigma <- 10
+stan_data <- list(n = sim_n, x = sim_x, w = sim_w, L = 1, 
+                  hyper_sigma = sim_hyper_sigma)
+stan_pars <- c("sigma")
+stan_initf <- function(){list(sigma = runif(1, 0.1, 10))}
+```
+
+We now fit using Stan.  Note that the sigma parameter is given a half-normal prior, with a standard deviation of `r sim_hyper_sigma`.
+
+```{r}
+#| code-summary: "Code: Fit sim data with Stan"
+
+#Fit the model
+stan_cds_fit <- stan(file = cds_stan_file, data = stan_data, 
+                     pars = stan_pars, include = TRUE, 
+                     iter = 3000, thin = 1, chains = 4,
+                     init = stan_initf)
+print(stan_cds_fit)
+samples <- extract(stan_cds_fit)
+```
+
+The posterior mean is `r mean(samples$sigma)`.
+
+
+## GoMx dolphin data
+
+We first fit using the `Distance` package. We use a half-normal key function and try cosine adjustments.
+
+```{r}
+#| code-summary: "Code: Fit dolphin data with CDS"
+#| label: fig-plot-cds-res
+#| fig-cap: "Plot of fitted detection function, from the `Distance` package."
+#| warning: false
+
+#Note to self - this throws distbegin and distend warnings I need to check out - you
+# don't see them when you run on command line but you do see them in the
+# rendered versions of the .qmd file!  Perhaps something to do with the
+# truncation argument and possible lack of lazy evaluation when you run as a 
+# background job??
+
+#Also, check out how much higher the AIC is with a cosine of order 2 -- there must be something going wrong there that also needs checked out!
+
+cds_res <- ds(mexdolphin$points, truncation = w)
+summary(cds_res)
+plot(cds_res)
+```
+
+No adjustments are selected using the forward-selection approach that is the default in `Distance`, and hence the fitted detection function is just a half-normal.  The estimated scale parameter value is `r exp(cds_res$ddf$par[1])`.  The output above gives the estimated $p$ (average detection probablity between 0 and the truncation distance), and $N$ in the covered area (i.e., within the surveyed transect strips).
+
+We now fit using Stan (using the same hyperprior on sigma as the simulated data).
+
+```{r}
+#| code-summary: "Code: stan fit for detection function"
+stan_data <- list(n = nrow(mexdolphin$points),
+                  x = mexdolphin$points$distance,
+                  w = w,
+                  L = sum(mexdolphin$samplers$Effort),
+                  hyper_sigma = sim_hyper_sigma)
+stan_pars <- c("sigma", "D", "p")
+stan_initf <- function(){list(sigma = runif(1, 1, 10))}
+
+#Fit the model
+
+stan_cds_fit <- stan(file = cds_stan_file, data = stan_data, pars = stan_pars,
+                     include = TRUE, iter = 3000, thin = 1, chains = 4,
+                     init = stan_initf)
+print(stan_cds_fit)
+samples <- extract(stan_cds_fit)
+```
+
+The posterior mean estimated sigma is `r mean(samples$sigma)` and estimated $p$ is `r mean(samples$p)`.
+
+Estimates are a bit different from those from `Distance`.  Perhaps this is due to the prior on sigma, since (unlike the simulated case) we have very few data here.  Something to investigate.
+
+Here is a plot of the posterior density for sigma and $p$.
+
+```{r}
+#| code-summary: "Code: Plot posterior densities"
+#| label: fig-plot-stan-res1
+#| fig-cap: "Plot of densities from Stan."
+
+par(mfrow=c(1, 2))
+plot(density(samples$p), main = "density", xlab = "")
+plot(density(samples$sigma), main = "sigma", xlab = "")
+par(mfrow = c(1, 1))
+```
+
+As an initial investigation of prior sensitivity, I run again with a hyperprior on sigma that has a standard deviation of 100, as opposed to 10:
+
+```{r}
+#| code-summary: "Code: stan fit for detection function with revised prior"
+stan_data <- list(n = nrow(mexdolphin$points),
+                  x = mexdolphin$points$distance,
+                  w = w,
+                  L = sum(mexdolphin$samplers$Effort),
+                  hyper_sigma = 100)
+stan_pars <- c("sigma", "D", "p")
+stan_initf <- function(){list(sigma = runif(1, 1, 10))}
+
+#Fit the model
+
+stan_cds_fit <- stan(file = cds_stan_file, data = stan_data, pars = stan_pars,
+                     include = TRUE, iter = 3000, thin = 1, chains = 4,
+                     init = stan_initf)
+print(stan_cds_fit)
+```
+
+Yikes - the estimated sigma is now much larger.  Seems there may be considerable prior sensitivity?  Needs further investiation...
+
+# Estimating density
+
+Next on the agenda after this is to include a model-based method for estimating density using the encounter rate data (as well as incorporating the above detectability info).
+
