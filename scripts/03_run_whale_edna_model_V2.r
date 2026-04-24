@@ -42,14 +42,14 @@ N_SAMPLE      <- 500
 ADAPT_DELTA   <- 0.90
 MAX_TREEDEPTH <- 12
 
-OUTPUT_DIR <- "whale_edna_output"
-dir.create(OUTPUT_DIR, showWarnings = FALSE)
+OUTPUT_DIR <- "outputs/whale_edna_output_V2"
+dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # =============================================================================
 # 1. Load simulation
 # =============================================================================
 cat("=== Step 1: Loading simulation ===\n")
-sim <- readRDS("whale_edna_sim.rds")
+sim <- readRDS("outputs/whale_edna_sim_V2.rds")
 
 samples         <- sim$design$samples
 stations        <- sim$design$stations
@@ -236,7 +236,7 @@ cat(sprintf("  Stan data ready: N=%d  S=%d  M=%d  N_qpcr=%d  N_mb=%d\n",
 cat("=== Step 7: Compiling Stan model ===\n")
 
 mod <- cmdstan_model(
-  "whale_edna_hsgp_V2.stan",
+  "stan/whale_edna_hsgp_V2.stan",
   cpp_options = list(stan_threads = TRUE)
 )
 

@@ -21,7 +21,7 @@ library(tidyverse)
 library(patchwork)
 library(viridis)
 
-sim <- readRDS("whale_edna_sim.rds")
+sim <- readRDS("outputs/whale_edna_sim_V3.rds")
 
 sp_common      <- sim$meta$sp_common
 n_species      <- sim$meta$n_species
@@ -302,7 +302,7 @@ fig <- row1 / row2 / row3 +
     )
   )
 
-ggsave("simulated_edna_fields_V3.png", fig,
+ggsave("outputs/simulated_edna_fields_V3.png", fig,
        width = 13, height = 18, dpi = 150, limitsize = FALSE)
 
-cat("Saved simulated_edna_fields_V3.png\n")
+cat("Saved outputs/simulated_edna_fields_V3.png\n")

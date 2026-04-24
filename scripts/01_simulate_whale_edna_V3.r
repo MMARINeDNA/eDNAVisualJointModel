@@ -456,4 +456,4 @@ sim <- list(
   )
 )
 
-saveRDS(sim, "whale_edna_sim.rds")
+saveRDS(sim, "outputs/whale_edna_sim_V3.rds")

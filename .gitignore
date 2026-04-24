@@ -50,3 +50,9 @@ rsconnect/
 
 # DS Store
 *.DS_Store
+
+# Simulation artifacts (regenerable via scripts/01_simulate_whale_edna_V*.r)
+outputs/*.rds
+
+# Model fit outputs — per-version run dirs created by scripts/03_run_whale_edna_model_V*.r
+outputs/whale_edna_output_*/
