@@ -18,6 +18,15 @@
 #     (one row per sample-aliquot), with explicit `qpcr_sample_idx` /
 #     `mb_sample_idx` vectors and per-sample rep counts. The format
 #     script no longer has to re-derive the long-form structure.
+#   * **Junk read category** on the MB side — a lumped background of
+#     non-target species / primer artifacts that claims a random 5–95%
+#     share of each MB aliquot's read depth. Target-species detection
+#     now reflects this competition realistically. Junk does not appear
+#     on the qPCR side (qPCR primers are species-specific).
+#   * **Species densities retuned** so detection rates match real-data
+#     reference values with MARVER1: hake ≈ 95% in both qPCR and MB,
+#     humpback ≈ 20% in MB, PWS dolphin ≈ 20% in MB (with independent
+#     spatial distributions — they aren't necessarily the same 20%).
 #
 # Two distinct depth processes (unchanged from v3):
 #   1. Z_bathy  — bathymetric depth at (X, Y); drives TRUE animal density
@@ -213,7 +222,9 @@ gp_params <- list(
     lx    =  50,
     ly    = 300,
     lz    = 150,
-    mu    = log(20),
+    # mu chosen so hake appears in ~95% of qPCR and MB samples (real-data
+    # target). Hake density is much higher than the whales below.
+    mu    = log(6),
     # Bathymetric preference: shelf-slope break
     zbathy_pref_mu  = 200,
     zbathy_pref_sd  = 100,
@@ -232,7 +243,11 @@ gp_params <- list(
     lx    =  50,
     ly    = 300,
     lz    = 100,
-    mu    = log(5),
+    # mu chosen so humpback appears in ~20% of MB samples (real-data
+    # target with MARVER1). Independent from PWSD. Two-plus orders of
+    # magnitude rarer than hake, reflecting real animal density as well
+    # as lower eDNA share when hake dominates the multinomial.
+    mu    = log(0.05),
     # Bathymetric preference: nearshore shelf (50–150 m)
     zbathy_pref_mu  = 100,
     zbathy_pref_sd  =  80,
@@ -251,7 +266,9 @@ gp_params <- list(
     lx    =  40,
     ly    = 300,
     lz    = 300,
-    mu    = log(8),
+    # mu chosen so PWSD appears in ~20% of MB samples (real-data target
+    # with MARVER1). Independent spatial distribution from humpback.
+    mu    = log(0.12),
     # Bathymetric preference: offshore slope / oceanic (>500 m)
     zbathy_pref_mu  = 800,
     zbathy_pref_sd  = 400,
@@ -416,24 +433,41 @@ qpcr_ct      <- ifelse(
 )
 
 # ---------------------------------------------------------------------------
-# 9. Metabarcoding Beta-Binomial — all species, long form
+# 9. Metabarcoding — "junk" background + target-species multinomial
 # ---------------------------------------------------------------------------
-# Per-aliquot multinomial draw: for row i, draw read_depth[i] reads from
-# the species-proportion vector pi_edna[i, ].
+# Real MB data is dominated by non-target species (plankton, bacteria,
+# other vertebrates that MARVER1 picks up, primer artifacts, etc.). We
+# model this with a single lumped "junk" category that:
+#   * is present in every MB aliquot (but not in qPCR)
+#   * claims a random 5–95% share of the reads in each aliquot
+#   * competes with the target species for read budget, so the three
+#     target species' reads are drawn from the remaining (100% – junk%)
+#     of the depth.
+# The Stan model still sees only the three target species: mb_total is
+# the sum of target reads per aliquot, and pi_edna is the target-species
+# proportion.
+set.seed(200)
 read_depth <- round(runif(N_mb_long, n_mb_reads/2, n_mb_reads))
-pi_edna    <- mb_copies / rowSums(mb_copies)
-# Aliquots with zero copies across all species produce NaN; fall back to
-# uniform so rmultinom is well-defined (those rows yield few reads anyway).
+pi_junk    <- runif(N_mb_long, 0.05, 0.95)
+junk_reads <- rbinom(N_mb_long, size = read_depth, prob = pi_junk)
+target_read_depth <- read_depth - junk_reads
+
+# Target-species proportions (within the non-junk pool)
+pi_edna <- mb_copies / rowSums(mb_copies)
+# Aliquots with zero copies across all target species produce NaN; fall
+# back to uniform so rmultinom is well-defined (those rows yield few
+# target reads anyway).
 empty_rows <- !is.finite(rowSums(pi_edna))
 pi_edna[empty_rows, ] <- 1 / n_species
-# Stack as N_mb_long × n_species (one row per aliquot, one col per species)
+
+# Multinomial draw of target reads per aliquot; stack as N_mb_long × n_species
 mb_reads <- t(vapply(
   seq_len(N_mb_long),
-  function(i) rmultinom(1, size = read_depth[i], prob = pi_edna[i, ])[, 1],
+  function(i) rmultinom(1, size = target_read_depth[i], prob = pi_edna[i, ])[, 1],
   integer(n_species)
 ))
 storage.mode(mb_reads) <- "integer"
-mb_total <- as.integer(rowSums(mb_reads))
+mb_total   <- as.integer(rowSums(mb_reads))    # = target_read_depth
 
 # ---------------------------------------------------------------------------
 # 10. Bundle and save
@@ -505,11 +539,41 @@ sim <- list(
     qpcr_sample_idx = qpcr_sample_idx,  # length N_qpcr_long
     qpcr_detect     = qpcr_detect,      # 0/1, length N_qpcr_long
     qpcr_ct         = qpcr_ct,          # NA when qpcr_detect == 0
-    # Metabarcoding long form (one row per MB aliquot)
+    # Metabarcoding long form (one row per MB aliquot).
+    # mb_reads / mb_total are target-species only; junk reads are stored
+    # separately for transparency but are not passed to the Stan model.
     mb_sample_idx   = mb_sample_idx,    # length N_mb_long
     mb_reads        = mb_reads,         # N_mb_long × n_species
-    mb_total        = mb_total          # length N_mb_long
+    mb_total        = mb_total,         # length N_mb_long (= target reads)
+    mb_junk_reads   = junk_reads,       # length N_mb_long
+    mb_pi_junk      = pi_junk           # length N_mb_long, 5–95%
   )
 )
 
 saveRDS(sim, "outputs/whale_edna_sim_v4.rds")
+
+# ---------------------------------------------------------------------------
+# 11. Detection-rate diagnostic
+# ---------------------------------------------------------------------------
+# A sample "has species s" under MB if any aliquot of that sample has
+# reads[, s] > 0. A sample "has hake" under qPCR if any replicate of that
+# sample has detect == 1. Target rates (real-data reference):
+#   qPCR hake: 95%     MB hake: 95%
+#   MB humpback: 20%   MB PWSD: 20%  (independent distributions)
+cat("\n--- Detection rates (sample-level) ---\n")
+qpcr_sample_det <- tapply(qpcr_detect, qpcr_sample_idx,
+                          function(x) as.integer(any(x == 1)))
+cat(sprintf("  qPCR  %-28s : %.1f%%\n", sp_common[1],
+            100 * mean(qpcr_sample_det)))
+for (s in seq_len(n_species)) {
+  sample_det_s <- tapply(mb_reads[, s] > 0, mb_sample_idx, any)
+  cat(sprintf("  MB    %-28s : %.1f%%\n",
+              sp_common[s], 100 * mean(sample_det_s)))
+}
+cat("\n--- Mean / median lambda (animals/km^2) ---\n")
+for (s in seq_len(n_species)) {
+  cat(sprintf("  %-28s  mean=%7.3f  median=%7.3f\n",
+              sp_common[s],
+              mean(lambda_true_si[, s]),
+              median(lambda_true_si[, s])))
+}
