@@ -71,7 +71,18 @@ X_km_max <- (X_max - X_min) / 1000   # 500 km
 Y_km_max <- (Y_max - Y_min) / 1000   # 1270 km
 
 n_stations    <- 300
-conv_factor <- 10
+
+# Species-specific animals → eDNA-copies conversion factor (copies/L per
+# animal/km² per litre filtered). Whales shed far more eDNA per animal
+# than hake, so conv_factor is much larger for the two whale species.
+# These values are chosen so that
+#    conv_factor[s] × mean(lambda[, s]) × vol_filtered
+# (i.e. expected bottle copies averaged across the study area) stays in
+# the same ballpark as v4's previous tuning, preserving the real-data
+# detection rates (~95% hake / ~20% humpback / ~20% PWSD) while moving
+# the absolute densities to realistic values (see mu_* below).
+# Ordered to match gp_params: hake, humpback, PWSD.
+conv_factor <- c(hake = 10, humpback = 125, pwsd = 40)
 # Three sample depths per station: surface, mid-column, upper slope
 sample_depths <- c(0, 150, 500)
 n_sample_depth <- length(sample_depths)
@@ -255,11 +266,11 @@ gp_params <- list(
     lx    =  50,
     ly    = 300,
     lz    = 100,
-    # mu chosen so humpback appears in ~20% of MB samples (real-data
-    # target with MARVER1). Independent from PWSD. Two-plus orders of
-    # magnitude rarer than hake, reflecting real animal density as well
-    # as lower eDNA share when hake dominates the multinomial.
-    mu    = log(0.05),
+    # mu chosen so humpback's mean lambda across the study area is
+    # ~0.005 animals/km² (realistic field density). The species-specific
+    # conv_factor above compensates so detection rates (~20% in MB)
+    # stay on target.
+    mu    = log(0.004),
     # Bathymetric preference: nearshore shelf (50–150 m)
     zbathy_pref_mu  = 100,
     zbathy_pref_sd  =  80,
@@ -278,9 +289,11 @@ gp_params <- list(
     lx    =  40,
     ly    = 300,
     lz    = 300,
-    # mu chosen so PWSD appears in ~20% of MB samples (real-data target
-    # with MARVER1). Independent spatial distribution from humpback.
-    mu    = log(0.12),
+    # mu chosen so PWSD's mean lambda across the study area is
+    # ~0.05 animals/km² (realistic field density). The species-specific
+    # conv_factor above compensates so detection rates (~20% in MB)
+    # stay on target. Independent spatial distribution from humpback.
+    mu    = log(0.032),
     # Bathymetric preference: offshore slope / oceanic (>500 m)
     zbathy_pref_mu  = 800,
     zbathy_pref_sd  = 400,
@@ -373,7 +386,7 @@ C_obs_si <- matrix(NA_integer_, N, n_species)
 for (s in 1:n_species) {
   C_obs_si[, s] <- MASS::rnegbin(
     N,
-    mu    = conv_factor * lambda_true_si[, s] * zsample_effect[, s] * vol_filtered,
+    mu    = conv_factor[s] * lambda_true_si[, s] * zsample_effect[, s] * vol_filtered,
     theta = 10
   )
 }
@@ -509,6 +522,7 @@ sim <- list(
     n_sample_depth        = n_sample_depth,
     vol_filtered          = vol_filtered,
     vol_aliquot           = vol_aliquot,
+    conv_factor           = conv_factor,     # named vector, length n_species
     mb_reads_distribution = list(
       p_tight       = mb_reads_p_tight,
       tight_meanlog = mb_reads_tight_meanlog,

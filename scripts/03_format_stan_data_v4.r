@@ -43,7 +43,8 @@ N            <- sim$meta$N
 S            <- sim$meta$n_species
 sp_common    <- sim$meta$sp_common
 vol_aliquot  <- sim$meta$vol_aliquot
-conv_factor  <- 10           # animals → copies
+conv_factor  <- sim$meta$conv_factor   # length-S vector, species-specific
+stopifnot(length(conv_factor) == S)
 
 N_qpcr_long  <- sim$meta$N_qpcr_long
 N_mb_long    <- sim$meta$N_mb_long
@@ -162,8 +163,8 @@ stan_data <- list(
   # Water column offset (fixed)
   log_zsample_effect = log_zsample_effect,
 
-  # Conversion factor
-  log_conv_factor = log(conv_factor),
+  # Species-specific conversion factor (log scale), length S
+  log_conv_factor = as.numeric(log(conv_factor)),
 
   # Aliquot volume (microlitres)
   vol_aliquot = vol_aliquot,
