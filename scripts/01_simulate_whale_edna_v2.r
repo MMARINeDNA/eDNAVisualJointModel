@@ -367,13 +367,20 @@ p_det_hake <- 1 - exp(-qpcr_p$kappa * C_obs_si_a_qpcr[, 1]) # hake only right no
 # ---------------------------------------------------------------------------
 # 7. Metabarcoding Beta-Binomial — all species, 3 MARVER1 replicates
 # ---------------------------------------------------------------------------
-# need to loop over rows, since each row is a sample-aliquot combo across all sp
+# Per-aliquot multinomial draw: for row i, draw read_depth[i] reads from
+# the species-proportion vector pi_edna[i, ]. rmultinom is not vectorised
+# over a varying `size` with a vector prob, so we loop and stack.
+# Result shape: n_species × (N*R), i.e. one column per sample-aliquot.
 
-read_depth <- runif(N*R, n_mb_reads/2, n_mb_reads)
+read_depth <- round(runif(N*R, n_mb_reads/2, n_mb_reads))
 
 pi_edna <- C_obs_si_a_mb[, 1:n_species] / rowSums(C_obs_si_a_mb[, 1:n_species])
 
-mb_reads_rep <- rmultinom(1, read_depth, pi_edna)
+mb_reads_rep <- vapply(
+  seq_len(N * R),
+  function(i) rmultinom(1, size = read_depth[i], prob = pi_edna[i, ])[, 1],
+  integer(n_species)
+)
 
 
 # ---------------------------------------------------------------------------

@@ -383,13 +383,21 @@ qpcr_ct_raw[, 1]     <- Ct
 # ---------------------------------------------------------------------------
 # 7. Metabarcoding Beta-Binomial — all species, 3 MARVER1 replicates
 # ---------------------------------------------------------------------------
-read_depth  <- runif(N*R, n_mb_reads/2, n_mb_reads)
-pi_edna     <- C_obs_si_a_mb[, 1:n_species] / rowSums(C_obs_si_a_mb[, 1:n_species])
+# Per-aliquot multinomial draw: for row i, draw read_depth[i] reads from
+# the species-proportion vector pi_edna[i, ]. rmultinom is not vectorised
+# over a varying `size` with a vector prob, so we loop and stack.
+# Result shape: n_species × (N*R), i.e. one column per sample-aliquot.
+read_depth <- round(runif(N*R, n_mb_reads/2, n_mb_reads))
+pi_edna    <- C_obs_si_a_mb[, 1:n_species] / rowSums(C_obs_si_a_mb[, 1:n_species])
 # Aliquots with zero copies across all species produce NaN; fall back to
 # uniform so rmultinom is well-defined (those rows yield few reads anyway).
 empty_rows <- !is.finite(rowSums(pi_edna))
 pi_edna[empty_rows, ] <- 1 / n_species
-mb_reads_rep <- rmultinom(1, read_depth, pi_edna)
+mb_reads_rep <- vapply(
+  seq_len(N * R),
+  function(i) rmultinom(1, size = read_depth[i], prob = pi_edna[i, ])[, 1],
+  integer(n_species)
+)
 
 # ---------------------------------------------------------------------------
 # 8. Bundle and save
