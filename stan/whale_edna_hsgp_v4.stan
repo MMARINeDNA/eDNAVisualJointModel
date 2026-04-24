@@ -124,8 +124,10 @@ data {
   int<lower=1> S;          // species (3)
   int<lower=1> M;          // HSGP basis dimension = m1 * m2 * m3
 
-  // Conversion factor (log scale): log(copies per animal per litre per km^2)
-  real log_conv_factor;
+  // Species-specific conversion factor (log scale): log(copies per animal
+  // per litre per km^2). Whales shed more eDNA per animal than hake, so
+  // this is per-species.
+  vector[S] log_conv_factor;
 
   // Coordinates normalised to [-1, 1] (col 1=X km, 2=Y km, 3=Z_bathy m)
   matrix[N, 3] coords;
@@ -229,7 +231,7 @@ transformed parameters {
       log_lambda[i, s]      = mu_sp[s] + f_s[i];
       log_lambda_edna[i, s] = log_lambda[i, s]
                               + log_zsample_effect[i, s]
-                              + log_conv_factor;
+                              + log_conv_factor[s];
     }
   }
 

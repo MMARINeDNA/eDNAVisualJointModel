@@ -158,20 +158,28 @@ Each script expects the **project root as the working directory**. Artifacts
   dropping below 10k or exceeding 200k — matching what we see across
   real MARVER1 sequencing runs. Parameters live at the top of
   `scripts/01_simulate_whale_edna_v4.r` as `mb_reads_*`.
-- **Species densities retuned** so sample-level detection rates match
-  the real-data targets: hake ≈ 95% in qPCR and ~99–100% in MB
-  (dominant species), humpback whale ≈ 20% in MB, Pacific white-sided
-  dolphin ≈ 20% in MB. Humpback and PWSD distributions are independent
-  — the 20% of samples with humpback are not the same 20% with PWSD.
-  Current `mu` values: hake = log(6), humpback = log(0.05), PWSD =
-  log(0.12), giving mean densities ~12, 0.06, and 0.19 animals/km².
-  Sample-level detection rates are printed at the end of the sim run.
-- **Stan model**: no structural change from v3 — the model already
-  consumed long-form data indexed by `*_sample_idx`, which naturally
-  accommodates variable replication per sample. `N_qpcr_long` and
-  `N_mb_long` are no longer assumed to equal `N * 3`, and `mb_total`
-  is now target-species-only (junk reads are excluded before the
-  model sees them).
+- **Species-specific conversion factor**. Whales shed far more eDNA
+  per animal than hake, so `conv_factor` is a length-S vector rather
+  than a scalar. Current values (copies/L per animal/km² per litre
+  filtered): hake = 10, humpback = 125, PWSD = 40. Passed to Stan as
+  `log_conv_factor[S]` (vector) and indexed by species in the
+  `log_lambda_edna[i, s] = log_lambda[i, s] + log_zsample_effect[i, s]
+  + log_conv_factor[s]` computation.
+- **Realistic animal densities** (animals/km²). Mean λ across the
+  study area: hake ≈ 12, humpback ≈ 0.005, PWSD ≈ 0.05 — whales are
+  orders of magnitude rarer than hake at real field densities.
+  Controlled by `mu` values: hake = log(6), humpback = log(0.004),
+  PWSD = log(0.032).
+- **Detection rates preserved**. Despite the density change, sample-
+  level detection still matches the real-data targets: qPCR hake
+  ≈ 95% / MB hake ≈ 100% / MB humpback ≈ 20% / MB PWSD ≈ 20% —
+  because the species-specific conv_factor rescales so that expected
+  bottle copies (cf × λ × vol_filtered) stays in the same ballpark.
+  Humpback and PWSD distributions remain independent. Sample-level
+  detection rates are printed at the end of the sim run.
+- **Stan model**: only change from v3 is `log_conv_factor` going from
+  scalar to `vector[S]`. The long-form `*_sample_idx` structure from
+  v3 already accommodates variable replication per sample.
 - **Domain, bathymetry, species habitat structure, priors**: unchanged
   from v3.
 
