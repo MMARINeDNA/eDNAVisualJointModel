@@ -51,7 +51,7 @@ simulated data in Stan.
 ├── outputs/                            Generated artifacts
 │   ├── simulated_edna_fields_v2.png        Tracked plots of simulated data
 │   ├── simulated_edna_fields_v3.png
-│   ├── simulated_edna_fields_v4.png
+│   ├── simulated_edna_fields_v4.pdf        (v4: multi-page PDF, one panel per page)
 │   ├── whale_edna_sim_v{1,2,3,4}.rds       Sim outputs (gitignored)
 │   └── whale_edna_output_v{1,2,3,4}/       Stan fit artifacts (gitignored):
 │           stan_data.rds                     stan_data list from step 03
@@ -74,7 +74,7 @@ Rscript 00_pipeline_v4.r
 
 ```
 Rscript scripts/01_simulate_whale_edna_v4.r     # -> outputs/whale_edna_sim_v4.rds
-Rscript scripts/02_plot_simulated_data_v4.r     # -> outputs/simulated_edna_fields_v4.png
+Rscript scripts/02_plot_simulated_data_v4.r     # -> outputs/simulated_edna_fields_v4.pdf (3 pages)
 Rscript scripts/03_format_stan_data_v4.r        # -> outputs/whale_edna_output_v4/stan_data.rds
 Rscript scripts/04_run_whale_edna_model_v4.r    # -> outputs/whale_edna_output_v4/whale_edna_fit.rds
 Rscript scripts/05_check_whale_edna_model_v4.r  # -> diagnostics in outputs/whale_edna_output_v4/
