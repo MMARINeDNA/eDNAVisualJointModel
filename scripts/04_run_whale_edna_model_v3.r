@@ -54,8 +54,6 @@ init_fn <- function() {
                         nrow = S, ncol = 3, byrow = TRUE),
     z_beta     = matrix(0.0, nrow = S, ncol = M_total),
     kappa      = 0.85,
-    alpha_ct   = 38.0,
-    beta_ct    = 1.44,
     sigma_ct   = 0.50,
     beta0_phi  = rep(2.0, S),
     gamma0_phi = rep(5.0, S),

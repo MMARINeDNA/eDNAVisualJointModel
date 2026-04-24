@@ -197,13 +197,24 @@ stan_data <- list(
   # Zero-inflation switch
   use_zi = 1L,
 
-  # Prior hyperparameters
-  prior_mu_sp_mu     =  2.0,
-  prior_mu_sp_sig    =  1.5,
-  prior_gp_sigma_sig =  1.5,
-  prior_gp_lx_mu     = 50.0,  prior_gp_lx_sig  = 40.0,
-  prior_gp_ly_mu     = 150.0, prior_gp_ly_sig  = 80.0,
-  prior_gp_lz_mu     = 300.0, prior_gp_lz_sig  = 150.0
+  # Fixed qPCR standard-curve coefficients. Sourced from the simulation
+  # truth here (so the fit uses the true calibration); in a real analysis
+  # these would come from a pre-estimated standard curve.
+  alpha_ct = sim$truth$qpcr_params$alpha_ct,
+  beta_ct  = sim$truth$qpcr_params$beta_ct,
+
+  # Prior hyperparameters (Normal mu / sigma for each scalar or vector prior)
+  prior_mu_sp_mu         =   2.0,
+  prior_mu_sp_sig        =   1.5,
+  prior_gp_sigma_sig     =   1.5,
+  prior_gp_lx_mu         =  50.0, prior_gp_lx_sig        =  40.0,
+  prior_gp_ly_mu         = 150.0, prior_gp_ly_sig        =  80.0,
+  prior_gp_lz_mu         = 300.0, prior_gp_lz_sig        = 150.0,
+  prior_kappa_mu         =   0.5, prior_kappa_sig        =   0.3,
+  prior_sigma_ct_mu      =   0.5, prior_sigma_ct_sig     =   0.3,
+  prior_beta0_phi_mu     =   0.0, prior_beta0_phi_sig    =   1.0,
+  prior_gamma0_phi_mu    =   2.0, prior_gamma0_phi_sig   =   1.0,
+  prior_gamma1_phi_mu    =   0.5, prior_gamma1_phi_sig   =   0.3
 )
 
 # Sanity checks
