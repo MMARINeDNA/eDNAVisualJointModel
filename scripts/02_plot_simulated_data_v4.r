@@ -329,7 +329,7 @@ page3 <- wrap_plots(p_row3, nrow = 1) +
 # =============================================================================
 
 out_pdf <- "outputs/simulated_edna_fields_v4.pdf"
-grDevices::cairo_pdf(out_pdf, width = 13, height = 13, onefile = TRUE)
+grDevices::cairo_pdf(out_pdf, width = 8, height = 8, onefile = TRUE)
 print(page1)
 print(page2)
 print(page3)
