@@ -275,7 +275,6 @@ fit <- mod$sample(
 
 fit$save_object(file.path(OUTPUT_DIR, "whale_edna_fit.rds"))
 cat("Fit saved.\n")
-
 # =============================================================================
 # 8. Diagnostics
 # =============================================================================
@@ -304,11 +303,13 @@ cat(sprintf("  Divergences       : %d\n", sum(sampler_diag$divergent__)))
 cat(sprintf("  Max treedepth hits: %d\n",
             sum(sampler_diag$treedepth__ >= MAX_TREEDEPTH)))
 
-mcmc_nuts_energy(sampler_diag) +
-  ggtitle("NUTS Energy") %>%
-  ggsave(filename = file.path(OUTPUT_DIR, "diag_energy.png"),
-         width = 8, height = 4)
+# Energy plot
+energy_plot <- mcmc_nuts_energy(sampler_diag) +
+  ggtitle("NUTS Energy")
+ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
+       energy_plot, width = 8, height = 4)
 
+# Scalar parameter trace plots
 scalar_pars <- c(
   paste0("mu_sp[",    1:S, "]"),
   paste0("gp_sigma[", 1:S, "]"),
@@ -318,10 +319,10 @@ scalar_pars <- c(
   paste0("gamma1_phi[", 1:S, "]")
 )
 
-mcmc_trace(draws_arr, pars = scalar_pars) +
-  ggtitle("Trace plots") %>%
-  ggsave(filename = file.path(OUTPUT_DIR, "diag_trace.png"),
-         width = 14, height = 10)
+trace_plot <- mcmc_trace(draws_arr, pars = scalar_pars) +
+  ggtitle("Trace plots")
+ggsave(file.path(OUTPUT_DIR, "diag_trace.png"),
+       trace_plot, width = 14, height = 10)
 
 print(fit$summary(scalar_pars))
 
@@ -376,7 +377,7 @@ ggsave(file.path(OUTPUT_DIR, "param_recovery.png"),
        p_recovery, width = 14, height = 8)
 
 # Length-scale recovery
-ls_pars <- paste0("gp_l[", rep(1:S, each=3), ",", rep(1:3, S), "]")
+ls_pars <- paste0("gp_l[", rep(1:S, each = 3), ",", rep(1:3, S), "]")
 
 true_ls <- bind_rows(lapply(seq_len(S), function(s) {
   p <- gp_params[[s]]
@@ -419,12 +420,15 @@ pp_qpcr_detect <- fit$draws("pp_qpcr_detect", format = "matrix")
 pp_qpcr_ct     <- fit$draws("pp_qpcr_ct",     format = "matrix")
 pp_mb_reads    <- fit$draws("pp_mb_reads",    format = "matrix")
 
+# Stan stores array[N_mb_long, S] column-major: species s occupies
+# columns ((s-1)*N_mb_long + 1) : (s*N_mb_long)
 extract_mb_species <- function(mat, s, N_mb) {
-  mat[, ((s-1)*N_mb + 1):(s*N_mb)]
+  mat[, ((s - 1) * N_mb + 1):(s * N_mb), drop = FALSE]
 }
 
 ppc_plots <- list()
 
+# qPCR detection (0/1)
 ppc_plots[["qpcr_detect"]] <-
   ppc_bars(
     y    = qpcr_detect_vec,
@@ -433,23 +437,25 @@ ppc_plots[["qpcr_detect"]] <-
   ggtitle("PPC: qPCR detection (0/1) — Pacific hake") +
   theme_bw(base_size = 11)
 
+# Ct values (detected replicates only)
 det_idx <- which(qpcr_detect_vec == 1)
 if (length(det_idx) >= 5) {
   ppc_plots[["qpcr_ct"]] <-
     ppc_dens_overlay(
       y    = qpcr_ct_vec[det_idx],
-      yrep = pp_qpcr_ct[1:min(200, nrow(pp_qpcr_ct)), det_idx]
+      yrep = pp_qpcr_ct[1:min(200, nrow(pp_qpcr_ct)), det_idx, drop = FALSE]
     ) +
     ggtitle("PPC: Ct values (detected only) — Pacific hake") +
     theme_bw(base_size = 11)
 }
 
+# MB read counts per species
 for (s in seq_len(S)) {
   pp_mb_s <- extract_mb_species(pp_mb_reads, s, N_mb_long)
   ppc_plots[[paste0("mb_sp", s)]] <-
     ppc_dens_overlay(
       y    = mb_reads_long[, s],
-      yrep = pp_mb_s[1:min(100, nrow(pp_mb_s)), ]
+      yrep = pp_mb_s[1:min(100, nrow(pp_mb_s)), , drop = FALSE]
     ) +
     ggtitle(sprintf("PPC: MB read counts — %s", sp_common[s])) +
     theme_bw(base_size = 11)
@@ -459,10 +465,28 @@ ggsave(file.path(OUTPUT_DIR, "ppc_all.png"),
        wrap_plots(ppc_plots, ncol = 2),
        width  = 12,
        height = 4 * ceiling(length(ppc_plots) / 2))
-# =============================================================================
-# 12. Spatial lambda: true vs posterior mean (continued)
-# =============================================================================
 
+# =============================================================================
+# 12. Spatial lambda: true vs posterior mean
+# =============================================================================
+cat("=== Step 12: Spatial lambda plots ===\n")
+
+# Extract posterior draws of lambda_hat — Stan stores N × S column-major
+# so species s occupies columns ((s-1)*N + 1) : (s*N)
+lambda_hat_draws <- fit$draws("lambda_hat", format = "matrix")
+
+lambda_post_mean <- matrix(NA_real_, N, S)
+lambda_post_sd   <- matrix(NA_real_, N, S)
+for (s in seq_len(S)) {
+  cols <- ((s - 1) * N + 1):(s * N)
+  lambda_post_mean[, s] <- colMeans(lambda_hat_draws[, cols])
+  lambda_post_sd[, s]   <- apply(lambda_hat_draws[, cols], 2, sd)
+}
+
+# Surface samples only (Z_sample == 0) for spatial comparison
+surf_idx <- which(as.numeric(samples[["Z_sample"]]) == 0)
+
+# Build plotting data frame — define plot_df here before it is used below
 plot_df <- bind_rows(lapply(seq_len(S), function(s) {
   tibble(
     X           = as.numeric(samples[["X"]])[surf_idx],
@@ -532,6 +556,7 @@ for (s in seq_len(S)) {
 # =============================================================================
 cat("=== Step 13: Bathymetric preference recovery ===\n")
 
+# plot_df and surf_idx are defined in step 12 above
 bathy_recovery_df <- bind_rows(lapply(seq_len(S), function(s) {
   tibble(
     Z_bathy     = as.numeric(samples[["Z_bathy"]])[surf_idx],
@@ -570,6 +595,39 @@ p_bathy_rec <- ggplot(bathy_recovery_df, aes(x = Z_bathy)) +
 
 ggsave(file.path(OUTPUT_DIR, "bathy_preference_recovery.png"),
        p_bathy_rec, width = 12, height = 4)
+
+# =============================================================================
+# 14. Save diagnostics and session info
+# =============================================================================
+cat("=== Step 14: Saving diagnostics ===\n")
+
+write_csv(diag_sum, file.path(OUTPUT_DIR, "diagnostics_summary.csv"))
+
+if (nrow(rhat_bad) > 0)
+  write_csv(rhat_bad, file.path(OUTPUT_DIR, "rhat_flagged.csv"))
+if (nrow(ess_bad) > 0)
+  write_csv(ess_bad,  file.path(OUTPUT_DIR, "ess_flagged.csv"))
+
+sampler_summary <- tibble(
+  metric = c("Divergences", "Max treedepth hits",
+             "Mean accept stat", "Mean stepsize"),
+  value  = c(
+    sum(sampler_diag$divergent__),
+    sum(sampler_diag$treedepth__ >= MAX_TREEDEPTH),
+    mean(sampler_diag$accept_stat__),
+    mean(sampler_diag$stepsize__)
+  )
+)
+write_csv(sampler_summary, file.path(OUTPUT_DIR, "sampler_summary.csv"))
+print(sampler_summary)
+
+sink(file.path(OUTPUT_DIR, "session_info.txt"))
+print(sessionInfo())
+sink()
+
+cat("\n=== Done. Outputs written to:", OUTPUT_DIR, "===\n")
+cat("Files produced:\n")
+for (f in list.files(OUTPUT_DIR)) cat(sprintf("  %s\n", f))
 
 # =============================================================================
 # 14. Save diagnostics and session info
