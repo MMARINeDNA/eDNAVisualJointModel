@@ -22,17 +22,17 @@
 #
 # Species:
 #   1. Merluccius productus  (Pacific hake)
-#        — qPCR (3 replicates) + metabarcoding MARVER3 (3 replicates)
+#        — qPCR (3 replicates) + metabarcoding MARVER1 (3 replicates)
 #        — shelf-slope break, prefers Z_bathy 150–400 m
 #        — eDNA peaks at sample depths 150–300 m
 #
 #   2. Megaptera novaeangliae  (humpback whale)
-#        — metabarcoding MARVER3 only (3 replicates)
+#        — metabarcoding MARVER1 only (3 replicates)
 #        — nearshore shelf, prefers Z_bathy < 200 m
 #        — eDNA peaks at sample depth ~50–150 m (feeding dives)
 #
 #   3. Lagenorhynchus obliquidens  (Pacific white-sided dolphin)
-#        — metabarcoding MARVER3 only (3 replicates)
+#        — metabarcoding MARVER1 only (3 replicates)
 #        — offshore slope, prefers Z_bathy > 500 m
 #        — eDNA peaks at surface (0–50 m; active near-surface behaviour)
 #
@@ -56,20 +56,22 @@ sp_common  <- c("Pacific hake",
 has_qpcr   <- c(TRUE,  FALSE, FALSE)
 n_qpcr_rep <- 3
 n_mb_rep   <- 3
-marker     <- "MARVER3"
+R <- n_qpcr_rep # might want to use the specific things
+marker     <- "MARVER1"
 
 # UTM Zone 10N bounding box (metres)
 X_min <- 200000;  X_max <- 500000   # 300 km E-W
 Y_min <- 4800000; Y_max <- 5200000  # 400 km N-S
 
 n_stations    <- 150
-
+conv_factor <- 10 # conversion between animals and copies
 # Water column sample depths (Z_sample)
 sample_depths <- c(0, 50, 150, 300, 500)   # m
 n_sample_depth <- length(sample_depths)
 
-vol_filtered  <- 2.0    # litres per sample
-n_mb_reads    <- 5000   # MARVER3 reads per replicate
+vol_filtered  <- 2.5    # litres per sample
+vol_aliquot <- 2 # microliters per aliquot
+n_mb_reads    <- 50000   # MARVER1 reads per replicate 
 
 # ---------------------------------------------------------------------------
 # 1. Station locations and bathymetry
@@ -109,6 +111,7 @@ stations <- bind_rows(shelf_sta, offshore_sta) %>%
 
 # Bathymetric depth as function of X (km from offshore boundary)
 # Uses a logistic shelf-slope profile + random noise
+# could plug in actual bathymetry here
 bathy_mean_fn <- function(X_km) {
   # Shelf break at X ~ 180 km; abyssal depth ~ 2500 m; shelf ~ 80 m
   abyssal  <- 2500
@@ -185,7 +188,7 @@ gp_params <- list(
     zbathy_pref_amp = 2.0,  # log-scale amplitude of preference
     # eDNA vertical distribution in water column (Z_sample offsets)
     # Hake live and shed DNA at mid-depth; eDNA peaks at 150–300 m
-    zsample_pref = c(-2.0, -0.8,  1.0,  0.8, -0.5)  # at 0,50,150,300,500 m
+    zsample_pref = c(-2.0+2, -0.8+2,  1.0+2,  0.8+2, -0.5+2)  # at 0,50,150,300,500 m
   ),
   
   humpback = list(
@@ -201,7 +204,7 @@ gp_params <- list(
     zbathy_pref_amp = 2.0,
     # eDNA water column: peaks at 50–150 m (feeding dive depths)
     # Detectable at surface; drops off at 300–500 m
-    zsample_pref = c(-0.5,  0.8,  0.6, -0.5, -1.8)
+    zsample_pref = c(-0.5+0.5,  0.8+0.5,  0.6+0.5, -0.5+0.5, -1.8+0.5)
   ),
   
   pwsd = list(
@@ -216,15 +219,15 @@ gp_params <- list(
     zbathy_pref_sd = 400,
     zbathy_pref_amp = 2.0,
     # eDNA water column: surface-active; eDNA concentrated near surface
-    zsample_pref = c( 1.5,  0.8, -0.5, -1.0, -2.0)
+    zsample_pref = c( 1.5-1.5,  0.8-1.5, -0.5-1.5, -1.0-1.5, -2.0-1.5)
   )
 )
 
 # ---------------------------------------------------------------------------
 # 3. Draw GP realisations
-#
-# log(lambda_si) = mu_s
-#                + zbathy_pref(Z_bathy_i)    # bathymetric habitat effect
+# lambda_true is in units of animals/km^2
+# log(lambda_true_si) = # lambda_true_si is species density at surface loc i
+#               mu_s 
 #                + f_s(X_i, Y_i, Z_bathy_i) # spatially structured residual
 #
 # Note: Z_bathy enters the GP kernel, not Z_sample.
@@ -254,9 +257,9 @@ zbathy_pref_fn <- function(Z_bathy, mu_z, sd_z, amp) {
 }
 
 cat("Drawing GP realisations (N =", N, ")...\n")
-lambda_true      <- matrix(NA, N, n_species)
-gp_field         <- matrix(NA, N, n_species)
-zbathy_mean_field <- matrix(NA, N, n_species)
+lambda_true_si      <- matrix(NA, N, n_species) # note doesn't match index order
+gp_field_si         <- matrix(NA, N, n_species)
+zbathy_mean_field_si <- matrix(NA, N, n_species)
 
 for (s in seq_len(n_species)) {
   p  <- gp_params[[s]]
@@ -264,26 +267,33 @@ for (s in seq_len(n_species)) {
   # GP kernel over (X, Y, Z_bathy)
   K  <- aniso_cov(coords_gp, p$sigma, p$lx, p$ly, p$lz)
   fs <- as.vector(mvrnorm(1, rep(0, N), K))
-  gp_field[, s] <- fs
+  gp_field_si[, s] <- fs
   
   # Bathymetric habitat preference (mean function)
   z_mu <- zbathy_pref_fn(samples$Z_bathy,
                          p$zbathy_pref_mu,
                          p$zbathy_pref_sd,
                          p$zbathy_pref_amp)
-  zbathy_mean_field[, s] <- z_mu
+  zbathy_mean_field_si[, s] <- z_mu
   
   # True animal density: function of X, Y, Z_bathy only
   # (before water column sampling process)
-  lambda_true[, s] <- exp(p$mu + z_mu + fs)
-}
+  lambda_true_si[, s] <- exp(p$mu + fs) # note could add z_mu back in here
+} # end loop over species
 
 # ---------------------------------------------------------------------------
 # 4. eDNA water column process
 #
-# The observed eDNA concentration at sample depth Z_sample is:
-#   C_obs_si ~ ZI-Poisson(lambda_si * zsample_effect_si * vol)
-#
+# The observed (bottle) eDNA concentration at sample depth Z_sample is:
+# For now, say 1:10 relationship between animals and concentration
+# conv_factor = e.g., 10 copies/animal*L*km^2
+#   C_obs_si ~ NB(conv_factor * lambda_true_si * zsample_effect * vol_filtered, 
+#             phi_nb = 10)
+# C_obs_si is in units of copies in the bottle
+# Need to divide by volume eluted 100uL
+# concentration in the aliquot is
+# C_obs_si_a ~ Bin(C_obs_si, vol_aliquot/100uL)
+
 # zsample_effect: multiplicative factor on eDNA concentration based on
 # where in the water column the sample was taken relative to where the
 # animal sheds DNA. This is interpolated from the zsample_pref offsets.
@@ -308,101 +318,63 @@ for (s in seq_len(n_species)) {
   zsample_effect[, s] <- exp(pref_fn(samples$Z_sample))
 }
 
-# Effective eDNA concentration = lambda (animal density) * water column factor
-lambda_edna <- lambda_true * zsample_effect   # N × S
+#   C_obs_si ~ NB(conv_factor * lambda_true_si * zsample_effect_si * vol_filtered, 
+#             theta = 10)
 
-# ---------------------------------------------------------------------------
-# 5. Zero-inflated Poisson: copies in filtered volume
-# ---------------------------------------------------------------------------
-p_zi <- c(0.30, 0.45, 0.50)
+C_obs_si <- matrix(NA, N, n_species)
+C_obs_si_a_mb <- matrix(NA, N*R, n_species+1)
+C_obs_si_a_qpcr <- matrix(NA, N*R, n_species+1)
 
-C_obs   <- matrix(NA_integer_, N, n_species)
-zi_flag <- matrix(NA_integer_, N, n_species)
+C_obs_si_a_mb[, n_species+1] <- rep(1:N, each = 3) # track which sample 
+C_obs_si_a_qpcr[, n_species+1] <- rep(1:N, each = 3)
 
-for (s in seq_len(n_species)) {
-#  zi           <- rbinom(N, 1, p_zi[s]) # is zi the bottle or the aliquot?
-  # if it's the aliquot, there's no zero inflation
-  # if it's the bottle, there could be zero-inflation, but it should be a function
-  # of the underlying density, not some arbitrary number
-  pois_draw    <- rpois(N, lambda_edna[, s] * vol_filtered)
-  C_obs[, s]   <- pois_draw
-  zi_flag[, s] <- ifelse(pois_draw == 0, 0, 1)
-}
-# note that qPCRs are drawn from the bottle, metabarcoding is separate
-# need to add a layer for aliquots within bottles
+for (s in 1:n_species){
+  
+  # copies in the bottle
+  C_obs_si[, s] <- MASS::rnegbin(N, mu = conv_factor * lambda_true_si[, s] * zsample_effect[, s] * vol_filtered,
+                          theta = 10)
+  # copies in the aliquot
+  C_obs_si_a_mb[ ,s] <- rbinom(N*R, rep(C_obs_si[,s], each = R), vol_aliquot/100)
+  if(s==1){C_obs_si_a_qpcr[,s] <- rbinom(N*R, rep(C_obs_si[,s], each = R), vol_aliquot/100)
+  }} # end for s in n_species
+
 # ---------------------------------------------------------------------------
 # 6. qPCR hurdle — hake only (3 replicates)
 # ---------------------------------------------------------------------------
-qpcr_p <- list(
+qpcr_p <- list( 
   kappa    = 0.85,
   alpha_ct = 38.0,
-  beta_ct  = 3.32,
-  sigma_ct = 0.50
+  beta_ct  = 1.44, # outputs (conc) will be in log e
+  sigma_ct = 0.50 # this assumes no variation with concentration, might want to change
 )
 
-qpcr_detect_raw <- matrix(NA_integer_, N, n_qpcr_rep)
-qpcr_ct_raw     <- matrix(NA_real_,    N, n_qpcr_rep)
+qpcr_detect_raw <- matrix(NA_integer_, N*R, n_species)
+qpcr_ct_raw     <- matrix(NA_real_,    N*R, n_species)
 
-p_det_hake <- 1 - exp(-qpcr_p$kappa * C_obs[, 1])
+p_det_hake <- 1 - exp(-qpcr_p$kappa * C_obs_si_a_qpcr[, 1]) # hake only right now
 
-for (r in seq_len(n_qpcr_rep)) {
-  det <- rbinom(N, 1, p_det_hake)
+  det <- rbinom(N*R, 1, p_det_hake)
   Ct  <- ifelse(
     det == 1L,
     qpcr_p$alpha_ct -
-      qpcr_p$beta_ct * log10(pmax(C_obs[, 1], 1)) +
-      rnorm(N, 0, qpcr_p$sigma_ct),
+      qpcr_p$beta_ct * log(pmax(C_obs_si_a_qpcr[, 1], 1)) +
+      rnorm(N*R, 0, qpcr_p$sigma_ct),
     NA_real_
   )
-  qpcr_detect_raw[, r] <- det
-  qpcr_ct_raw[, r]     <- Ct
-}
-
-qpcr_n_detect   <- rowSums(qpcr_detect_raw)
-qpcr_any_detect <- as.integer(qpcr_n_detect > 0)
-qpcr_mean_ct    <- apply(qpcr_ct_raw, 1,
-                         function(x) if (all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE))
+  qpcr_detect_raw[, 1] <- det
+  qpcr_ct_raw[, 1]     <- Ct
 
 # ---------------------------------------------------------------------------
-# 7. Metabarcoding Beta-Binomial — all species, 3 MARVER3 replicates
+# 7. Metabarcoding Beta-Binomial — all species, 3 MARVER1 replicates
 # ---------------------------------------------------------------------------
-phi_bb  <- c(10.0, 7.0, 7.0)
-# IMPORTANT
-# phi_bb should be a function of the concentration
-# there is a formula for this
-# this should be a multinomial 
+# need to loop over rows, since each row is a sample-aliquot combo across all sp
 
-# Proportions based on eDNA concentration (lambda_edna, not lambda_true)
-# because metabarcoding reflects what is in the water at sampling depth
+read_depth <- runif(N*R, n_mb_reads/2, n_mb_reads)
 
-# this needs to be linked to the same bottle as the qPCR replicates, 
-# not directly from the density surface
-pi_edna <- lambda_edna / rowSums(lambda_edna)
+pi_edna <- C_obs_si_a_mb[, 1:n_species] / rowSums(C_obs_si_a_mb[, 1:n_species])
 
-rbetabinom <- function(n, size, mu, phi) {
-  mu  <- pmin(pmax(mu,  1e-6), 1 - 1e-6)
-  phi <- pmax(phi, 0.1)
-  p   <- rbeta(n, mu * phi, (1 - mu) * phi)
-  rbinom(n, size, p)
-}
+mb_reads_rep <- rmultinom(1, read_depth, pi_edna)
 
-mb_reads_rep <- array(NA_integer_, dim = c(N, n_species, n_mb_rep))
-for (s in seq_len(n_species)) {
-  for (rep in seq_len(n_mb_rep)) {
-    mb_reads_rep[, s, rep] <- rbetabinom(
-      N, size = n_mb_reads, # in reality n_mb_reads is stochastic, from data
-      # simulation should draw a random number of total reads 10K-100K
-      # total target reads might be 1000-10K
-      # Pedro to check actual numbers, but mm usually around 1000
-      # 1.4% of reads are MM
-      mu = pi_edna[, s], phi = phi_bb[s]
-    )
-  }
-}
-
-mb_total_rep  <- apply(mb_reads_rep, c(1, 3), sum)
-mb_reads_mean <- apply(mb_reads_rep, c(1, 2), mean)
-mb_total_mean <- rowSums(mb_reads_mean)
 
 # ---------------------------------------------------------------------------
 # 8. Bundle and save
@@ -440,72 +412,24 @@ sim <- list(
     #   Z_sample, depth_idx, sample_id
   ),
   truth = list(
-    gp_field          = gp_field,          # N × S  (GP residual only)
-    zbathy_mean_field = zbathy_mean_field,  # N × S  (bathymetric mean fn)
-    lambda_true       = lambda_true,        # N × S  (true animal density)
-    lambda_edna       = lambda_edna,        # N × S  (eDNA conc at Z_sample)
+    gp_field_si          = gp_field_si,          # N × S  (GP residual only)
+    zbathy_mean_field_si = zbathy_mean_field_si,  # N × S  (bathymetric mean fn)
+    lambda_true_si       = lambda_true_si,        # N × S  (true animal density)
+    C_obs_si = C_obs_si,
+    C_obs_si_a_mb = C_obs_si_a_mb,
+    C_obs_si_a_qpcr = C_obs_si_a_mb,
     zsample_effect    = zsample_effect,     # N × S  (water column multiplier)
     pi_edna           = pi_edna,            # N × S  (eDNA proportions)
-    zi_flag           = zi_flag,            # N × S
     gp_params         = gp_params,
-    qpcr_params       = qpcr_p,
-    p_zi              = p_zi,
-    phi_bb            = phi_bb
-  ),
+    qpcr_params       = qpcr_p
+    ),
   observed = list(
     # qPCR (hake only)
     qpcr_detect_raw = qpcr_detect_raw,   # N × n_qpcr_rep
     qpcr_ct_raw     = qpcr_ct_raw,       # N × n_qpcr_rep
-    qpcr_n_detect   = qpcr_n_detect,     # N
-    qpcr_any_detect = qpcr_any_detect,   # N
-    qpcr_mean_ct    = qpcr_mean_ct,      # N  (NA if no detection)
-    # Metabarcoding (all species, MARVER3)
-    mb_reads_rep    = mb_reads_rep,      # N × S × n_mb_rep
-    mb_total_rep    = mb_total_rep,      # N × n_mb_rep
-    mb_reads_mean   = mb_reads_mean,     # N × S  (diagnostic)
-    mb_total_mean   = mb_total_mean      # N      (diagnostic)
+    # Metabarcoding (all species, MARVER1)
+    mb_reads_rep    = mb_reads_rep      # N × S × n_mb_rep
   )
 )
 
 saveRDS(sim, "whale_edna_sim.rds")
-
-# ---------------------------------------------------------------------------
-# 9. Summary printout
-# ---------------------------------------------------------------------------
-cat("\nSaved whale_edna_sim.rds\n")
-cat(sprintf("  Domain    : UTM Zone 10N\n"))
-cat(sprintf("              X = [%.0f, %.0f] m Easting\n",  X_min, X_max))
-cat(sprintf("              Y = [%.0f, %.0f] m Northing\n", Y_min, Y_max))
-cat(sprintf("  Stations  : %d\n", n_stations))
-cat(sprintf("  Z_bathy   : %.0f – %.0f m (mean %.0f m)\n",
-            min(stations$Z_bathy), max(stations$Z_bathy),
-            mean(stations$Z_bathy)))
-cat(sprintf("  Samples   : %d (after removing Z_sample > Z_bathy)\n", N))
-cat(sprintf("  Marker    : %s (%d replicates/sample)\n", marker, n_mb_rep))
-cat("\n  Per-species summary:\n")
-
-for (s in seq_len(n_species)) {
-  cat(sprintf("\n  [%d] %s (%s)\n", s, sp_common[s], sp_names[s]))
-  cat(sprintf("      True lambda  : mean = %.1f, range = %.1f – %.1f copies/L\n",
-              mean(lambda_true[, s]),
-              min(lambda_true[, s]),
-              max(lambda_true[, s])))
-  cat(sprintf("      eDNA lambda  : mean = %.1f (after water column effect)\n",
-              mean(lambda_edna[, s])))
-  cat(sprintf("      ZI           : %.0f%%\n", 100 * p_zi[s]))
-  cat(sprintf("      Z_bathy pref : peak at %.0f m (SD %.0f m)\n",
-              gp_params[[s]]$zbathy_pref_mu,
-              gp_params[[s]]$zbathy_pref_sd))
-  cat(sprintf("      Z_sample pref: %s\n",
-              paste(sprintf("%.1f", gp_params[[s]]$zsample_pref),
-                    collapse = " / ")))
-  if (has_qpcr[s]) {
-    cat(sprintf("      qPCR detect  : %.0f%% of samples\n",
-                100 * mean(qpcr_any_detect)))
-  } else {
-    cat("      qPCR         : not collected\n")
-  }
-  mb_det <- mean(mb_reads_mean[, s] > 0)
-  cat(sprintf("      MB detection : %.0f%% of samples\n", 100 * mb_det))
-}
-
