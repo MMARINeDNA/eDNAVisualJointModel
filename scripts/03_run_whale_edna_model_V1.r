@@ -41,15 +41,15 @@ N_SAMPLE      <- 250
 ADAPT_DELTA   <- 0.90
 MAX_TREEDEPTH <- 12
 
-OUTPUT_DIR <- "whale_edna_output"
-dir.create(OUTPUT_DIR, showWarnings = FALSE)
+OUTPUT_DIR <- "outputs/whale_edna_output_V1"
+dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # =============================================================================
 # 1. Simulate data
 # =============================================================================
 cat("=== Step 1: Simulating data ===\n")
-source("01_simulate_whale_edna.R")
-sim <- readRDS("whale_edna_sim.rds")
+source("scripts/01_simulate_whale_edna_V1.r")
+sim <- readRDS("outputs/whale_edna_sim_V1.rds")
 
 samples       <- sim$design$samples    # X, Y, Z_bathy, Z_sample, depth_idx
 stations      <- sim$design$stations   # one row per station
@@ -147,7 +147,7 @@ cat(sprintf("  Stan data prepared: N=%d, S=%d, R=%d, K=%d, M=%d\n",
 # 3. Compile and fit
 # =============================================================================
 cat("=== Step 3: Compiling Stan model ===\n")
-mod <- cmdstan_model("whale_edna_hsgp.stan")
+mod <- cmdstan_model("stan/whale_edna_hsgp_V1.stan")
 
 cat("=== Step 3: Fitting model ===\n")
 init_fn <- function() {
