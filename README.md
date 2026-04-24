@@ -149,6 +149,15 @@ Each script expects the **project root as the working directory**. Artifacts
   Junk does not appear in qPCR (species-specific primers). Stored as
   `mb_junk_reads` and `mb_pi_junk` in the sim output for transparency;
   the Stan model sees only target reads.
+- **Realistic MB read-depth distribution**: per-aliquot total read
+  depth (junk + target) is drawn from a two-component log-normal
+  mixture — 80% of aliquots from a tight "typical run" around 75k
+  reads (sdlog 0.25), 20% from a wider "problem run" component
+  (meanlog log(40000), sdlog 1.0). Hard-clipped to `[1000, 250000]`.
+  In practice ~70% of aliquots fall in 50k–100k reads, with some
+  dropping below 10k or exceeding 200k — matching what we see across
+  real MARVER1 sequencing runs. Parameters live at the top of
+  `scripts/01_simulate_whale_edna_v4.r` as `mb_reads_*`.
 - **Species densities retuned** so sample-level detection rates match
   the real-data targets: hake ≈ 95% in qPCR and ~99–100% in MB
   (dominant species), humpback whale ≈ 20% in MB, Pacific white-sided

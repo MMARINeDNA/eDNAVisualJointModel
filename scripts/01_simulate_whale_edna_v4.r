@@ -78,7 +78,19 @@ n_sample_depth <- length(sample_depths)
 
 vol_filtered  <- 2.5
 vol_aliquot <- 2
-n_mb_reads    <- 50000
+
+# MB read-depth distribution per aliquot (matches real sequencing runs).
+# A two-component log-normal mixture: 80% "typical" reads centred on 75k,
+# with 20% from a wider "problem-run" component that can dip to a few
+# thousand or spike past 200k. Hard-clipped to the observed real-data
+# range of [1000, 250000].
+mb_reads_p_tight       <- 0.80
+mb_reads_tight_meanlog <- log(75000)
+mb_reads_tight_sdlog   <- 0.25
+mb_reads_wide_meanlog  <- log(40000)
+mb_reads_wide_sdlog    <- 1.00
+mb_reads_min           <- 1000L
+mb_reads_max           <- 250000L
 
 # ---------------------------------------------------------------------------
 # 1. Rotated bathymetry
@@ -447,7 +459,16 @@ qpcr_ct      <- ifelse(
 # the sum of target reads per aliquot, and pi_edna is the target-species
 # proportion.
 set.seed(200)
-read_depth <- round(runif(N_mb_long, n_mb_reads/2, n_mb_reads))
+# Per-aliquot total read depth from the mixture defined at the top of
+# the script.
+component_tight <- rbinom(N_mb_long, 1, mb_reads_p_tight)
+read_depth <- ifelse(
+  component_tight == 1L,
+  rlnorm(N_mb_long, mb_reads_tight_meanlog, mb_reads_tight_sdlog),
+  rlnorm(N_mb_long, mb_reads_wide_meanlog,  mb_reads_wide_sdlog)
+)
+read_depth <- pmin(pmax(as.integer(round(read_depth)), mb_reads_min), mb_reads_max)
+
 pi_junk    <- runif(N_mb_long, 0.05, 0.95)
 junk_reads <- rbinom(N_mb_long, size = read_depth, prob = pi_junk)
 target_read_depth <- read_depth - junk_reads
@@ -488,7 +509,15 @@ sim <- list(
     n_sample_depth        = n_sample_depth,
     vol_filtered          = vol_filtered,
     vol_aliquot           = vol_aliquot,
-    n_mb_reads            = n_mb_reads,
+    mb_reads_distribution = list(
+      p_tight       = mb_reads_p_tight,
+      tight_meanlog = mb_reads_tight_meanlog,
+      tight_sdlog   = mb_reads_tight_sdlog,
+      wide_meanlog  = mb_reads_wide_meanlog,
+      wide_sdlog    = mb_reads_wide_sdlog,
+      min           = mb_reads_min,
+      max           = mb_reads_max
+    ),
     N                     = N,
     N_qpcr_long           = N_qpcr_long,
     N_mb_long             = N_mb_long,
