@@ -129,7 +129,7 @@ Each script expects the **project root as the working directory**. Artifacts
   the closed-form GP mean at every cell (501 × 1271 = 637k cells) — no
   kriging.
 
-### V4 — variable per-sample replication
+### V4 — variable per-sample replication + junk reads + retuned densities
 
 - **Sampling design**: most samples still have the full 3 qPCR + 3
   metabarcoding replicates, but ~20% of samples (chosen independently for
@@ -141,11 +141,30 @@ Each script expects the **project root as the working directory**. Artifacts
   explicit `qpcr_sample_idx` / `mb_sample_idx` vectors and per-sample
   replicate counts `n_qpcr_rep_i` / `n_mb_rep_i`. The v4 format script
   is a thin pass-through to the Stan data list.
+- **"Junk" MB background**: real MARVER1 data is dominated by
+  non-target species (plankton, bacteria, other vertebrates, primer
+  artifacts). v4 models this with a lumped junk category that claims a
+  random 5–95% of each MB aliquot's read depth, leaving only the
+  remaining reads to be distributed among the three target species.
+  Junk does not appear in qPCR (species-specific primers). Stored as
+  `mb_junk_reads` and `mb_pi_junk` in the sim output for transparency;
+  the Stan model sees only target reads.
+- **Species densities retuned** so sample-level detection rates match
+  the real-data targets: hake ≈ 95% in qPCR and ~99–100% in MB
+  (dominant species), humpback whale ≈ 20% in MB, Pacific white-sided
+  dolphin ≈ 20% in MB. Humpback and PWSD distributions are independent
+  — the 20% of samples with humpback are not the same 20% with PWSD.
+  Current `mu` values: hake = log(6), humpback = log(0.05), PWSD =
+  log(0.12), giving mean densities ~12, 0.06, and 0.19 animals/km².
+  Sample-level detection rates are printed at the end of the sim run.
 - **Stan model**: no structural change from v3 — the model already
   consumed long-form data indexed by `*_sample_idx`, which naturally
   accommodates variable replication per sample. `N_qpcr_long` and
-  `N_mb_long` are no longer assumed to equal `N * 3`.
-- **Domain, bathymetry, species structure, priors**: unchanged from v3.
+  `N_mb_long` are no longer assumed to equal `N * 3`, and `mb_total`
+  is now target-species-only (junk reads are excluded before the
+  model sees them).
+- **Domain, bathymetry, species habitat structure, priors**: unchanged
+  from v3.
 
 ## Versioning convention
 
