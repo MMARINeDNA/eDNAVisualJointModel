@@ -158,13 +158,24 @@ data {
   // 1 = zero-inflated BB, 0 = plain BB
   int<lower=0, upper=1> use_zi;
 
+  // Fixed qPCR standard-curve coefficients (pre-estimated, e.g. from the
+  // hake survey standard curve). These were parameters in earlier versions
+  // but are now passed as data.
+  real alpha_ct;
+  real beta_ct;
+
   // Prior hyperparameters (passed as data for easy tuning)
   real prior_mu_sp_mu;
   real prior_mu_sp_sig;
   real prior_gp_sigma_sig;
-  real prior_gp_lx_mu;   real prior_gp_lx_sig;
-  real prior_gp_ly_mu;   real prior_gp_ly_sig;
-  real prior_gp_lz_mu;   real prior_gp_lz_sig;
+  real prior_gp_lx_mu;       real prior_gp_lx_sig;
+  real prior_gp_ly_mu;       real prior_gp_ly_sig;
+  real prior_gp_lz_mu;       real prior_gp_lz_sig;
+  real prior_kappa_mu;       real<lower=0> prior_kappa_sig;
+  real prior_sigma_ct_mu;    real<lower=0> prior_sigma_ct_sig;
+  real prior_beta0_phi_mu;   real<lower=0> prior_beta0_phi_sig;
+  real prior_gamma0_phi_mu;  real<lower=0> prior_gamma0_phi_sig;
+  real prior_gamma1_phi_mu;  real<lower=0> prior_gamma1_phi_sig;
 
 }
 
@@ -187,10 +198,8 @@ parameters {
   matrix<lower=0>[S, 3] gp_l;       // GP length-scales: lx(km), ly(km), lz(m)
   matrix[S, M]          z_beta;     // non-centred basis coefficients
 
-  // qPCR (hake only)
+  // qPCR (hake only). alpha_ct and beta_ct are fixed (see data block).
   real<lower=0, upper=1>   kappa;
-  real<lower=20, upper=50> alpha_ct;
-  real<lower=0, upper=10>  beta_ct;
   real<lower=0>            sigma_ct;
 
   // Metabarcoding overdispersion
@@ -243,14 +252,12 @@ model {
 
   to_vector(z_beta) ~ std_normal();
 
-  kappa    ~ normal(0.5, 0.3);
-  alpha_ct ~ normal(38.0, 3.0);
-  beta_ct  ~ normal(1.44, 0.5);
-  sigma_ct ~ normal(0.5,  0.3);
+  kappa    ~ normal(prior_kappa_mu,    prior_kappa_sig);
+  sigma_ct ~ normal(prior_sigma_ct_mu, prior_sigma_ct_sig);
 
-  beta0_phi  ~ normal(0.0, 1.0);
-  gamma0_phi ~ normal(2.0, 1.0);
-  gamma1_phi ~ normal(0.5, 0.3);
+  beta0_phi  ~ normal(prior_beta0_phi_mu,  prior_beta0_phi_sig);
+  gamma0_phi ~ normal(prior_gamma0_phi_mu, prior_gamma0_phi_sig);
+  gamma1_phi ~ normal(prior_gamma1_phi_mu, prior_gamma1_phi_sig);
 
   // ------------------------------------------------------------------
   // Likelihood 1 — qPCR hurdle (hake only, s=1)
