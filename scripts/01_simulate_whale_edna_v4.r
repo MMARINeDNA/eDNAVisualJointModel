@@ -82,7 +82,7 @@ n_stations    <- 300
 # detection rates (~95% hake / ~20% humpback / ~20% PWSD) while moving
 # the absolute densities to realistic values (see mu_* below).
 # Ordered to match gp_params: hake, humpback, PWSD.
-conv_factor <- c(hake = 10, humpback = 125, pwsd = 40)
+conv_factor <- c(hake = 10, humpback = 200, pwsd = 110)
 # Three sample depths per station: surface, mid-column, upper slope
 sample_depths <- c(0, 150, 500)
 n_sample_depth <- length(sample_depths)
@@ -279,8 +279,10 @@ gp_params <- list(
     y_pref_mu  = 150,      # km north of SF
     y_pref_sd  = 350,
     y_pref_amp = 2.0,
-    # eDNA water column at (0, 150, 500 m): peaks at feeding-dive depths
-    zsample_pref = c( 0.0,  1.1, -1.3)
+    # eDNA water column at (0, 150, 500 m): 0 at surface so surface
+    # samples match true density, more pronounced peak at 150 m
+    # (feeding-dive depth), tails off by 500 m.
+    zsample_pref = c( 0.0,  2.0, -1.3)
   ),
 
   pwsd = list(
@@ -302,8 +304,11 @@ gp_params <- list(
     y_pref_mu  = 1050,     # km north of SF (~N. WA)
     y_pref_sd  = 350,
     y_pref_amp = 2.0,
-    # eDNA water column at (0, 150, 500 m): surface-active, drops off with depth
-    zsample_pref = c( 0.0, -2.0, -3.5)
+    # eDNA water column at (0, 150, 500 m): 0 at surface (surface-active
+    # species; surface samples match true density), more suppressed at
+    # 150 m, and so suppressed at 500 m that PWSD is effectively
+    # undetectable in 500 m samples.
+    zsample_pref = c( 0.0, -3.0, -10.0)
   )
 )
 
@@ -488,11 +493,16 @@ target_read_depth <- read_depth - junk_reads
 
 # Target-species proportions (within the non-junk pool)
 pi_edna <- mb_copies / rowSums(mb_copies)
-# Aliquots with zero copies across all target species produce NaN; fall
-# back to uniform so rmultinom is well-defined (those rows yield few
-# target reads anyway).
+# Aliquots with zero copies across all target species have no target
+# signal at all — all reads in that aliquot are junk. Force
+# target_read_depth = 0 for those rows so the multinomial produces zero
+# target reads, and bump the junk read count to preserve the per-aliquot
+# total. A sentinel pi is set only to keep rmultinom well-defined when
+# size = 0.
 empty_rows <- !is.finite(rowSums(pi_edna))
 pi_edna[empty_rows, ] <- 1 / n_species
+junk_reads[empty_rows]        <- read_depth[empty_rows]
+target_read_depth[empty_rows] <- 0L
 
 # Multinomial draw of target reads per aliquot; stack as N_mb_long × n_species
 mb_reads <- t(vapply(

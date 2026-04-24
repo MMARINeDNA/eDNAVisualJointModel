@@ -239,26 +239,40 @@ row2_df <- bind_rows(lapply(seq_len(n_species), function(s) {
     covariate = factor(covariate, levels = covariate_levels)
   )
 
-page2 <- ggplot(row2_df, aes(x = axis_val, y = lambda, colour = species)) +
-  geom_line(linewidth = 1.1) +
-  facet_grid(species ~ covariate, scales = "free") +
-  scale_colour_manual(values = sp_colours, guide = "none") +
-  labs(
+# Species in columns, covariates (X, Y, Z_bathy) in rows, with
+# per-species y-scales (densities differ by orders of magnitude). This
+# requires one ggplot per species combined via patchwork, because
+# facet_grid can't make y free per column.
+page2_species <- lapply(seq_len(n_species), function(s) {
+  df <- row2_df %>% filter(species == sp_common[s])
+  p <- ggplot(df, aes(x = axis_val, y = lambda)) +
+    geom_line(colour = sp_colours[s], linewidth = 1.1) +
+    facet_wrap(~ covariate, nrow = 3, scales = "free_x",
+               strip.position = "right") +
+    labs(title = sp_common[s], x = NULL, y = NULL) +
+    theme_bw(base_size = 10) +
+    theme(
+      plot.title       = element_text(face = "italic", size = 11, hjust = 0.5),
+      strip.text.y     = element_text(size = 9),
+      panel.grid.minor = element_blank()
+    )
+  if (s == 1) {
+    p <- p + labs(y = expression(lambda ~ "(animals/km"^2 * ")"))
+  }
+  p
+})
+
+page2 <- wrap_plots(page2_species, nrow = 1) +
+  plot_annotation(
     title    = "True marginal density relationships - v4",
     subtitle = expression(
       "Expected " * lambda * " (animals/km"^2 *
       ") swept over one covariate at a time; others held at representative values"
     ),
-    x        = NULL,
-    y        = expression(lambda ~ "(animals/km"^2 * ")")
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    plot.title      = element_text(size = 13, face = "bold"),
-    plot.subtitle   = element_text(size = 9,  colour = "grey40"),
-    strip.text.x    = element_text(size = 10),
-    strip.text.y    = element_text(size = 10, face = "italic"),
-    panel.grid.minor = element_blank()
+    theme    = theme(
+      plot.title    = element_text(size = 13, face = "bold"),
+      plot.subtitle = element_text(size = 9,  colour = "grey40")
+    )
   )
 
 # =============================================================================
