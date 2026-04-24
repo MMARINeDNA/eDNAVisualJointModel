@@ -17,35 +17,43 @@ simulated data in Stan.
 ├── 00_pipeline_v1.r                    End-to-end orchestrators (run from root)
 ├── 00_pipeline_v2.r                    `Rscript 00_pipeline_v{N}.r` sources
 ├── 00_pipeline_v3.r                     each step in order.
+├── 00_pipeline_v4.r
 │
 ├── stan/                               Stan model source
 │   ├── whale_edna_hsgp_v1.stan
 │   ├── whale_edna_hsgp_v2.stan
-│   └── whale_edna_hsgp_v3.stan
+│   ├── whale_edna_hsgp_v3.stan
+│   └── whale_edna_hsgp_v4.stan
 │
 ├── scripts/                            R pipeline steps (sim → plot → format → run → check)
 │   ├── 01_simulate_whale_edna_v1.r         simulate eDNA data
 │   ├── 01_simulate_whale_edna_v2.r
 │   ├── 01_simulate_whale_edna_v3.r
+│   ├── 01_simulate_whale_edna_v4.r
 │   ├── 02_plot_simulated_data_v2.r         plot the simulated truth
 │   ├── 02_plot_simulated_data_v3.r
+│   ├── 02_plot_simulated_data_v4.r
 │   ├── 03_format_stan_data_v1.r            assemble stan_data list
 │   ├── 03_format_stan_data_v2.r
 │   ├── 03_format_stan_data_v3.r
+│   ├── 03_format_stan_data_v4.r
 │   ├── 04_run_whale_edna_model_v1.r        compile + fit Stan model
 │   ├── 04_run_whale_edna_model_v2.r
 │   ├── 04_run_whale_edna_model_v3.r
+│   ├── 04_run_whale_edna_model_v4.r
 │   ├── 05_check_whale_edna_model_v1.r      diagnostics, PPC, recovery plots
 │   ├── 05_check_whale_edna_model_v2.r
 │   ├── 05_check_whale_edna_model_v3.r
+│   ├── 05_check_whale_edna_model_v4.r
 │   ├── DetectionsBySpecies.R               Ad-hoc data exploration
 │   └── FinWhales.R
 │
 ├── outputs/                            Generated artifacts
 │   ├── simulated_edna_fields_v2.png        Tracked plots of simulated data
 │   ├── simulated_edna_fields_v3.png
-│   ├── whale_edna_sim_v{1,2,3}.rds         Sim outputs (gitignored)
-│   └── whale_edna_output_v{1,2,3}/         Stan fit artifacts (gitignored):
+│   ├── simulated_edna_fields_v4.png
+│   ├── whale_edna_sim_v{1,2,3,4}.rds       Sim outputs (gitignored)
+│   └── whale_edna_output_v{1,2,3,4}/       Stan fit artifacts (gitignored):
 │           stan_data.rds                     stan_data list from step 03
 │           whale_edna_fit.rds                CmdStanR fit object from step 04
 │           *.png, *.csv, session_info.txt   diagnostics from step 05
@@ -59,17 +67,17 @@ simulated data in Stan.
 Each version has a five-step pipeline. Run end-to-end with:
 
 ```
-Rscript 00_pipeline_v3.r
+Rscript 00_pipeline_v4.r
 ```
 
 …or run individual steps in order:
 
 ```
-Rscript scripts/01_simulate_whale_edna_v3.r     # -> outputs/whale_edna_sim_v3.rds
-Rscript scripts/02_plot_simulated_data_v3.r     # -> outputs/simulated_edna_fields_v3.png
-Rscript scripts/03_format_stan_data_v3.r        # -> outputs/whale_edna_output_v3/stan_data.rds
-Rscript scripts/04_run_whale_edna_model_v3.r    # -> outputs/whale_edna_output_v3/whale_edna_fit.rds
-Rscript scripts/05_check_whale_edna_model_v3.r  # -> diagnostics in outputs/whale_edna_output_v3/
+Rscript scripts/01_simulate_whale_edna_v4.r     # -> outputs/whale_edna_sim_v4.rds
+Rscript scripts/02_plot_simulated_data_v4.r     # -> outputs/simulated_edna_fields_v4.png
+Rscript scripts/03_format_stan_data_v4.r        # -> outputs/whale_edna_output_v4/stan_data.rds
+Rscript scripts/04_run_whale_edna_model_v4.r    # -> outputs/whale_edna_output_v4/whale_edna_fit.rds
+Rscript scripts/05_check_whale_edna_model_v4.r  # -> diagnostics in outputs/whale_edna_output_v4/
 ```
 
 Each script expects the **project root as the working directory**. Artifacts
@@ -121,6 +129,24 @@ Each script expects the **project root as the working directory**. Artifacts
   the closed-form GP mean at every cell (501 × 1271 = 637k cells) — no
   kriging.
 
+### V4 — variable per-sample replication
+
+- **Sampling design**: most samples still have the full 3 qPCR + 3
+  metabarcoding replicates, but ~20% of samples (chosen independently for
+  each process) are reduced to 1 or 2 reps, reflecting realistic
+  per-sample loss / QC failure. Controlled by `prop_reduced_qpcr_rep` and
+  `prop_reduced_mb_rep` in `scripts/01_simulate_whale_edna_v4.r`.
+- **Data layout**: the v4 sim now emits the qPCR and metabarcoding
+  observed data already in **long form** — one row per aliquot, with
+  explicit `qpcr_sample_idx` / `mb_sample_idx` vectors and per-sample
+  replicate counts `n_qpcr_rep_i` / `n_mb_rep_i`. The v4 format script
+  is a thin pass-through to the Stan data list.
+- **Stan model**: no structural change from v3 — the model already
+  consumed long-form data indexed by `*_sample_idx`, which naturally
+  accommodates variable replication per sample. `N_qpcr_long` and
+  `N_mb_long` are no longer assumed to equal `N * 3`.
+- **Domain, bathymetry, species structure, priors**: unchanged from v3.
+
 ## Versioning convention
 
 - Every file in `scripts/`, `stan/`, and the root `00_pipeline_v{N}.r`
@@ -136,6 +162,6 @@ Each script expects the **project root as the working directory**. Artifacts
 - V{N} checking script writes all diagnostic plots and CSVs into
   `outputs/whale_edna_output_v{N}/`.
 
-When starting a new iteration (`v4`), copy the highest-version scripts
-(including `00_pipeline_v3.r`) to their `_v4` counterparts and update
+When starting a new iteration (`v5`), copy the highest-version scripts
+(including `00_pipeline_v4.r`) to their `_v5` counterparts and update
 this README with what changed and why.
