@@ -51,8 +51,14 @@ rsconnect/
 # DS Store
 *.DS_Store
 
-# Simulation artifacts (regenerable via scripts/01_simulate_whale_edna_V*.r)
+# Simulation artifacts (regenerable via scripts/01_simulate_whale_edna_v*.r)
 outputs/*.rds
 
-# Model fit outputs — per-version run dirs created by scripts/03_run_whale_edna_model_V*.r
+# Model fit outputs — per-version run dirs created by scripts/04_run_whale_edna_model_v*.r
 outputs/whale_edna_output_*/
+
+# Stan compile artifacts — cmdstanr writes a compiled binary and a
+# generated .hpp header next to each .stan source. Whitelist only the
+# sources so any future artifact types also stay out.
+stan/*
+!stan/*.stan
