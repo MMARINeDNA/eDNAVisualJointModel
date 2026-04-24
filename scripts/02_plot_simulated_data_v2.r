@@ -24,7 +24,7 @@ library(patchwork)
 library(viridis)
 library(dplyr)
 
-sim <- readRDS("outputs/whale_edna_sim_V2.rds")
+sim <- readRDS("outputs/whale_edna_sim_v2.rds")
 
 sp_common      <- sim$meta$sp_common
 sp_names       <- sim$meta$sp_names
@@ -348,8 +348,8 @@ fig <- row1 / row2 / row3 +
     )
   )
 
-ggsave("outputs/simulated_edna_fields_V2.png", fig,
+ggsave("outputs/simulated_edna_fields_v2.png", fig,
        width = 14, height = 15, dpi = 150)
 
-cat("Saved outputs/simulated_edna_fields_V2.png\n")
+cat("Saved outputs/simulated_edna_fields_v2.png\n")
 print(fig)

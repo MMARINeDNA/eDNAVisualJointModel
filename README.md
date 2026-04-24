@@ -10,59 +10,72 @@ simulated data in Stan.
 
 ```
 .
-├── README.md                       This file
+├── README.md                           This file
 ├── LICENSE
 ├── eDNAVisualJointModel.Rproj
 │
-├── stan/                           Stan model source
-│   ├── whale_edna_hsgp_V1.stan
-│   └── whale_edna_hsgp_V2.stan
+├── 00_pipeline_v1.r                    End-to-end orchestrators (run from root)
+├── 00_pipeline_v2.r                    `Rscript 00_pipeline_v{N}.r` sources
+├── 00_pipeline_v3.r                     each step in order.
 │
-├── scripts/                        R pipeline scripts
-│   ├── 01_simulate_whale_edna_V1.r     Simulate eDNA data (versions V1–V3)
-│   ├── 01_simulate_whale_edna_V2.r
-│   ├── 01_simulate_whale_edna_V3.r
-│   ├── 02_plot_simulated_data_V2.r     Diagnostic plots of simulated data
-│   ├── 02_plot_simulated_data_V3.r
-│   ├── 03_run_whale_edna_model_V1.r    Compile + fit Stan + diagnostics
-│   ├── 03_run_whale_edna_model_V2.r
-│   ├── DetectionsBySpecies.R           Ad-hoc data exploration
+├── stan/                               Stan model source
+│   ├── whale_edna_hsgp_v1.stan
+│   ├── whale_edna_hsgp_v2.stan
+│   └── whale_edna_hsgp_v3.stan
+│
+├── scripts/                            R pipeline steps (sim → plot → format → run → check)
+│   ├── 01_simulate_whale_edna_v1.r         simulate eDNA data
+│   ├── 01_simulate_whale_edna_v2.r
+│   ├── 01_simulate_whale_edna_v3.r
+│   ├── 02_plot_simulated_data_v2.r         plot the simulated truth
+│   ├── 02_plot_simulated_data_v3.r
+│   ├── 03_format_stan_data_v1.r            assemble stan_data list
+│   ├── 03_format_stan_data_v2.r
+│   ├── 03_format_stan_data_v3.r
+│   ├── 04_run_whale_edna_model_v1.r        compile + fit Stan model
+│   ├── 04_run_whale_edna_model_v2.r
+│   ├── 04_run_whale_edna_model_v3.r
+│   ├── 05_check_whale_edna_model_v1.r      diagnostics, PPC, recovery plots
+│   ├── 05_check_whale_edna_model_v2.r
+│   ├── 05_check_whale_edna_model_v3.r
+│   ├── DetectionsBySpecies.R               Ad-hoc data exploration
 │   └── FinWhales.R
 │
-├── outputs/                        Generated artifacts
-│   ├── simulated_edna_fields_V2.png    Tracked plots of simulated data
-│   ├── simulated_edna_fields_V3.png
-│   ├── whale_edna_sim_V{1,2,3}.rds     Sim outputs (gitignored — regenerable)
-│   └── whale_edna_output_V{1,2}/       Stan fit artifacts (gitignored)
+├── outputs/                            Generated artifacts
+│   ├── simulated_edna_fields_v2.png        Tracked plots of simulated data
+│   ├── simulated_edna_fields_v3.png
+│   ├── whale_edna_sim_v{1,2,3}.rds         Sim outputs (gitignored)
+│   └── whale_edna_output_v{1,2,3}/         Stan fit artifacts (gitignored):
+│           stan_data.rds                     stan_data list from step 03
+│           whale_edna_fit.rds                CmdStanR fit object from step 04
+│           *.png, *.csv, session_info.txt   diagnostics from step 05
 │
-├── Data/                           Real survey data (effort, sightings, detections)
-└── Distance sampling trials/       Self-contained DS exploration (separate Stan model)
+├── Data/                               Real survey data (effort, sightings, detections)
+└── Distance sampling trials/           Self-contained DS exploration (separate Stan model)
 ```
 
-## Running the pipeline
+## Pipeline
 
-All scripts expect the project root as the working directory. From the
-repository root:
+Each version has a five-step pipeline. Run end-to-end with:
 
-```r
-# Simulate (writes outputs/whale_edna_sim_V3.rds)
-Rscript scripts/01_simulate_whale_edna_V3.r
-
-# Plot the simulated truth (writes outputs/simulated_edna_fields_V3.png)
-Rscript scripts/02_plot_simulated_data_V3.r
-
-# Compile + fit Stan model, write diagnostics to outputs/whale_edna_output_V2/
-Rscript scripts/03_run_whale_edna_model_V2.r
+```
+Rscript 00_pipeline_v3.r
 ```
 
-The `.rds` and `whale_edna_output_*/` artifacts are `.gitignored` — they are
-regenerable from the scripts.
+…or run individual steps in order:
+
+```
+Rscript scripts/01_simulate_whale_edna_v3.r     # -> outputs/whale_edna_sim_v3.rds
+Rscript scripts/02_plot_simulated_data_v3.r     # -> outputs/simulated_edna_fields_v3.png
+Rscript scripts/03_format_stan_data_v3.r        # -> outputs/whale_edna_output_v3/stan_data.rds
+Rscript scripts/04_run_whale_edna_model_v3.r    # -> outputs/whale_edna_output_v3/whale_edna_fit.rds
+Rscript scripts/05_check_whale_edna_model_v3.r  # -> diagnostics in outputs/whale_edna_output_v3/
+```
+
+Each script expects the **project root as the working directory**. Artifacts
+(`.rds`, `whale_edna_output_v*/`) are `.gitignored` — they are regenerable.
 
 ## Versions
-
-The simulation, plotting, runner, and Stan files are all versioned so that
-each iteration of the model is reproducible. Older versions are kept for
-comparison and because the Stan models target different simulation outputs.
 
 ### V1 — initial simulation + model
 
@@ -70,81 +83,59 @@ comparison and because the Stan models target different simulation outputs.
 - **Bathymetry**: logistic shelf-slope profile as a pure function of
   Easting `X` (isobaths run due N-S).
 - **Observation design**: 150 stations × 5 sample depths (0, 50, 150, 300,
-  500 m); metabarcoding marker MARVER3 at 5000 reads/replicate;
-  `vol_filtered = 2.0 L`.
+  500 m); marker MARVER3 at 5000 reads/replicate; `vol_filtered = 2.0 L`.
 - **Species structure**: bathymetric habitat preference only (no latitude
-  effect); shelf-slope-break specialist hake, shallow-shelf humpback,
-  deep-slope PWSD.
-- **Files**: `scripts/01_simulate_whale_edna_V1.r`,
-  `scripts/03_run_whale_edna_model_V1.r`, `stan/whale_edna_hsgp_V1.stan`.
+  effect); shelf-slope-break hake, shallow-shelf humpback, deep-slope PWSD.
 
 ### V2 — code review refinements (with Ole)
 
-- **Domain and bathymetry**: unchanged from V1.
-- **Observation design refinements**:
-  - Marker switched to MARVER1 (larger read depth — 50000 reads/replicate).
-  - `vol_filtered` increased to 2.5 L; explicit aliquoting step
-    (`vol_aliquot = 2 µL` drawn from a 100 µL elution).
-  - Explicit animals → copies conversion (`conv_factor = 10`).
-  - `zsample_pref` values shifted so baseline eDNA ≈ 1× rather than
-    suppressing most depths.
-- **Naming**: vectors carry an `_si` suffix (sample × species index order)
-  for clarity downstream.
-- **Stan model (V2)**: expanded observation model — qPCR Ct hurdle on
-  hake, zero-inflated Beta-Binomial metabarcoding for all three species,
-  `phi` parameterised in log total copies.
-- **Plotting**: 3-row figure (surface density, Z_bathy vs λ, water-column
-  effect).
-- **Files**: `scripts/01_simulate_whale_edna_V2.r`,
-  `scripts/02_plot_simulated_data_V2.r`,
-  `scripts/03_run_whale_edna_model_V2.r`, `stan/whale_edna_hsgp_V2.stan`.
+- Domain and bathymetry: unchanged from V1.
+- Marker switched to MARVER1; read depth 50 000; `vol_filtered = 2.5 L`;
+  explicit aliquoting step (`vol_aliquot = 2 µL` of a 100 µL elution).
+- Explicit animals → copies conversion (`conv_factor = 10`).
+- `zsample_pref` values shifted so baseline eDNA multiplier is ≈ 1× rather
+  than suppressing most depths.
+- Vectors carry an `_si` suffix (sample × species index order).
+- Stan model (V2): qPCR Ct hurdle on hake, zero-inflated Beta-Binomial
+  metabarcoding for all three species, `phi` parameterised in log total
+  copies.
 
 ### V3 — extended domain, rotated bathymetry, realistic species distributions
 
 - **Domain**: extended to cover the full US West Coast — San Francisco
-  (37.77°N, ~4,180,000 m Northing) to the US/Canada border (~49°N,
-  ~5,450,000 m Northing), 500 km × 1270 km in UTM Zone 10N.
-- **Bathymetry**: no longer a pure function of `X`. A rotated cross-shore
-  axis `X_prime` is used, applied in **normalised space** so the rotation
-  angle has a consistent geometric meaning regardless of the tall domain
-  aspect ratio. The rotation is **25°** — a pure 45° rotation confounds
-  latitude with bathymetry in this elongated domain (at 45°, every
-  northern station ends up "inshore" and every southern station
-  "offshore", which breaks realistic species preferences).
-- **Observation design**:
-  - **300 stations** stratified 50/30/20 shelf / slope / offshore on the
-    rotated coordinate (via rejection sampling in X/Y).
-  - **3 sample depths** per station (0, 150, 500 m).
-  - Samples with `Z_sample > Z_bathy` are dropped (can't sample below
-    the seafloor).
-- **Species spatial structure** (now realistic for the expanded range):
-  - **Pacific hake** — shelf-slope break, broad in latitude.
-  - **Humpback whale** — southern + inshore shelf (central CA to southern OR).
-  - **Pacific white-sided dolphin** — northern + offshore slope
-    (north of Cape Mendocino).
-- **Model form**: bathymetric + latitude habitat structure is **absorbed
-  into the GP** via a non-zero GP mean, so the exposed model is simply
-  `log(λ) = μ + f`. Mathematically identical to a mean-function form
-  (`μ + mean_fn + GP_residual`), but matches what the Stan model fits.
-- **Plotting**: Row 1 evaluates the closed-form GP mean at every cell of
-  a 1 km grid (501 × 1271 = 637k cells) — no kriging, just deterministic
-  evaluation on a regular grid. Rows 2 and 3 unchanged in spirit.
-- **Bug fix carried into V3**: `rmultinom` gets a `NaN` probability vector
-  when all species have zero copies in an aliquot. This was latent in V2
-  (rare) but common in V3 because strong habitat mismatch produces true
-  zeros; fallback to uniform `pi_edna` for those rows.
-- **Files**: `scripts/01_simulate_whale_edna_V3.r`,
-  `scripts/02_plot_simulated_data_V3.r`. No V3 Stan runner yet — the V2
-  Stan model is the intended target once ported to read V3 outputs.
+  (37.77°N) to the US/Canada border (~49°N), 500 km × 1270 km in UTM 10N.
+- **Bathymetry**: rotated cross-shore axis `X_prime` (25° in normalised
+  space) so isobaths run NW-SE. A pure 45° rotation confounds latitude
+  with bathymetry in this elongated domain.
+- **Observation design**: **300 stations** stratified 50/30/20 shelf /
+  slope / offshore on the rotated coordinate; **3 sample depths** (0, 150,
+  500 m); samples with `Z_sample > Z_bathy` dropped.
+- **Species spatial structure**:
+  - Pacific hake — shelf-slope break, broad in latitude.
+  - Humpback whale — southern + inshore shelf.
+  - Pacific white-sided dolphin — northern + offshore slope.
+- **Model form**: bathymetric + latitude habitat structure is absorbed
+  into the GP via a non-zero GP mean, so the exposed model is
+  `log(λ) = μ + f`.
+- **Plotting**: the 1 km grid in `02_plot_simulated_data_v3.r` evaluates
+  the closed-form GP mean at every cell (501 × 1271 = 637k cells) — no
+  kriging.
 
 ## Versioning convention
 
-- Every file in `scripts/` and `stan/` has an explicit `_V{N}` suffix.
-- V{N} simulation writes `outputs/whale_edna_sim_V{N}.rds`.
-- V{N} plotting reads `outputs/whale_edna_sim_V{N}.rds` and writes
-  `outputs/simulated_edna_fields_V{N}.png`.
-- V{N} model runner writes diagnostics to
-  `outputs/whale_edna_output_V{N}/`.
+- Every file in `scripts/`, `stan/`, and the root `00_pipeline_v{N}.r`
+  has an explicit `_v{N}` suffix (lowercase `v`).
+- V{N} simulation writes `outputs/whale_edna_sim_v{N}.rds`.
+- V{N} plotting reads `outputs/whale_edna_sim_v{N}.rds` and writes
+  `outputs/simulated_edna_fields_v{N}.png`.
+- V{N} Stan-data formatting writes
+  `outputs/whale_edna_output_v{N}/stan_data.rds`.
+- V{N} model runner writes
+  `outputs/whale_edna_output_v{N}/whale_edna_fit.rds` and CmdStan files
+  to the same directory.
+- V{N} checking script writes all diagnostic plots and CSVs into
+  `outputs/whale_edna_output_v{N}/`.
 
-When starting a new iteration, copy the highest-version files (e.g.
-`*_V3.r` → `*_V4.r`) and update this README with what changed and why.
+When starting a new iteration (`v4`), copy the highest-version scripts
+(including `00_pipeline_v3.r`) to their `_v4` counterparts and update
+this README with what changed and why.
