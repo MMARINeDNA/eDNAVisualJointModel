@@ -1,7 +1,7 @@
 # =============================================================================
 # 03_format_stan_data_v3.R
 #
-# Read the simulated eDNA data (outputs/whale_edna_sim_v3.rds) and assemble
+# Read the simulated eDNA data (outputs/whale_edna_output_v3/whale_edna_sim_v3.rds) and assemble
 # the Stan data list used by stan/whale_edna_hsgp_v3.stan. Writes:
 #
 #   outputs/whale_edna_output_v3/stan_data.rds
@@ -36,7 +36,7 @@ dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 # 1. Load simulation
 # -----------------------------------------------------------------------------
 cat("=== Step 1: Loading simulation ===\n")
-sim <- readRDS("outputs/whale_edna_sim_v3.rds")
+sim <- readRDS("outputs/whale_edna_output_v3/whale_edna_sim_v3.rds")
 
 samples         <- sim$design$samples
 stations        <- sim$design$stations

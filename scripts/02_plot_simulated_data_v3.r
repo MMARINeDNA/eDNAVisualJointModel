@@ -28,7 +28,7 @@ library(tidyverse)
 library(patchwork)
 library(viridis)
 
-sim <- readRDS("outputs/whale_edna_sim_v3.rds")
+sim <- readRDS("outputs/whale_edna_output_v3/whale_edna_sim_v3.rds")
 
 sp_common      <- sim$meta$sp_common
 n_species      <- sim$meta$n_species
@@ -342,7 +342,8 @@ page3 <- wrap_plots(p_row3, nrow = 1) +
 # Write multi-page PDF (one page per panel) with cairo_pdf for Unicode
 # =============================================================================
 
-out_pdf <- "outputs/simulated_edna_fields_v3.pdf"
+out_pdf <- "outputs/whale_edna_output_v3/simulated_edna_fields_v3.pdf"
+dir.create(dirname(out_pdf), showWarnings = FALSE, recursive = TRUE)
 grDevices::cairo_pdf(out_pdf, width = 8, height = 8, onefile = TRUE)
 print(page1)
 print(page2)
