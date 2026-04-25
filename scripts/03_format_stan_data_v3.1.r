@@ -1,10 +1,10 @@
 # =============================================================================
-# 03_format_stan_data_v3.R  (v3.1)
+# 03_format_stan_data_v3.1.R  (v3.1)
 #
-# Read the simulated eDNA data (outputs/whale_edna_sim_v3.rds) and assemble
-# the Stan data list used by stan/whale_edna_hsgp_v3.stan. Writes:
+# Read the simulated eDNA data (outputs/whale_edna_sim_v3.1.rds) and assemble
+# the Stan data list used by stan/whale_edna_hsgp_v3.1.stan. Writes:
 #
-#   outputs/whale_edna_output_v3/stan_data.rds
+#   outputs/whale_edna_output_v3.1/stan_data.rds
 #
 # Data preparation:
 #   - GP coordinates: (X, Y, Z_bathy), normalised to [-1, 1]
@@ -31,14 +31,14 @@ set.seed(42)
 HSGP_M <- c(5L, 5L, 5L)      # M_total = 125
 HSGP_C <- c(1.5, 1.5, 1.5)   # boundary extension (>= 1.5 recommended)
 
-OUTPUT_DIR <- "outputs/whale_edna_output_v3"
+OUTPUT_DIR <- "outputs/whale_edna_output_v3.1"
 dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # -----------------------------------------------------------------------------
 # 1. Load simulation
 # -----------------------------------------------------------------------------
 cat("=== Step 1: Loading simulation ===\n")
-sim <- readRDS("outputs/whale_edna_sim_v3.rds")
+sim <- readRDS("outputs/whale_edna_sim_v3.1.rds")
 
 samples         <- sim$design$samples
 stations        <- sim$design$stations

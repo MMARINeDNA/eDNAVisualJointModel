@@ -1,13 +1,13 @@
 # =============================================================================
-# 05_check_whale_edna_model_v3.R  (v3.1)
+# 05_check_whale_edna_model_v3.1.R  (v3.1)
 #
 # Diagnostics + posterior predictive checks for the fit produced by
-# scripts/04_run_whale_edna_model_v3.r.
+# scripts/04_run_whale_edna_model_v3.1.r.
 #
-# Inputs:  outputs/whale_edna_sim_v3.rds        (for true parameters / truth)
-#          outputs/whale_edna_output_v3/stan_data.rds
-#          outputs/whale_edna_output_v3/whale_edna_fit.rds
-# Outputs: plots, CSVs, and session info in outputs/whale_edna_output_v3/
+# Inputs:  outputs/whale_edna_sim_v3.1.rds        (for true parameters / truth)
+#          outputs/whale_edna_output_v3.1/stan_data.rds
+#          outputs/whale_edna_output_v3.1/whale_edna_fit.rds
+# Outputs: plots, CSVs, and session info in outputs/whale_edna_output_v3.1/
 # =============================================================================
 
 library(tidyverse)
@@ -22,7 +22,7 @@ set.seed(42)
 
 MAX_TREEDEPTH <- 12    # used for sampler diagnostics reporting
 
-OUTPUT_DIR <- "outputs/whale_edna_output_v3"
+OUTPUT_DIR <- "outputs/whale_edna_output_v3.1"
 
 # -----------------------------------------------------------------------------
 # 0. Load fit, simulation truth, and Stan data
@@ -30,7 +30,7 @@ OUTPUT_DIR <- "outputs/whale_edna_output_v3"
 cat("=== Loading fit and context ===\n")
 fit       <- readRDS(file.path(OUTPUT_DIR, "whale_edna_fit.rds"))
 stan_data <- readRDS(file.path(OUTPUT_DIR, "stan_data.rds"))
-sim       <- readRDS("outputs/whale_edna_sim_v3.rds")
+sim       <- readRDS("outputs/whale_edna_sim_v3.1.rds")
 
 samples         <- sim$design$samples
 gp_params       <- sim$truth$gp_params

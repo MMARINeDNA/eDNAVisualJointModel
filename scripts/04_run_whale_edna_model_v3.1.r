@@ -1,12 +1,12 @@
 # =============================================================================
-# 04_run_whale_edna_model_v3.R  (v3.1)
+# 04_run_whale_edna_model_v3.1.R  (v3.1)
 #
-# Compile stan/whale_edna_hsgp_v3.stan and fit it to the Stan data list built
-# by scripts/03_format_stan_data_v3.r.
+# Compile stan/whale_edna_hsgp_v3.1.stan and fit it to the Stan data list built
+# by scripts/03_format_stan_data_v3.1.r.
 #
-# Inputs:  outputs/whale_edna_output_v3/stan_data.rds
-# Outputs: outputs/whale_edna_output_v3/whale_edna_fit.rds
-#          + CmdStan output files in outputs/whale_edna_output_v3/
+# Inputs:  outputs/whale_edna_output_v3.1/stan_data.rds
+# Outputs: outputs/whale_edna_output_v3.1/whale_edna_fit.rds
+#          + CmdStan output files in outputs/whale_edna_output_v3.1/
 # =============================================================================
 
 library(cmdstanr)
@@ -22,7 +22,7 @@ N_SAMPLE      <- 500
 ADAPT_DELTA   <- 0.90
 MAX_TREEDEPTH <- 12
 
-OUTPUT_DIR <- "outputs/whale_edna_output_v3"
+OUTPUT_DIR <- "outputs/whale_edna_output_v3.1"
 dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # -----------------------------------------------------------------------------
@@ -42,7 +42,7 @@ cat(sprintf("  N=%d  S=%d  M=%d  N_qpcr=%d  N_mb=%d\n",
 cat("=== Compiling Stan model ===\n")
 
 mod <- cmdstan_model(
-  "stan/whale_edna_hsgp_v3.stan",
+  "stan/whale_edna_hsgp_v3.1.stan",
   cpp_options = list(stan_threads = TRUE)
 )
 
