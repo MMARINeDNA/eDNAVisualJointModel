@@ -1,5 +1,5 @@
 // =============================================================================
-// whale_edna_hsgp.stan  (v3)
+// whale_edna_hsgp.stan  (v3.1)
 //
 // 3-D anisotropic HSGP model for three-species whale/fish eDNA.
 // SF to US/Canada border, UTM Zone 10N.
@@ -9,23 +9,40 @@
 //                  + f_s(X_i, Y_i, Z_bathy_i)   // HSGP GP residual
 //
 // Observation model 1 — qPCR hurdle (hake only, s=1):
-//   Per replicate r at sample i:
-//     detect[i,r]  ~ Bernoulli(1 - exp(-kappa * lambda_edna[i,1] * vol_aliquot))
-//     Ct[i,r]      ~ Normal(alpha_ct - beta_ct * log(lambda_edna[i,1] * vol_aliquot),
-//                            sigma_ct)   if detect[i,r] == 1
-// Note that the model needs to incorporate standard estimation (get from Ole's code)
-// units of standard analysis should be in copies (not in copies per uL)
-// from hake survey, alpha = 36.5 beta = -1.45
-// Observation model 2 — metabarcoding Beta-Binomial (all species, K replicates):
+//   detect[i,r]  ~ Bernoulli(1 - exp(-kappa * lambda_edna[i,1] * vol_aliquot))
+//   Ct[i,r]      ~ Normal(alpha_ct - beta_ct * log(lambda_edna[i,1]*vol_aliquot),
+//                          sigma_ct)   if detect[i,r] == 1
+//
+// Observation model 2 — metabarcoding Beta-Binomial (all species):
 //   pi_si = lambda_edna_si / sum_s(lambda_edna_si)
 //   count[i,s,k] ~ ZI-BetaBinomial(mb_total[i,k], pi_si, phi_si)
-//   phi parameterised as a function of log total copies.
+//   phi_s = exp( beta0_phi[s] + log_lam_sum
+//                + softplus(gamma0_phi[s] - gamma1_phi[s] * log_lam_s) )
 //
-// Fixes in v3:
-//   1. log1m_exp argument clamped to keep it strictly negative
-//   2. alpha_bb / beta_bb clamped to >= 1e-6
-//   3. More conservative init values (handled in runner)
-//   4. lam_sum clamped before log(lam_sum) to avoid log(0)
+// Reparameterisation in v3.1 (vs v3) — addresses E-BFMI ≈ 0.01,
+// max-treedepth-on-every-iteration, Rhat > 2 across the board:
+//   1. Replace fmax(0, gamma0_phi[s] - gamma1_phi[s]*log_lam_s) with
+//      softplus = log1p_exp(.). Removes a hinge in the gradient that was
+//      forcing tiny step sizes.
+//   2. Drop the redundant fmin(log_phi_s, 10) cap (no longer needed
+//      with the priors below — softplus is bounded by its argument).
+//   3. kappa promoted from parameters to data. With the calibration
+//      known, having it sampled added a tightly-identified mode that
+//      chains kept disagreeing on.
+//   4. gamma0_phi / gamma1_phi kept as parameters but priors are now
+//      very tight around values supplied as data, so they cannot wander
+//      and trade off against beta0_phi.
+//   5. gp_l priors tightened (sigmas roughly cut by 4×) so the
+//      length-scales stay in the regime where the spectral weights are
+//      well-conditioned.
+//   6. HSGP_M dropped from c(10, 8, 8) to c(5, 5, 5) in 03_format
+//      (M = 640 → 125). Drops ~1500 latent z_beta coefficients per
+//      species and removes most of the curvature pathology.
+//
+// Fixes carried forward from v3:
+//   - log1m_exp argument clamped to keep it strictly negative
+//   - alpha_bb / beta_bb clamped to >= 1e-6
+//   - lam_sum clamped before log(lam_sum) to avoid log(0)
 // =============================================================================
 
 functions {
@@ -164,14 +181,17 @@ data {
   real alpha_ct;
   real beta_ct;
 
+  // Fixed qPCR detection rate. Promoted from a parameter to data in
+  // v3.1 (the calibration is treated as known).
+  real<lower=0, upper=1> kappa;
+
   // Prior hyperparameters (passed as data for easy tuning)
   real prior_mu_sp_mu;
   real prior_mu_sp_sig;
   real prior_gp_sigma_sig;
-  real prior_gp_lx_mu;       real prior_gp_lx_sig;
-  real prior_gp_ly_mu;       real prior_gp_ly_sig;
-  real prior_gp_lz_mu;       real prior_gp_lz_sig;
-  real prior_kappa_mu;       real<lower=0> prior_kappa_sig;
+  real prior_gp_lx_mu;       real<lower=0> prior_gp_lx_sig;
+  real prior_gp_ly_mu;       real<lower=0> prior_gp_ly_sig;
+  real prior_gp_lz_mu;       real<lower=0> prior_gp_lz_sig;
   real prior_sigma_ct_mu;    real<lower=0> prior_sigma_ct_sig;
   real prior_beta0_phi_mu;   real<lower=0> prior_beta0_phi_sig;
   real prior_gamma0_phi_mu;  real<lower=0> prior_gamma0_phi_sig;
@@ -198,11 +218,13 @@ parameters {
   matrix<lower=0>[S, 3] gp_l;       // GP length-scales: lx(km), ly(km), lz(m)
   matrix[S, M]          z_beta;     // non-centred basis coefficients
 
-  // qPCR (hake only). alpha_ct and beta_ct are fixed (see data block).
-  real<lower=0, upper=1>   kappa;
-  real<lower=0>            sigma_ct;
+  // qPCR Ct noise (hake only). alpha_ct, beta_ct, kappa are fixed
+  // in the data block (v3.1).
+  real<lower=0> sigma_ct;
 
-  // Metabarcoding overdispersion
+  // Metabarcoding overdispersion. gamma0_phi / gamma1_phi are tightly
+  // pinned by their priors in v3.1 (see prior_gamma*_phi_sig data),
+  // so only beta0_phi can really move.
   vector[S]          beta0_phi;
   vector<lower=0>[S] gamma0_phi;
   vector<lower=0>[S] gamma1_phi;
@@ -252,7 +274,6 @@ model {
 
   to_vector(z_beta) ~ std_normal();
 
-  kappa    ~ normal(prior_kappa_mu,    prior_kappa_sig);
   sigma_ct ~ normal(prior_sigma_ct_mu, prior_sigma_ct_sig);
 
   beta0_phi  ~ normal(prior_beta0_phi_mu,  prior_beta0_phi_sig);
@@ -310,9 +331,11 @@ model {
         real log_lam_s  = fmax(fmin(log_lambda_edna[i, s], 15.0), -15.0);
         real lam_s      = exp(log_lam_s);
 
+        // v3.1: softplus replaces fmax(...,0) hinge — smooth gradients.
         real log_phi_s  = beta0_phi[s] + log_lam_sum
-                          + fmax(gamma0_phi[s] - gamma1_phi[s] * log_lam_s, 0.0);
-        real phi_s      = exp(fmin(log_phi_s, 10.0));   // cap phi to avoid overflow
+                          + log1p_exp(gamma0_phi[s]
+                                      - gamma1_phi[s] * log_lam_s);
+        real phi_s      = exp(log_phi_s);
 
         real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
 
@@ -419,9 +442,11 @@ generated quantities {
       real log_lam_s  = fmax(fmin(log_lambda_edna[i, s], 15.0), -15.0);
       real lam_s      = exp(log_lam_s);
 
+      // v3.1: softplus replaces fmax(...,0) hinge — smooth gradients.
       real log_phi_s  = beta0_phi[s] + log_lam_sum
-                        + fmax(gamma0_phi[s] - gamma1_phi[s] * log_lam_s, 0.0);
-      real phi_s      = exp(fmin(log_phi_s, 10.0));
+                        + log1p_exp(gamma0_phi[s]
+                                    - gamma1_phi[s] * log_lam_s);
+      real phi_s      = exp(log_phi_s);
 
       real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
 

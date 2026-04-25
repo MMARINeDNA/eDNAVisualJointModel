@@ -16,44 +16,44 @@ simulated data in Stan.
 │
 ├── 00_pipeline_v1.r                    End-to-end orchestrators (run from root)
 ├── 00_pipeline_v2.r                    `Rscript 00_pipeline_v{N}.r` sources
-├── 00_pipeline_v3.r                     each step in order.
+├── 00_pipeline_v3.1.r                     each step in order.
 ├── 00_pipeline_v4.r
 │
 ├── stan/                               Stan model source
 │   ├── whale_edna_hsgp_v1.stan
 │   ├── whale_edna_hsgp_v2.stan
-│   ├── whale_edna_hsgp_v3.stan
+│   ├── whale_edna_hsgp_v3.1.stan
 │   └── whale_edna_hsgp_v4.stan
 │
 ├── scripts/                            R pipeline steps (sim → plot → format → run → check)
 │   ├── 01_simulate_whale_edna_v1.r         simulate eDNA data
 │   ├── 01_simulate_whale_edna_v2.r
-│   ├── 01_simulate_whale_edna_v3.r
+│   ├── 01_simulate_whale_edna_v3.1.r
 │   ├── 01_simulate_whale_edna_v4.r
 │   ├── 02_plot_simulated_data_v2.r         plot the simulated truth
-│   ├── 02_plot_simulated_data_v3.r
+│   ├── 02_plot_simulated_data_v3.1.r
 │   ├── 02_plot_simulated_data_v4.r
 │   ├── 03_format_stan_data_v1.r            assemble stan_data list
 │   ├── 03_format_stan_data_v2.r
-│   ├── 03_format_stan_data_v3.r
+│   ├── 03_format_stan_data_v3.1.r
 │   ├── 03_format_stan_data_v4.r
 │   ├── 04_run_whale_edna_model_v1.r        compile + fit Stan model
 │   ├── 04_run_whale_edna_model_v2.r
-│   ├── 04_run_whale_edna_model_v3.r
+│   ├── 04_run_whale_edna_model_v3.1.r
 │   ├── 04_run_whale_edna_model_v4.r
 │   ├── 05_check_whale_edna_model_v1.r      diagnostics, PPC, recovery plots
 │   ├── 05_check_whale_edna_model_v2.r
-│   ├── 05_check_whale_edna_model_v3.r
+│   ├── 05_check_whale_edna_model_v3.1.r
 │   ├── 05_check_whale_edna_model_v4.r
 │   ├── DetectionsBySpecies.R               Ad-hoc data exploration
 │   └── FinWhales.R
 │
 ├── outputs/                            Generated artifacts
 │   ├── simulated_edna_fields_v2.png        Tracked plots of simulated data
-│   ├── simulated_edna_fields_v3.png
+│   ├── simulated_edna_fields_v3.1.png
 │   ├── simulated_edna_fields_v4.pdf        (v4: multi-page PDF, one panel per page)
-│   ├── whale_edna_sim_v{1,2,3,4}.rds       Sim outputs (gitignored)
-│   └── whale_edna_output_v{1,2,3,4}/       Stan fit artifacts (gitignored):
+│   ├── whale_edna_sim_v{1,2,3.1,4}.rds     Sim outputs (gitignored)
+│   └── whale_edna_output_v{1,2,3.1,4}/     Stan fit artifacts (gitignored):
 │           stan_data.rds                     stan_data list from step 03
 │           whale_edna_fit.rds                CmdStanR fit object from step 04
 │           *.png, *.csv, session_info.txt   diagnostics from step 05
@@ -108,7 +108,13 @@ Each script expects the **project root as the working directory**. Artifacts
   metabarcoding for all three species, `phi` parameterised in log total
   copies.
 
-### V3 — extended domain, rotated bathymetry, realistic species distributions
+### V3.1 — extended domain, rotated bathymetry, realistic species distributions; reparameterised model
+
+(v3.1 supersedes v3 in place — files renamed `*_v3.* → *_v3.1.*`. The
+reparameterisation drops `HSGP_M` to `c(5, 5, 5)`, replaces the BB-phi
+hinge with `log1p_exp`, fixes `kappa` as data, and tightens the `gp_l`
+and `gamma_phi` priors. Same domain, sim, and species structure as the
+original v3 below.)
 
 - **Domain**: extended to cover the full US West Coast — San Francisco
   (37.77°N) to the US/Canada border (~49°N), 500 km × 1270 km in UTM 10N.
@@ -125,7 +131,7 @@ Each script expects the **project root as the working directory**. Artifacts
 - **Model form**: bathymetric + latitude habitat structure is absorbed
   into the GP via a non-zero GP mean, so the exposed model is
   `log(λ) = μ + f`.
-- **Plotting**: the 1 km grid in `02_plot_simulated_data_v3.r` evaluates
+- **Plotting**: the 1 km grid in `02_plot_simulated_data_v3.1.r` evaluates
   the closed-form GP mean at every cell (501 × 1271 = 637k cells) — no
   kriging.
 

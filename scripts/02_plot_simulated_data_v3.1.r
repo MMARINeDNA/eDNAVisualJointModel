@@ -1,5 +1,5 @@
 # =============================================================================
-# plot_simulated_data_v3.R
+# plot_simulated_data_v3.1.R  (v3.1)
 #
 # Three-row figure for the V3 simulation (SF to US/Canada border, rotated
 # bathymetry, 300 stations × 3 sample depths):
@@ -21,7 +21,7 @@ library(tidyverse)
 library(patchwork)
 library(viridis)
 
-sim <- readRDS("outputs/whale_edna_sim_v3.rds")
+sim <- readRDS("outputs/whale_edna_sim_v3.1.rds")
 
 sp_common      <- sim$meta$sp_common
 n_species      <- sim$meta$n_species
@@ -302,7 +302,7 @@ fig <- row1 / row2 / row3 +
     )
   )
 
-ggsave("outputs/simulated_edna_fields_v3.png", fig,
+ggsave("outputs/simulated_edna_fields_v3.1.png", fig,
        width = 13, height = 18, dpi = 150, limitsize = FALSE)
 
-cat("Saved outputs/simulated_edna_fields_v3.png\n")
+cat("Saved outputs/simulated_edna_fields_v3.1.png\n")
