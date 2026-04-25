@@ -24,8 +24,12 @@
 //   1. Replace fmax(0, gamma0_phi[s] - gamma1_phi[s]*log_lam_s) with
 //      softplus = log1p_exp(.). Removes a hinge in the gradient that was
 //      forcing tiny step sizes.
-//   2. Drop the redundant fmin(log_phi_s, 10) cap (no longer needed
-//      with the priors below — softplus is bounded by its argument).
+//   2. Keep the fmin(log_phi_s, 10.0) overflow cap from v3 — without
+//      it, beta0_phi + log_lam_sum + softplus(.) can drift past 700
+//      during early warmup, exp(.) overflows to +Inf, and the BB
+//      likelihood throws "First prior sample size parameter is inf".
+//      The hinge at log_phi_s = 10 (i.e. phi ≈ 22000) is in the deep
+//      tail and doesn't disrupt mixing in the typical set.
 //   3. kappa promoted from parameters to data. With the calibration
 //      known, having it sampled added a tightly-identified mode that
 //      chains kept disagreeing on.
@@ -331,11 +335,16 @@ model {
         real log_lam_s  = fmax(fmin(log_lambda_edna[i, s], 15.0), -15.0);
         real lam_s      = exp(log_lam_s);
 
-        // v3.1: softplus replaces fmax(...,0) hinge — smooth gradients.
+        // v3.1: softplus replaces fmax(...,0) hinge — smooth gradients
+        // in the typical set. The fmin(., 10.0) cap is reinstated as
+        // an overflow guard only; phi > exp(10) ~ 22000 is essentially
+        // a Binomial in BB clothing and should never be visited by the
+        // typical set, so the hinge at log_phi_s = 10 doesn't matter
+        // for mixing.
         real log_phi_s  = beta0_phi[s] + log_lam_sum
                           + log1p_exp(gamma0_phi[s]
                                       - gamma1_phi[s] * log_lam_s);
-        real phi_s      = exp(log_phi_s);
+        real phi_s      = exp(fmin(log_phi_s, 10.0));
 
         real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
 
@@ -442,11 +451,12 @@ generated quantities {
       real log_lam_s  = fmax(fmin(log_lambda_edna[i, s], 15.0), -15.0);
       real lam_s      = exp(log_lam_s);
 
-      // v3.1: softplus replaces fmax(...,0) hinge — smooth gradients.
+      // v3.1: softplus replaces fmax(...,0) hinge in the typical set.
+      // fmin(., 10.0) reinstated as an overflow guard (see model block).
       real log_phi_s  = beta0_phi[s] + log_lam_sum
                         + log1p_exp(gamma0_phi[s]
                                     - gamma1_phi[s] * log_lam_s);
-      real phi_s      = exp(log_phi_s);
+      real phi_s      = exp(fmin(log_phi_s, 10.0));
 
       real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
 
