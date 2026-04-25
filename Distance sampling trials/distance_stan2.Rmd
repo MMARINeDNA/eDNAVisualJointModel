@@ -33,6 +33,7 @@ library(truncnorm)
 ```
 
 Here we demonstrate a model-based Bayesian distance sampling analysis using an HMC algorithm, implemented using Stan via the `R` package `rstan`. Thanks to 
+
 - Juan Morales for his online example code (from 2020, in an [Rpubs document](https://rpubs.com/pajaro/jsds)), which provided some initial inspiration
 - the excellent Stan [Function Reference](https://mc-stan.org/docs/functions-reference/index.html) and [Users Guide](https://mc-stan.org/docs/stan-users-guide/index.html)
 - ChatGPT for providing some suggestions for improvements
