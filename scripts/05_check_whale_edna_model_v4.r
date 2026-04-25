@@ -73,8 +73,12 @@ cat(sprintf("  Divergences       : %d\n", sum(sampler_diag$divergent__)))
 cat(sprintf("  Max treedepth hits: %d\n",
             sum(sampler_diag$treedepth__ >= MAX_TREEDEPTH)))
 
-# Energy plot
-energy_plot <- mcmc_nuts_energy(sampler_diag) +
+# Energy plot. bayesplot's mcmc_nuts_* family expects a tidy NUTS data
+# frame with columns (Chain, Iteration, Parameter, Value), not the
+# CmdStanR sampler_diagnostics(format = "df") shape. Use nuts_params()
+# to convert.
+nuts_df <- bayesplot::nuts_params(fit)
+energy_plot <- mcmc_nuts_energy(nuts_df) +
   ggtitle("NUTS Energy")
 ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
        energy_plot, width = 8, height = 4)
