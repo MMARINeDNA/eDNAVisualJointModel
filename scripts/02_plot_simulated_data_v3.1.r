@@ -1,20 +1,27 @@
 # =============================================================================
-# plot_simulated_data_v3.1.R  (v3.1)
+# plot_simulated_data_v3.1.R
 #
-# Three-row figure for the V3 simulation (SF to US/Canada border, rotated
-# bathymetry, 300 stations × 3 sample depths):
+# Three-panel figure for the V3.1 simulation (SF to US/Canada border, rotated
+# bathymetry, 300 stations × 3 sample depths with variable per-sample
+# replication). Output is a multi-page PDF with one page per panel:
 #
-#   Row 1 — True expected animal density λ(X, Y, Z_bathy(X, Y)) evaluated
-#            on a 1 km grid (no kriging — the GP mean is evaluated in closed
-#            form at every grid cell). Station locations overlaid.
+#   Page 1 — Expected density surface λ(X, Y, Z_bathy(X, Y)) evaluated on a
+#             1 km grid (no kriging — GP mean evaluated in closed form at
+#             every grid cell). Station locations overlaid.
 #
-#   Row 2 — Marginal habitat response: λ vs Z_bathy, points from stations
-#            coloured by latitude Y, line showing the expected curve at
-#            each species' preferred Y.
+#   Page 2 — 3 × 3 grid of the true marginal relationship between each
+#             species' expected density λ and each of the three spatial
+#             covariates (X, Y, Z_bathy). True relationship only (line,
+#             no points). Rows = species, columns = covariate; each row
+#             has its own y-scale because densities differ by orders of
+#             magnitude between species.
 #
-#   Row 3 — Water column sampling depth effect exp(δ_Z_sample) on the
-#            reversed depth axis (0, 150, 500 m).
+#   Page 3 — Water column sampling depth effect exp(δ_Z_sample) on the
+#             reversed depth axis (0, 150, 500 m).
 #
+# Lambda is rendered via expression() / plotmath so the Greek letter
+# always shows up, and the final PDF is written with cairo_pdf for
+# correct Unicode support.
 # =============================================================================
 
 library(tidyverse)
@@ -61,8 +68,7 @@ gauss_pref <- function(x, mu, sd, amp) {
   amp * (raw - 0.5)
 }
 
-# Expected log(λ) at (X_km, Y_km) for species s — the GP mean only (no
-# random realisation). This is what Row 1 draws on the grid.
+# Expected log(λ) at (X_km, Y_km) for species s — GP mean only, no draw.
 expected_log_lambda <- function(X_km, Y_km, Z_bathy, p) {
   p$mu +
     gauss_pref(Z_bathy, p$zbathy_pref_mu, p$zbathy_pref_sd, p$zbathy_pref_amp) +
@@ -72,7 +78,7 @@ expected_log_lambda <- function(X_km, Y_km, Z_bathy, p) {
 sp_colours <- viridis(n_species, option = "viridis", end = 0.85)
 
 # =============================================================================
-# Row 1 — Expected density surface, 1 km grid
+# Page 1 — Expected density surface, 1 km grid
 # =============================================================================
 
 cat("Building 1 km grid (",
@@ -95,7 +101,7 @@ log_lam_all <- unlist(lapply(seq_len(n_species),
                              function(s) grid_1km[[paste0("log_lambda_s", s)]]))
 clim <- quantile(log_lam_all, c(0.01, 0.99))
 
-# 200 m and shelf-break (~1290 m here: midpoint of the logistic) isobaths
+# 200 m and ~1000 m isobaths
 iso_levels <- c(200, 1000)
 
 p_row1 <- lapply(seq_len(n_species), function(s) {
@@ -126,20 +132,20 @@ p_row1 <- lapply(seq_len(n_species), function(s) {
     scale_fill_viridis_c(
       option = "viridis",
       limits = clim,
-      name   = "log(λ)",
+      name   = expression(log(lambda)),
       oob    = scales::squish
     ) +
     coord_fixed(
-      ratio = 1,
-      xlim  = c(0, X_km_max),
-      ylim  = c(0, Y_km_max),
+      ratio  = 1,
+      xlim   = c(0, X_km_max),
+      ylim   = c(0, Y_km_max),
       expand = FALSE
     ) +
     scale_x_continuous(breaks = seq(0, X_km_max, 200)) +
     scale_y_continuous(breaks = seq(0, Y_km_max, 200)) +
     labs(
       title    = sp_common[s],
-      subtitle = "Expected λ (z = 0 m, 1 km grid)",
+      subtitle = expression("Expected " * lambda * " (z = 0 m, 1 km grid)"),
       x        = "Easting (km, 0 = 100000 UTM E)",
       y        = "Northing (km, 0 = SF, 1270 = 49°N)"
     ) +
@@ -155,75 +161,122 @@ p_row1 <- lapply(seq_len(n_species), function(s) {
     )
 })
 
+page1 <- wrap_plots(p_row1, nrow = 1) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title    = "Simulated eDNA fields - SF to US/Canada border (v3.1)",
+    subtitle = expression("Expected density " * lambda *
+                          " on a 1 km grid at z = 0 m"),
+    theme    = theme(
+      plot.title    = element_text(size = 13, face = "bold"),
+      plot.subtitle = element_text(size = 9,  colour = "grey40")
+    )
+  ) &
+  theme(legend.position = "right")
+
 # =============================================================================
-# Row 2 — λ vs Z_bathy marginal, points coloured by Y
+# Page 2 — True marginal relationships (3 species × 3 covariates)
+#
+# For each species we hold the "other" variables at representative values:
+#
+#   λ vs X     :  Y fixed at the species' preferred latitude y_pref_mu;
+#                 Z_bathy is computed from (X, Y_fixed) via the rotated
+#                 shelf-slope profile, so the X response folds in the
+#                 bathymetric preference.
+#
+#   λ vs Y     :  X fixed at the domain centre (X_km_max / 2); Z_bathy
+#                 is computed from (X_fixed, Y). Combines the latitude
+#                 preference and the Z_bathy-via-Y gradient.
+#
+#   λ vs Z_bathy : Y fixed at y_pref_mu; X irrelevant since the mean
+#                 function uses Z_bathy directly. This isolates the
+#                 bathymetric preference curve.
+#
+# Free y-scales per species (densities differ by orders of magnitude)
+# and free x-scales per covariate (X, Y, Z_bathy have different ranges).
 # =============================================================================
 
-# Station-level mean lambda (average across sample depths) for each species
-station_lam <- bind_rows(lapply(seq_len(n_species), function(s) {
-  data.frame(
-    station = samples$station,
-    Y       = samples$Y,
-    Z_bathy = samples$Z_bathy,
-    lambda  = lambda_true[, s],
-    species = sp_common[s]
-  )
-})) %>%
-  group_by(station, Y, Z_bathy, species) %>%
-  summarise(lambda = mean(lambda), .groups = "drop") %>%
-  mutate(species = factor(species, levels = sp_common))
+covariate_levels <- c(
+  "X (km, easting)",
+  "Y (km, northing)",
+  "Z_bathy (m, bottom depth)"
+)
+cov_X <- covariate_levels[1]
+cov_Y <- covariate_levels[2]
+cov_Z <- covariate_levels[3]
 
-# Expected λ vs Z_bathy at each species' preferred latitude Y = y_pref_mu
-zbathy_seq <- seq(10, 2600, by = 5)
-bathy_mean_df <- bind_rows(lapply(seq_len(n_species), function(s) {
+# Build the sweeps for all species × covariates
+row2_df <- bind_rows(lapply(seq_len(n_species), function(s) {
   p <- gp_params[[s]]
-  z_mu <- gauss_pref(zbathy_seq, p$zbathy_pref_mu, p$zbathy_pref_sd, p$zbathy_pref_amp)
-  y_mu <- gauss_pref(p$y_pref_mu, p$y_pref_mu,     p$y_pref_sd,      p$y_pref_amp)
-  data.frame(
-    Z_bathy = zbathy_seq,
-    lambda  = exp(p$mu + z_mu + y_mu),
-    species = sp_common[s]
+
+  # X sweep: Y fixed at species' preferred latitude
+  x_seq    <- seq(0, X_km_max, length.out = 300)
+  Y_fixed  <- p$y_pref_mu
+  zb_x     <- bathy_mean_fn(x_seq, Y_fixed)
+  ll_x     <- expected_log_lambda(x_seq, Y_fixed, zb_x, p)
+
+  # Y sweep: X fixed at domain centre
+  y_seq    <- seq(0, Y_km_max, length.out = 300)
+  X_fixed  <- X_km_max / 2
+  zb_y     <- bathy_mean_fn(X_fixed, y_seq)
+  ll_y     <- expected_log_lambda(X_fixed, y_seq, zb_y, p)
+
+  # Z_bathy sweep: Y fixed at species' preferred latitude
+  z_seq    <- seq(10, 2600, length.out = 300)
+  ll_z     <- expected_log_lambda(NA_real_, Y_fixed, z_seq, p)
+
+  bind_rows(
+    data.frame(species = sp_common[s], covariate = cov_X,
+               axis_val = x_seq, lambda = exp(ll_x)),
+    data.frame(species = sp_common[s], covariate = cov_Y,
+               axis_val = y_seq, lambda = exp(ll_y)),
+    data.frame(species = sp_common[s], covariate = cov_Z,
+               axis_val = z_seq, lambda = exp(ll_z))
   )
 })) %>%
-  mutate(species = factor(species, levels = sp_common))
+  mutate(
+    species   = factor(species,   levels = sp_common),
+    covariate = factor(covariate, levels = covariate_levels)
+  )
 
-p_row2 <- ggplot() +
-  geom_point(
-    data  = station_lam,
-    aes(x = Z_bathy, y = lambda, colour = Y),
-    size  = 1.3,
-    alpha = 0.8
-  ) +
-  geom_line(
-    data      = bathy_mean_df,
-    aes(x = Z_bathy, y = lambda),
-    colour    = "grey25",
-    linewidth = 0.8
-  ) +
-  facet_wrap(~species, nrow = 1, scales = "free_y") +
-  scale_colour_viridis_c(
-    option = "mako",
-    name   = "Y (km)\nfrom SF",
-    limits = c(0, Y_km_max)
-  ) +
-  scale_x_continuous(breaks = c(0, 200, 500, 1000, 1500, 2000, 2500)) +
-  labs(
-    title    = "Bathymetric × latitude habitat",
-    subtitle = paste("Points = station means (all habitat structure), ",
-                     "line = expected λ at the species' preferred Y"),
-    x = "Bottom depth Z_bathy (m)",
-    y = "λ (animals / km²)"
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    plot.title      = element_text(face = "bold", size = 11),
-    plot.subtitle   = element_text(size = 9, colour = "grey40"),
-    strip.text      = element_text(face = "italic", size = 10),
-    legend.position = "right"
+# Species in columns, covariates (X, Y, Z_bathy) in rows, with
+# per-species y-scales (densities differ by orders of magnitude). This
+# requires one ggplot per species combined via patchwork, because
+# facet_grid can't make y free per column.
+page2_species <- lapply(seq_len(n_species), function(s) {
+  df <- row2_df %>% filter(species == sp_common[s])
+  p <- ggplot(df, aes(x = axis_val, y = lambda)) +
+    geom_line(colour = sp_colours[s], linewidth = 1.1) +
+    facet_wrap(~ covariate, nrow = 3, scales = "free_x",
+               strip.position = "right") +
+    labs(title = sp_common[s], x = NULL, y = NULL) +
+    theme_bw(base_size = 10) +
+    theme(
+      plot.title       = element_text(face = "italic", size = 11, hjust = 0.5),
+      strip.text.y     = element_text(size = 9),
+      panel.grid.minor = element_blank()
+    )
+  if (s == 1) {
+    p <- p + labs(y = expression(lambda ~ "(animals/km"^2 * ")"))
+  }
+  p
+})
+
+page2 <- wrap_plots(page2_species, nrow = 1) +
+  plot_annotation(
+    title    = "True marginal density relationships - v3.1",
+    subtitle = expression(
+      "Expected " * lambda * " (animals/km"^2 *
+      ") swept over one covariate at a time; others held at representative values"
+    ),
+    theme    = theme(
+      plot.title    = element_text(size = 13, face = "bold"),
+      plot.subtitle = element_text(size = 9,  colour = "grey40")
+    )
   )
 
 # =============================================================================
-# Row 3 — Water column sampling depth effect (3 depths)
+# Page 3 — Water column sampling depth effect (unchanged from v3/v4)
 # =============================================================================
 
 zsample_df <- bind_rows(lapply(seq_len(n_species), function(s) {
@@ -275,34 +328,25 @@ p_row3 <- lapply(seq_len(n_species), function(s) {
     )
 })
 
-# =============================================================================
-# Assemble
-# =============================================================================
-
-row1 <- wrap_plots(p_row1, nrow = 1) +
-  plot_layout(guides = "collect") &
-  theme(legend.position = "right")
-
-row2 <- p_row2
-
-row3 <- wrap_plots(p_row3, nrow = 1)
-
-fig <- row1 / row2 / row3 +
-  plot_layout(heights = c(2.2, 0.9, 0.9)) +
+page3 <- wrap_plots(p_row3, nrow = 1) +
   plot_annotation(
-    title    = "Simulated eDNA fields — SF to US/Canada border (V3)",
-    subtitle = paste0(
-      "Row 1: expected density λ on 1 km grid at z = 0 m; ",
-      "Row 2: λ vs Z_bathy (points coloured by Y); ",
-      "Row 3: eDNA water column effect at 3 sample depths"
-    ),
-    theme = theme(
+    title    = "eDNA water column effect - v3.1",
+    subtitle = "Per-species multiplicative shift on eDNA at each sample depth",
+    theme    = theme(
       plot.title    = element_text(size = 13, face = "bold"),
       plot.subtitle = element_text(size = 9,  colour = "grey40")
     )
   )
 
-ggsave("outputs/simulated_edna_fields_v3.1.png", fig,
-       width = 13, height = 18, dpi = 150, limitsize = FALSE)
+# =============================================================================
+# Write multi-page PDF (one page per panel) with cairo_pdf for Unicode
+# =============================================================================
 
-cat("Saved outputs/simulated_edna_fields_v3.1.png\n")
+out_pdf <- "outputs/simulated_edna_fields_v3.1.pdf"
+grDevices::cairo_pdf(out_pdf, width = 8, height = 8, onefile = TRUE)
+print(page1)
+print(page2)
+print(page3)
+invisible(dev.off())
+
+cat(sprintf("Saved %s (3 pages)\n", out_pdf))

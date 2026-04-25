@@ -56,10 +56,10 @@ simulated data in Stan.
 │   └── FinWhales.R
 │
 ├── outputs/                            Generated artifacts
-│   ├── simulated_edna_fields_v2.png        Tracked plots of simulated data
-│   ├── simulated_edna_fields_v3.png
-│   ├── simulated_edna_fields_v3.1.png
-│   ├── simulated_edna_fields_v4.pdf        (v4: multi-page PDF, one panel per page)
+│   ├── simulated_edna_fields_v2.pdf        Tracked plots of simulated data
+│   ├── simulated_edna_fields_v3.pdf        (multi-page PDF, one panel per page)
+│   ├── simulated_edna_fields_v3.1.pdf
+│   ├── simulated_edna_fields_v4.pdf
 │   ├── whale_edna_sim_v{1,2,3,3.1,4}.rds   Sim outputs (gitignored)
 │   └── whale_edna_output_v{1,2,3,3.1,4}/   Stan fit artifacts (gitignored):
 │           stan_data.rds                     stan_data list from step 03
@@ -211,7 +211,8 @@ so the two pipelines don't collide.)
   has an explicit `_v{N}` suffix (lowercase `v`).
 - V{N} simulation writes `outputs/whale_edna_sim_v{N}.rds`.
 - V{N} plotting reads `outputs/whale_edna_sim_v{N}.rds` and writes
-  `outputs/simulated_edna_fields_v{N}.png`.
+  `outputs/simulated_edna_fields_v{N}.pdf` (multi-page PDF, one panel
+  per page).
 - V{N} Stan-data formatting writes
   `outputs/whale_edna_output_v{N}/stan_data.rds`.
 - V{N} model runner writes
