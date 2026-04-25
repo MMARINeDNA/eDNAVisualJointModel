@@ -1,0 +1,138 @@
+---
+title: "Distance in Stan v2"
+author: "Len Thomas"
+date: "2026-04-24"
+format:
+  html:
+    number-sections: true
+    code-fold: true
+  pdf: 
+    number-sections: true
+    echo: false
+execute: 
+  cache: true
+---
+
+# Introduction
+
+```{r}
+#| code-summary: "Code: load libraries and define some constants"
+#| message: false
+#| warning: false
+
+#Load some libraries
+library(inlabru) 
+library(ggplot2)
+
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores() - 1)
+
+library(Distance)
+library(truncnorm)
+```
+
+Here we demonstrate a model-based Bayesian distance sampling analysis using an HMC algorithm, implemented using Stan via the `R` package `rstan`. Thanks to 
+- Juan Morales for his online example code (from 2020, in an [Rpubs document](https://rpubs.com/pajaro/jsds)), which provided some initial inspiration
+- the excellent Stan [Function Reference](https://mc-stan.org/docs/functions-reference/index.html) and [Users Guide](https://mc-stan.org/docs/stan-users-guide/index.html)
+- ChatGPT for providing some suggestions for improvements
+- MMARINeDNA collaborators for further suggestions
+
+Currently, we fit data using a half-normal detection function (with no adjustment terms) and use this to estimate probability of detection.  We combine with encounter rate to estimate density -- but without including uncertainty on that component -- this will come next!
+
+We test the function on some simulated data, and on datasets available in the `R` `Distance` and `inlabru` packages.
+
+# Background
+
+## Distance sampling detection function likelihood
+
+In line transect distance sampling, observers traverse a set of linear transects searching for objects of interest (animals or animal groups).  We assume that the probability of detecting objects depends on their distance from the transect line.  This is described using a "detection function", $g(x)$, which gives the probability of detection of an animal at distance $x$ from the line.  Parametric or semi-parametric functions are used for $g$.  These are generally set up under the assumption that $g(0)=1$ -- i.e., that the probability of detecting animals at 0 distance is 1.  (There are lots of further options, such as having $g$ depend on additional variables such as observer, weather, etc., and allowing $g(0)<1$, but we ignore them here.)  Observations further away than some specified ``truncation distance", $w$ are generally discarded, and hence $g(x)$ for $x>w$ is 0.
+
+Under a further assumption that true (observed and unobserved) animal distances are uniformly distributed wrt distance from the transect line (which is reasonable given random line placement within the study area), then pdf of observed animal distances, $f(x)$ is given by
+\begin{equation}
+f(x) = \frac{g(x)}{\int_0^w g(x) dx}.
+\end{equation}
+The integral in the denominator is typically called the "effective strip width" (ESW; technically it is the effective strip half-width) and denoted $\mu$.  (Dividing this quantity by the truncation distance gives the average probability of detecting an animal that is within distance $w$ of the line -- i.e., $p = \mu/w$.)
+
+In conventional distance sampling, the detection function is estimated using maximum likelihood.  Given a set of $n$ detections with observed distances $\mathbf{x} = (x_1, \ldots, x_n)$ the log-likelihood of detection function parameters  $\boldsymbol{\theta}$ is given by
+\begin{align}
+\ell \left(\boldsymbol{\theta}; \mathbf{x}\right) & = \sum_{i=1}^n \log (f(x)) \nonumber \\
+& = \sum_{i=1}^n \log(g(x)) - n \log(\mu).
+\end{align}
+
+## Half-normal detection function
+
+Here we will work with a very simple parametric detection function, the "half-normal", which is given by
+\begin{equation}
+g(x) = 
+\begin{cases}
+\exp \left( - \frac{x^2}{2 \sigma^2}\right) & x \leq w \\
+0 & x > w
+\end{cases}
+\end{equation}
+where $\sigma$ is the single parameter of this function.  Given this detection function, the log-likelihood is given by
+\begin{equation}
+\ell \left(\sigma; \mathbf{x}\right) = - \frac{1}{2 \sigma^2} \sum_{i=1}^n \left( x_i^2 \right) - n \log(\mu).
+\end{equation}
+Conveniently, $\mu$ in this case can be evaluated without the need for numerical integration, as 
+\begin{equation}
+\mu = \sigma \sqrt{\pi/2} \times \text{erf} \left[ w / \left(\sigma \sqrt{2}  \right ) \right]
+\end{equation}
+where $\text{erf}(x)$ denotes the error function evaluated at $x$.
+
+# Bayesian model
+
+Our goal here was to develop a Bayesian distance sampling model, and fit it using the Stan software.  
+
+One consideration was the prior distribution for $\sigma$.  After some experimentation, we decided to specify a normal prior on $\log \sigma$.  Working on the log scale meant we did not need to truncate the value of $\sigma$ (which cannot be negative); sampling could take place on the log scale which seemed to work better. We found a flat prior for $\sigma$ or $\log \sigma$ did not work well, but instead that we needed to specify a distribution with less mass at values of $\sigma$ close to 0, and also decreasing density with increasing values of $\sigma$ as the values approached and exceeded $w$.  [Some more thoughts on the justification for this could go here.]  After some experimentation, a $\text{N}(\log(w/2), 0.5)$ was found to be a good compromise between being quite uninformative while having the above properties.  [Some evidence around this experimentation could go here, or could be a separate section.]  This prior is shown in [put a figure here for some arbitrary w].
+
+## Stan code
+
+Below is the developed Stan model.
+
+```{stan output.var="cds_stan"}
+#| code-summary: "Code: stan model"
+#| echo: true
+
+data {
+  int n; //Number of observations
+  vector[n] x; //Vector of observed distances
+  real w; //Truncation distance
+  real L; //Line length
+  real hyper_sigma1; //Mean of normal prior on log sigma
+  real<lower=0> hyper_sigma2; //Standard deviation of normal prior on log sigma
+}
+transformed data {
+  real er2 = n / (2.0 * L); //Encounter rate (/2) - used in calculating D
+}
+parameters {
+  real log_sigma; //Log of half normal sigma parameter
+}
+transformed parameters {
+  real<lower=0> sigma = exp(log_sigma); //Define sigma
+  //Calculate effective strip width - can be done analytically in this case
+  // as it's a half normal
+  real esw_hn = sigma * sqrt(pi() / 2) * erf(w / (sqrt(2) * sigma));
+}
+model {
+  //Priors
+  log_sigma ~ normal(hyper_sigma1, hyper_sigma2); 
+
+  //Likelihood - vectorized
+  target += -sum(square(x)) / (2.0 * square(sigma)) - n * log(esw_hn);
+}
+generated quantities {
+  real p = esw_hn / w;
+  //Implement the formula D = n / (2 * L * esw) with n/2L pre-computed as er2 
+  real D = er2 / esw_hn;
+}
+```
+
+# Test datasets
+
+I have tried the above Stan code on a bunch of example datasets, and compared the results with those from the `Distance` package.  Here I will document those datasets (briefly).
+
+# Results
+
+Here I will show results from the trials.
+
