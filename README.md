@@ -55,15 +55,12 @@ simulated data in Stan.
 │   ├── DetectionsBySpecies.R               Ad-hoc data exploration
 │   └── FinWhales.R
 │
-├── outputs/                            Generated artifacts
-│   ├── simulated_edna_fields_v2.pdf        Tracked plots of simulated data
-│   ├── simulated_edna_fields_v3.pdf        (multi-page PDF, one panel per page)
-│   ├── simulated_edna_fields_v3.1.pdf
-│   ├── simulated_edna_fields_v4.pdf
-│   ├── whale_edna_sim_v{1,2,3,3.1,4}.rds   Sim outputs (gitignored)
-│   └── whale_edna_output_v{1,2,3,3.1,4}/   Stan fit artifacts (gitignored):
-│           stan_data.rds                     stan_data list from step 03
-│           whale_edna_fit.rds                CmdStanR fit object from step 04
+├── outputs/                            Generated artifacts (per-version)
+│   └── whale_edna_output_v{1,2,3,3.1,4}/   Per-version output folder:
+│           whale_edna_sim_v{N}.rds           Sim output (gitignored)
+│           simulated_edna_fields_v{N}.pdf    Tracked multi-page sim plot
+│           stan_data.rds                     stan_data list from step 03 (gitignored)
+│           whale_edna_fit.rds                CmdStanR fit object from step 04 (gitignored)
 │           *.png, *.csv, session_info.txt   diagnostics from step 05
 │
 ├── Data/                               Real survey data (effort, sightings, detections)
@@ -81,8 +78,8 @@ Rscript 00_pipeline_v4.r
 …or run individual steps in order:
 
 ```
-Rscript scripts/01_simulate_whale_edna_v4.r     # -> outputs/whale_edna_sim_v4.rds
-Rscript scripts/02_plot_simulated_data_v4.r     # -> outputs/simulated_edna_fields_v4.pdf (3 pages)
+Rscript scripts/01_simulate_whale_edna_v4.r     # -> outputs/whale_edna_output_v4/whale_edna_sim_v4.rds
+Rscript scripts/02_plot_simulated_data_v4.r     # -> outputs/whale_edna_output_v4/simulated_edna_fields_v4.pdf (3 pages)
 Rscript scripts/03_format_stan_data_v4.r        # -> outputs/whale_edna_output_v4/stan_data.rds
 Rscript scripts/04_run_whale_edna_model_v4.r    # -> outputs/whale_edna_output_v4/whale_edna_fit.rds
 Rscript scripts/05_check_whale_edna_model_v4.r  # -> diagnostics in outputs/whale_edna_output_v4/
@@ -129,7 +126,7 @@ the v3 sampler pathology — `HSGP_M = c(5, 5, 5)` instead of
 `c(10, 8, 8)`; the BB-phi `fmax(..., 0)` hinge replaced with
 `log1p_exp`; `kappa` fixed as data instead of sampled; `gp_l` and
 `gamma_phi` priors substantially tightened. Outputs land in
-`outputs/whale_edna_output_v3.1/` and `outputs/whale_edna_sim_v3.1.rds`
+`outputs/whale_edna_output_v3.1/`
 so the two pipelines don't collide.)
 
 - **Domain**: extended to cover the full US West Coast — San Francisco
@@ -209,9 +206,11 @@ so the two pipelines don't collide.)
 
 - Every file in `scripts/`, `stan/`, and the root `00_pipeline_v{N}.r`
   has an explicit `_v{N}` suffix (lowercase `v`).
-- V{N} simulation writes `outputs/whale_edna_sim_v{N}.rds`.
-- V{N} plotting reads `outputs/whale_edna_sim_v{N}.rds` and writes
-  `outputs/simulated_edna_fields_v{N}.pdf` (multi-page PDF, one panel
+- V{N} simulation writes `outputs/whale_edna_output_v{N}/whale_edna_sim_v{N}.rds`.
+- V{N} plotting reads `outputs/whale_edna_output_v{N}/whale_edna_sim_v{N}.rds`
+  and writes
+  `outputs/whale_edna_output_v{N}/simulated_edna_fields_v{N}.pdf`
+  (multi-page PDF, one panel
   per page).
 - V{N} Stan-data formatting writes
   `outputs/whale_edna_output_v{N}/stan_data.rds`.

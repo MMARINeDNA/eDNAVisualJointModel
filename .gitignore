@@ -54,8 +54,11 @@ rsconnect/
 # Simulation artifacts (regenerable via scripts/01_simulate_whale_edna_v*.r)
 outputs/*.rds
 
-# Model fit outputs — per-version run dirs created by scripts/04_run_whale_edna_model_v*.r
-outputs/whale_edna_output_*/
+# Per-version output folders. Sim rds, fit rds, stan_data, CmdStan
+# csvs, diagnostic PNGs / CSVs are all gitignored, but the
+# simulated_edna_fields_v*.pdf plot files are tracked.
+outputs/whale_edna_output_*/*
+!outputs/whale_edna_output_*/simulated_edna_fields_v*.pdf
 
 # Stan compile artifacts — cmdstanr writes a compiled binary and a
 # generated .hpp header next to each .stan source. Whitelist only the

@@ -4,7 +4,7 @@
 # Diagnostics + posterior predictive checks for the fit produced by
 # scripts/04_run_whale_edna_model_v4.r.
 #
-# Inputs:  outputs/whale_edna_sim_v4.rds        (for true parameters / truth)
+# Inputs:  outputs/whale_edna_output_v4/whale_edna_sim_v4.rds        (for true parameters / truth)
 #          outputs/whale_edna_output_v4/stan_data.rds
 #          outputs/whale_edna_output_v4/whale_edna_fit.rds
 # Outputs: plots, CSVs, and session info in outputs/whale_edna_output_v4/
@@ -29,7 +29,7 @@ OUTPUT_DIR <- "outputs/whale_edna_output_v4"
 cat("=== Loading fit and context ===\n")
 fit       <- readRDS(file.path(OUTPUT_DIR, "whale_edna_fit.rds"))
 stan_data <- readRDS(file.path(OUTPUT_DIR, "stan_data.rds"))
-sim       <- readRDS("outputs/whale_edna_sim_v4.rds")
+sim       <- readRDS("outputs/whale_edna_output_v4/whale_edna_sim_v4.rds")
 
 samples         <- sim$design$samples
 gp_params       <- sim$truth$gp_params
