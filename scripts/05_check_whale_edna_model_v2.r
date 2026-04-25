@@ -60,8 +60,11 @@ cat(sprintf("  Divergences       : %d\n", sum(sampler_diag$divergent__)))
 cat(sprintf("  Max treedepth hits: %d\n",
             sum(sampler_diag$treedepth__ >= MAX_TREEDEPTH)))
 
+# bayesplot's mcmc_nuts_* family expects a tidy NUTS data frame (Chain,
+# Iteration, Parameter, Value), not the wide CmdStanR shape used above.
+nuts_df <- bayesplot::nuts_params(fit)
 ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
-       mcmc_nuts_energy(sampler_diag) + ggtitle("NUTS Energy"),
+       mcmc_nuts_energy(nuts_df) + ggtitle("NUTS Energy"),
        width = 8, height = 4)
 
 scalar_pars <- c(
