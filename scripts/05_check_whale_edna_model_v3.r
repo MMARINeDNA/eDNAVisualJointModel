@@ -16,6 +16,7 @@ library(bayesplot)
 library(loo)
 library(patchwork)
 library(viridis)
+library(dplyr)
 
 set.seed(42)
 
@@ -66,7 +67,7 @@ rhat_bad <- diag_sum %>% filter(Rhat > 1.01)
 ess_bad  <- diag_sum %>% filter(ESS_bulk < 400 | ESS_tail < 400)
 cat(sprintf("  Rhat > 1.01 : %d parameters\n", nrow(rhat_bad)))
 cat(sprintf("  ESS < 400   : %d parameters\n", nrow(ess_bad)))
-if (nrow(rhat_bad) > 0) print(rhat_bad %>% select(variable, Rhat))
+if (nrow(rhat_bad) > 0) print(rhat_bad %>% dplyr::select(variable, Rhat))
 
 sampler_diag <- fit$sampler_diagnostics(format = "df")
 cat(sprintf("  Divergences       : %d\n", sum(sampler_diag$divergent__)))
