@@ -21,8 +21,11 @@
 # RStudio files
 .Rproj.user/
 
-# produced vignettes
-vignettes/*.html
+# produced vignettes — note: this project DOES track its rendered HTML
+# vignettes (they're the canonical write-up format and share well via
+# email / browsers). Keep the .pdf rule because the R-package toolchain
+# generates throwaway pdfs there.
+# vignettes/*.html         # intentionally not ignored
 vignettes/*.pdf
 
 # OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
@@ -59,6 +62,9 @@ outputs/*.rds
 # simulated_edna_fields_v*.pdf plot files are tracked.
 outputs/whale_edna_output_*/*
 !outputs/whale_edna_output_*/simulated_edna_fields_v*.pdf
+!outputs/whale_edna_output_*/v*_vignette.qmd
+!outputs/whale_edna_output_*/_vignette_figs/
+!outputs/whale_edna_output_*/_vignette_figs/**
 
 # Stan compile artifacts — cmdstanr writes a compiled binary and a
 # generated .hpp header next to each .stan source. Whitelist only the
