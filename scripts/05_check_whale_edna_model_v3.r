@@ -1,5 +1,5 @@
 # =============================================================================
-# 05_check_whale_edna_model_v3.R
+# 05_check_whale_edna_model_v3.R  (v3.1)
 #
 # Diagnostics + posterior predictive checks for the fit produced by
 # scripts/04_run_whale_edna_model_v3.r.
@@ -88,7 +88,7 @@ ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
 scalar_pars <- c(
   paste0("mu_sp[",    1:S, "]"),
   paste0("gp_sigma[", 1:S, "]"),
-  "kappa", "sigma_ct",
+  "sigma_ct",
   paste0("beta0_phi[",  1:S, "]"),
   paste0("gamma0_phi[", 1:S, "]"),
   paste0("gamma1_phi[", 1:S, "]")
@@ -120,12 +120,11 @@ true_scalar <- tibble(
   variable = c(
     paste0("mu_sp[",    1:S, "]"),
     paste0("gp_sigma[", 1:S, "]"),
-    "kappa", "sigma_ct"
+    "sigma_ct"
   ),
   true = c(
     sapply(gp_params, `[[`, "mu"),
     sapply(gp_params, `[[`, "sigma"),
-    sim$truth$qpcr_params$kappa,
     sim$truth$qpcr_params$sigma_ct
   )
 )

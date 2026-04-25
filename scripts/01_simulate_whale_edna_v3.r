@@ -1,5 +1,5 @@
 # =============================================================================
-# simulate_whale_edna_v3.R
+# simulate_whale_edna_v3.R  (v3.1)
 #
 # Anisotropic 3-species eDNA simulation
 # Domain: US West Coast, San Francisco to US/Canada border, UTM Zone 10N

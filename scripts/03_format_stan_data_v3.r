@@ -1,5 +1,5 @@
 # =============================================================================
-# 03_format_stan_data_v3.R
+# 03_format_stan_data_v3.R  (v3.1)
 #
 # Read the simulated eDNA data (outputs/whale_edna_sim_v3.rds) and assemble
 # the Stan data list used by stan/whale_edna_hsgp_v3.stan. Writes:
@@ -23,10 +23,12 @@ set.seed(42)
 # -----------------------------------------------------------------------------
 
 # HSGP basis terms per dimension.
-# lx_min ~ 30 km in 300 km domain  → ~10 terms
-# ly_min ~ 100 km in 400 km domain → ~8 terms
-# lz_min ~ 100 m in 2500 m domain  → ~8 terms
-HSGP_M <- c(10L, 8L, 8L)     # M_total = 640
+# v3.1: dropped from c(10, 8, 8) (M = 640) to c(5, 5, 5) (M = 125) to
+# tame the high-dim curvature pathology that was forcing the v3 sampler
+# to max-treedepth on every iteration. With the gp_l priors now
+# concentrated near the simulated truth (50, 150, 300), 5 basis
+# functions per dimension are enough to represent the GP.
+HSGP_M <- c(5L, 5L, 5L)      # M_total = 125
 HSGP_C <- c(1.5, 1.5, 1.5)   # boundary extension (>= 1.5 recommended)
 
 OUTPUT_DIR <- "outputs/whale_edna_output_v3"
@@ -202,19 +204,23 @@ stan_data <- list(
   # these would come from a pre-estimated standard curve.
   alpha_ct = sim$truth$qpcr_params$alpha_ct,
   beta_ct  = sim$truth$qpcr_params$beta_ct,
+  # v3.1: kappa is now fixed in data (not sampled).
+  kappa    = sim$truth$qpcr_params$kappa,
 
   # Prior hyperparameters (Normal mu / sigma for each scalar or vector prior)
+  # v3.1 prior sigmas: gp_l is roughly cut by 4x; gamma0_phi /
+  # gamma1_phi by 10x. These are the main reparameterization knobs to
+  # tame the v3 multimodality.
   prior_mu_sp_mu         =   2.0,
   prior_mu_sp_sig        =   1.5,
   prior_gp_sigma_sig     =   1.5,
-  prior_gp_lx_mu         =  50.0, prior_gp_lx_sig        =  40.0,
-  prior_gp_ly_mu         = 150.0, prior_gp_ly_sig        =  80.0,
-  prior_gp_lz_mu         = 300.0, prior_gp_lz_sig        = 150.0,
-  prior_kappa_mu         =   0.5, prior_kappa_sig        =   0.3,
+  prior_gp_lx_mu         =  50.0, prior_gp_lx_sig        =  10.0,
+  prior_gp_ly_mu         = 150.0, prior_gp_ly_sig        =  20.0,
+  prior_gp_lz_mu         = 300.0, prior_gp_lz_sig        =  40.0,
   prior_sigma_ct_mu      =   0.5, prior_sigma_ct_sig     =   0.3,
   prior_beta0_phi_mu     =   0.0, prior_beta0_phi_sig    =   1.0,
-  prior_gamma0_phi_mu    =   2.0, prior_gamma0_phi_sig   =   1.0,
-  prior_gamma1_phi_mu    =   0.5, prior_gamma1_phi_sig   =   0.3
+  prior_gamma0_phi_mu    =   2.0, prior_gamma0_phi_sig   =   0.05,
+  prior_gamma1_phi_mu    =   0.5, prior_gamma1_phi_sig   =   0.02
 )
 
 # Sanity checks

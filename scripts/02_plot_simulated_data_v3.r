@@ -1,5 +1,5 @@
 # =============================================================================
-# plot_simulated_data_v3.R
+# plot_simulated_data_v3.R  (v3.1)
 #
 # Three-row figure for the V3 simulation (SF to US/Canada border, rotated
 # bathymetry, 300 stations × 3 sample depths):

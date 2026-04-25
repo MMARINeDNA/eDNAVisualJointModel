@@ -1,5 +1,5 @@
 # =============================================================================
-# 04_run_whale_edna_model_v3.R
+# 04_run_whale_edna_model_v3.R  (v3.1)
 #
 # Compile stan/whale_edna_hsgp_v3.stan and fit it to the Stan data list built
 # by scripts/03_format_stan_data_v3.r.
@@ -46,6 +46,9 @@ mod <- cmdstan_model(
   cpp_options = list(stan_threads = TRUE)
 )
 
+# v3.1: kappa is fixed in data and no longer a parameter, so it is not
+# initialised here. gamma0_phi / gamma1_phi are initialised at their
+# tight prior means.
 init_fn <- function() {
   list(
     mu_sp      = rep(2.0, S),
@@ -53,11 +56,10 @@ init_fn <- function() {
     gp_l       = matrix(c(50, 150, 300),
                         nrow = S, ncol = 3, byrow = TRUE),
     z_beta     = matrix(0.0, nrow = S, ncol = M_total),
-    kappa      = 0.85,
     sigma_ct   = 0.50,
     beta0_phi  = rep(2.0, S),
-    gamma0_phi = rep(5.0, S),
-    gamma1_phi = rep(1.0, S)
+    gamma0_phi = rep(2.0, S),
+    gamma1_phi = rep(0.5, S)
   )
 }
 
