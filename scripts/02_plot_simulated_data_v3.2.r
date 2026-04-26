@@ -1,20 +1,21 @@
 # =============================================================================
 # plot_simulated_data_v3.2.R
 #
-# Two-page figure for the v3.2 hake-only, surface-only simulation.
+# Two-page figure for the v3.2 hake-only, surface-only, zero-mean-GP
+# simulation. With Option A applied, the simulated field is a pure
+# zero-mean GP draw (no deterministic habitat preference function), so
+# there is nothing closed-form to plot on a 1 km grid - the only
+# meaningful "truth" lives at the simulated station locations.
 #
-#   Page 1 - Expected density surface lambda(X, Y, Z_bathy(X, Y)) for
-#             hake on a 1 km grid (no kriging - GP mean evaluated in
-#             closed form at every grid cell). Station locations
-#             overlaid.
+#   Page 1 - Stations on the X-Y plane, coloured by log(lambda_true).
+#            White contours mark the 200 m and 1000 m isobaths so the
+#            shelf-slope geometry is still visible.
 #
-#   Page 2 - True marginal relationship between hake's expected density
-#             lambda and each of the three spatial covariates
-#             (X, Y, Z_bathy). True relationship only (line, no points).
-#
-# The water column / metabarcoding pages from v3 are dropped: surface
-# only means the water-column multiplier is 1 everywhere, and there's
-# no MB process to plot.
+#   Page 2 - log(lambda_true) at each station as a function of the three
+#            spatial covariates (X, Y, Z_bathy). Free x-scales per
+#            covariate. There's no underlying functional truth to draw
+#            a smooth line for - the field is just a single GP draw -
+#            so this page shows only the per-station scatter.
 # =============================================================================
 
 library(tidyverse)
@@ -25,7 +26,6 @@ sim <- readRDS("outputs/whale_edna_output_v3.2/whale_edna_sim_v3.2.rds")
 
 sp_common      <- sim$meta$sp_common
 n_species      <- sim$meta$n_species
-gp_params      <- sim$truth$gp_params
 lambda_true    <- sim$truth$lambda_true_si
 samples        <- sim$design$samples
 stations       <- sim$design$stations
@@ -36,7 +36,8 @@ bathy          <- sim$meta$bathy_profile
 stopifnot(n_species == 1L)
 
 # ---------------------------------------------------------------------------
-# Re-create the deterministic functions used in the sim
+# Re-create the deterministic bathymetry function (still relevant for the
+# isobath contours on the map) - the GP mean function is gone with Option A.
 # ---------------------------------------------------------------------------
 rot <- bathy$rotation_deg * pi / 180
 
@@ -55,63 +56,49 @@ bathy_mean_fn <- function(X_km, Y_km) {
   )
 }
 
-gauss_pref <- function(x, mu, sd, amp) {
-  raw <- dnorm(x, mu, sd) / dnorm(mu, mu, sd)
-  amp * (raw - 0.5)
-}
-
-expected_log_lambda <- function(X_km, Y_km, Z_bathy, p) {
-  p$mu +
-    gauss_pref(Z_bathy, p$zbathy_pref_mu, p$zbathy_pref_sd, p$zbathy_pref_amp) +
-    gauss_pref(Y_km,    p$y_pref_mu,      p$y_pref_sd,      p$y_pref_amp)
-}
-
 sp_colour <- viridis(1, option = "viridis", end = 0.85)
 
+# Per-station truth dataframe
+lambda_vec <- as.numeric(lambda_true[, 1])
+truth_df <- tibble(
+  X           = as.numeric(samples[["X"]]),
+  Y           = as.numeric(samples[["Y"]]),
+  Z_bathy     = as.numeric(samples[["Z_bathy"]]),
+  lambda_true = lambda_vec,
+  log_lambda  = log(lambda_vec)
+)
+
 # =============================================================================
-# Page 1 - Expected density surface, 1 km grid
+# Page 1 - Stations coloured by simulated log(lambda), with isobaths
 # =============================================================================
 
-cat("Building 1 km grid (",
-    X_km_max + 1, " x ", Y_km_max + 1, " cells)...\n", sep = "")
-
-grid_1km <- expand.grid(
-  X = seq(0, X_km_max, by = 1),
-  Y = seq(0, Y_km_max, by = 1)
+cat("Building bathymetry contour grid...\n")
+grid_iso <- expand.grid(
+  X = seq(0, X_km_max, by = 5),
+  Y = seq(0, Y_km_max, by = 5)
 ) %>%
   mutate(Z_bathy = bathy_mean_fn(X, Y))
-
-p <- gp_params[[1]]
-grid_1km$log_lambda <- expected_log_lambda(grid_1km$X, grid_1km$Y, grid_1km$Z_bathy, p)
-
-clim <- quantile(grid_1km$log_lambda, c(0.01, 0.99))
 
 iso_levels <- c(200, 1000)
 
 page1 <- ggplot() +
-  geom_raster(data = grid_1km, aes(X, Y, fill = log_lambda)) +
   geom_contour(
-    data      = grid_1km,
+    data      = grid_iso,
     aes(X, Y, z = Z_bathy),
     breaks    = iso_levels,
-    colour    = "white",
-    linewidth = 0.25,
-    alpha     = 0.5
+    colour    = "grey60",
+    linewidth = 0.3,
+    alpha     = 0.8
   ) +
   geom_point(
-    data   = stations,
-    aes(X, Y),
-    shape  = 21,
-    size   = 0.8,
-    stroke = 0.3,
-    fill   = NA,
-    colour = "white"
+    data   = truth_df,
+    aes(X, Y, colour = log_lambda),
+    size   = 1.8,
+    alpha  = 0.9
   ) +
-  scale_fill_viridis_c(
+  scale_colour_viridis_c(
     option = "viridis",
-    limits = clim,
-    name   = expression(log(lambda)),
-    oob    = scales::squish
+    name   = expression(log(lambda))
   ) +
   coord_fixed(
     ratio  = 1,
@@ -122,8 +109,8 @@ page1 <- ggplot() +
   scale_x_continuous(breaks = seq(0, X_km_max, 200)) +
   scale_y_continuous(breaks = seq(0, Y_km_max, 200)) +
   labs(
-    title    = sprintf("Simulated eDNA field (v3.2) - %s", sp_common[1]),
-    subtitle = expression("Expected " * lambda * " on a 1 km grid at z = 0 m (surface)"),
+    title    = sprintf("Simulated eDNA field (v3.2, zero-mean GP) - %s", sp_common[1]),
+    subtitle = "Per-station log(lambda) - GP draw with sigma=1.2, (lx, ly, lz)=(50, 300, 150). Grey isobaths: 200, 1000 m.",
     x        = "Easting (km, 0 = 100000 UTM E)",
     y        = "Northing (km, 0 = SF, 1270 = 49 deg N)"
   ) +
@@ -135,7 +122,7 @@ page1 <- ggplot() +
   )
 
 # =============================================================================
-# Page 2 - True marginal relationships (single species, three covariates)
+# Page 2 - log(lambda) at each station vs each spatial covariate
 # =============================================================================
 
 covariate_levels <- c(
@@ -143,44 +130,25 @@ covariate_levels <- c(
   "Y (km, northing)",
   "Z_bathy (m, bottom depth)"
 )
-cov_X <- covariate_levels[1]
-cov_Y <- covariate_levels[2]
-cov_Z <- covariate_levels[3]
 
-p <- gp_params[[1]]
-
-x_seq    <- seq(0, X_km_max, length.out = 300)
-Y_fixed  <- p$y_pref_mu
-zb_x     <- bathy_mean_fn(x_seq, Y_fixed)
-ll_x     <- expected_log_lambda(x_seq, Y_fixed, zb_x, p)
-
-y_seq    <- seq(0, Y_km_max, length.out = 300)
-X_fixed  <- X_km_max / 2
-zb_y     <- bathy_mean_fn(X_fixed, y_seq)
-ll_y     <- expected_log_lambda(X_fixed, y_seq, zb_y, p)
-
-z_seq    <- seq(10, 2600, length.out = 300)
-ll_z     <- expected_log_lambda(NA_real_, Y_fixed, z_seq, p)
-
-row2_df <- bind_rows(
-  data.frame(species = sp_common[1], covariate = cov_X,
-             axis_val = x_seq, lambda = exp(ll_x)),
-  data.frame(species = sp_common[1], covariate = cov_Y,
-             axis_val = y_seq, lambda = exp(ll_y)),
-  data.frame(species = sp_common[1], covariate = cov_Z,
-             axis_val = z_seq, lambda = exp(ll_z))
+page2_df <- bind_rows(
+  truth_df %>% transmute(covariate = covariate_levels[1], axis_val = X,
+                         log_lambda = log_lambda),
+  truth_df %>% transmute(covariate = covariate_levels[2], axis_val = Y,
+                         log_lambda = log_lambda),
+  truth_df %>% transmute(covariate = covariate_levels[3], axis_val = Z_bathy,
+                         log_lambda = log_lambda)
 ) %>%
   mutate(covariate = factor(covariate, levels = covariate_levels))
 
-page2 <- ggplot(row2_df, aes(x = axis_val, y = lambda)) +
-  geom_line(colour = sp_colour, linewidth = 1.1) +
+page2 <- ggplot(page2_df, aes(x = axis_val, y = log_lambda)) +
+  geom_point(colour = sp_colour, alpha = 0.6, size = 1.2) +
   facet_wrap(~ covariate, ncol = 3, scales = "free_x") +
   labs(
-    title    = sprintf("True marginal density relationships (v3.2) - %s", sp_common[1]),
-    subtitle = expression("Expected " * lambda * " (animals/km"^2 *
-                          ") swept over one covariate at a time; others held at representative values"),
+    title    = sprintf("Per-station truth vs spatial covariates (v3.2) - %s", sp_common[1]),
+    subtitle = "log(lambda) at simulated stations. No closed-form truth - field is a single GP draw.",
     x        = NULL,
-    y        = expression(lambda ~ "(animals/km"^2 * ")")
+    y        = expression(log(lambda))
   ) +
   theme_bw(base_size = 11) +
   theme(
