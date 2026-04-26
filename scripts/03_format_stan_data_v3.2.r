@@ -81,17 +81,31 @@ coords_raw <- cbind(
   as.numeric(samples[["Z_bathy"]])
 )
 
-# Fixed physical ranges (interpretable; consistent across subsets)
-coord_centre <- c(150,  200,  1250)
-coord_scale  <- c(150,  200,  1250)
+# v3.2 fix: normalisation constants are derived from the actual v3
+# domain (500 km x 1270 km x ~3500 m), not the v1/v2 300 x 400 km
+# legacy values that were never updated when v3 extended the domain.
+# With L_hsgp = 1.5 the HSGP basis is valid only for normalised
+# coordinates in [-1.5, 1.5] - under the old constants Y_norm reached
+# 5.35, putting most northern stations outside the basis support.
+X_km_max    <- sim$meta$X_km_max                  # 500
+Y_km_max    <- sim$meta$Y_km_max                  # 1270
+Z_bathy_max <- 3500                                # >= max(Z_bathy) with headroom
+
+coord_centre <- c(X_km_max  / 2, Y_km_max  / 2, Z_bathy_max / 2)
+coord_scale  <- c(X_km_max  / 2, Y_km_max  / 2, Z_bathy_max / 2)
 
 coords_norm <- sweep(coords_raw, 2, coord_centre, "-")
 coords_norm <- sweep(coords_norm, 2, coord_scale,  "/")
 
+cat(sprintf("  coord_centre: [%.0f, %.0f, %.0f]\n",
+            coord_centre[1], coord_centre[2], coord_centre[3]))
+cat(sprintf("  coord_scale:  [%.0f, %.0f, %.0f]\n",
+            coord_scale[1],  coord_scale[2],  coord_scale[3]))
 cat(sprintf("  X_norm:       [%.3f, %.3f]\n", min(coords_norm[,1]), max(coords_norm[,1])))
 cat(sprintf("  Y_norm:       [%.3f, %.3f]\n", min(coords_norm[,2]), max(coords_norm[,2])))
 cat(sprintf("  Z_bathy_norm: [%.3f, %.3f]\n", min(coords_norm[,3]), max(coords_norm[,3])))
 stopifnot(all(is.finite(coords_norm)))
+stopifnot(max(abs(coords_norm)) < 1.5)             # all data inside HSGP boundary
 
 # -----------------------------------------------------------------------------
 # 4. qPCR data - long form (N * R rows)
