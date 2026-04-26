@@ -332,7 +332,216 @@ ggsave(file.path(OUTPUT_DIR, "bathy_preference_recovery.png"),
        p_bathy_rec, width = 6, height = 5)
 
 # -----------------------------------------------------------------------------
-# 7. Save diagnostics and session info
+# 7. Posterior decomposition: marginal field structure
+#
+# Sample log(lambda) = mu_sp + f_s on a regular 3D grid in (X, Y, Z_bathy)
+# from each posterior draw, then marginalise to get 1D and 2D posterior
+# summaries. This recovers "habitat-preference"-style interpretations
+# without fitting structured covariates explicitly. With covariates
+# (e.g. log(lambda) = mu + beta_Y * Y_pref(Y) + ... + f_s) the GP basis
+# would fight the structured terms because they span the same function
+# space; here, the GP does its job (fitting the field) and the
+# habitat-preference summaries are read off the posterior afterwards.
+# -----------------------------------------------------------------------------
+cat("=== Posterior decomposition: marginal field structure ===\n")
+
+# Build the 3D grid spanning the data domain. Limits and HSGP basis size
+# are pulled from the saved stan_data so this stays consistent if the
+# domain is later changed. We deliberately use a *grid* (not data
+# locations) so the marginals are over the full domain, not just where
+# stations happen to be.
+n_grid_x <- 21
+n_grid_y <- 26
+n_grid_z <- 36
+X_km_max     <- sim$meta$X_km_max
+Y_km_max     <- sim$meta$Y_km_max
+Z_bathy_max  <- 2 * stan_data$coord_scale[3]   # half-range x 2 = full range
+
+x_grid <- seq(0, X_km_max,    length.out = n_grid_x)
+y_grid <- seq(0, Y_km_max,    length.out = n_grid_y)
+z_grid <- seq(0, Z_bathy_max, length.out = n_grid_z)
+
+coord_centre_use <- as.numeric(stan_data$coord_centre)
+coord_scale_use  <- as.numeric(stan_data$coord_scale)
+L_hsgp_use       <- as.numeric(stan_data$L_hsgp)
+m_hsgp_use       <- as.integer(stan_data$m_hsgp)
+m_x <- m_hsgp_use[1]; m_y <- m_hsgp_use[2]; m_z <- m_hsgp_use[3]
+M_total_use      <- m_x * m_y * m_z
+
+x_norm_grid <- (x_grid - coord_centre_use[1]) / coord_scale_use[1]
+y_norm_grid <- (y_grid - coord_centre_use[2]) / coord_scale_use[2]
+z_norm_grid <- (z_grid - coord_centre_use[3]) / coord_scale_use[3]
+
+stopifnot(all(abs(x_norm_grid) < L_hsgp_use[1]))
+stopifnot(all(abs(y_norm_grid) < L_hsgp_use[2]))
+stopifnot(all(abs(z_norm_grid) < L_hsgp_use[3]))
+
+# 1-D Laplacian eigenfunctions on [-L, L] (matches stan/whale_edna_hsgp_v3.2.stan)
+phi1d_eval <- function(L, j, xn) (1/sqrt(L)) * sin(j * pi * (xn + L) / (2 * L))
+
+phi_x <- sapply(1:m_x, function(j) phi1d_eval(L_hsgp_use[1], j, x_norm_grid))
+phi_y <- sapply(1:m_y, function(j) phi1d_eval(L_hsgp_use[2], j, y_norm_grid))
+phi_z <- sapply(1:m_z, function(j) phi1d_eval(L_hsgp_use[3], j, z_norm_grid))
+
+# Means over the grid - used to integrate out a dimension when marginalising
+phi_x_avg <- colMeans(phi_x)
+phi_y_avg <- colMeans(phi_y)
+phi_z_avg <- colMeans(phi_z)
+
+# Posterior draws. Thin to ~200 for the marginal computation - cheap enough
+# to do the full posterior, but plotting is more legible with a thinned set
+# and the credible bands are unchanged.
+mu_sp_d_all    <- as.matrix(fit$draws("mu_sp",    format = "matrix"))[, 1]
+gp_sigma_d_all <- as.matrix(fit$draws("gp_sigma", format = "matrix"))[, 1]
+gp_l_d_all     <- as.matrix(fit$draws("gp_l",     format = "matrix"))   # n x 3 (S=1)
+z_beta_d_all   <- as.matrix(fit$draws("z_beta",   format = "matrix"))   # n x M
+
+n_draws_total <- length(mu_sp_d_all)
+thin_idx      <- round(seq(1, n_draws_total,
+                           length.out = min(200, n_draws_total)))
+n_draws_use   <- length(thin_idx)
+
+cat(sprintf("  Grid: %d x %d x %d = %d cells; using %d / %d posterior draws\n",
+            n_grid_x, n_grid_y, n_grid_z,
+            n_grid_x * n_grid_y * n_grid_z,
+            n_draws_use, n_draws_total))
+
+# Storage. f_*_marg holds log(lambda) = mu_sp + f at every grid point /
+# marginal axis combination.
+f_x_marg  <- matrix(0, nrow = n_draws_use, ncol = n_grid_x)
+f_y_marg  <- matrix(0, nrow = n_draws_use, ncol = n_grid_y)
+f_z_marg  <- matrix(0, nrow = n_draws_use, ncol = n_grid_z)
+f_yz_marg <- array(0, dim = c(n_draws_use, n_grid_y, n_grid_z))
+
+# Constants for spectral weight per dimension (depend on draw via sigma, l)
+sqrt_2pi <- sqrt(2 * pi)
+
+for (d_i in seq_along(thin_idx)) {
+  d        <- thin_idx[d_i]
+  mu_d     <- mu_sp_d_all[d]
+  sigma_d  <- gp_sigma_d_all[d]
+  lx_d     <- gp_l_d_all[d, 1]
+  ly_d     <- gp_l_d_all[d, 2]
+  lz_d     <- gp_l_d_all[d, 3]
+  zb_d     <- z_beta_d_all[d, ]
+
+  # Per-dim spectral density factors (alpha_dim^2 = sigma^(2/3) per dim)
+  alpha_dim <- sigma_d^(1/3)
+  freq1 <- (1:m_x) * pi / (2 * L_hsgp_use[1]) / coord_scale_use[1]
+  freq2 <- (1:m_y) * pi / (2 * L_hsgp_use[2]) / coord_scale_use[2]
+  freq3 <- (1:m_z) * pi / (2 * L_hsgp_use[3]) / coord_scale_use[3]
+  spd1  <- alpha_dim^2 * sqrt_2pi * lx_d * exp(-0.5 * (lx_d * freq1)^2)
+  spd2  <- alpha_dim^2 * sqrt_2pi * ly_d * exp(-0.5 * (ly_d * freq2)^2)
+  spd3  <- alpha_dim^2 * sqrt_2pi * lz_d * exp(-0.5 * (lz_d * freq3)^2)
+
+  # Spectral weights as a 3D array indexed [j1, j2, j3]
+  wt_3d <- sqrt(outer(outer(spd1, spd2), spd3))
+
+  # z_beta arrives flattened in Stan's order: col = (j1-1)*m_y*m_z + (j2-1)*m_z + j3
+  # i.e. j3 fastest. Reshape and permute to get [j1, j2, j3].
+  zb_3d <- aperm(array(zb_d, dim = c(m_z, m_y, m_x)), c(3, 2, 1))
+  wz    <- wt_3d * zb_3d
+
+  # 1D marginal f(x): integrate out (y, z)
+  #   f(x_i) = sum_{j1,j2,j3} wz[j1,j2,j3] * phi_x[i,j1] * phi_y_avg[j2] * phi_z_avg[j3]
+  # Contraction: coeff_x[j1] = sum_{j2,j3} wz[j1,j2,j3] * phi_y_avg[j2] * phi_z_avg[j3]
+  coeff_x <- vapply(1:m_x,
+                    function(j1) as.numeric(t(phi_y_avg) %*% wz[j1, , ] %*% phi_z_avg),
+                    numeric(1))
+  f_x_marg[d_i, ] <- mu_d + as.vector(phi_x %*% coeff_x)
+
+  # 1D marginal f(y): integrate out (x, z)
+  coeff_y <- vapply(1:m_y,
+                    function(j2) as.numeric(t(phi_x_avg) %*% wz[, j2, ] %*% phi_z_avg),
+                    numeric(1))
+  f_y_marg[d_i, ] <- mu_d + as.vector(phi_y %*% coeff_y)
+
+  # 1D marginal f(z): integrate out (x, y)
+  coeff_z <- vapply(1:m_z,
+                    function(j3) as.numeric(t(phi_x_avg) %*% wz[, , j3] %*% phi_y_avg),
+                    numeric(1))
+  f_z_marg[d_i, ] <- mu_d + as.vector(phi_z %*% coeff_z)
+
+  # 2D marginal f(y, z): integrate out x
+  # coeff_yz[j2, j3] = sum_{j1} phi_x_avg[j1] * wz[j1, j2, j3]
+  coeff_yz <- matrix(0, m_y, m_z)
+  for (j1 in 1:m_x) coeff_yz <- coeff_yz + phi_x_avg[j1] * wz[j1, , ]
+  f_yz_marg[d_i, , ] <- mu_d + phi_y %*% coeff_yz %*% t(phi_z)
+}
+
+# Summarise: posterior median + 50% / 95% credible bands per axis grid
+summarise_axis <- function(mat, axis_grid, axis_name) {
+  qs <- apply(mat, 2, quantile, probs = c(0.025, 0.25, 0.50, 0.75, 0.975))
+  tibble(
+    !!axis_name := axis_grid,
+    q025 = qs[1, ], q25 = qs[2, ], q50 = qs[3, ], q75 = qs[4, ], q975 = qs[5, ]
+  )
+}
+
+f_x_summary <- summarise_axis(f_x_marg, x_grid, "X")
+f_y_summary <- summarise_axis(f_y_marg, y_grid, "Y")
+f_z_summary <- summarise_axis(f_z_marg, z_grid, "Z_bathy")
+
+# 1D marginal plots
+plot_axis_marginal <- function(df, axis_col, axis_lab, title_suffix) {
+  ggplot(df, aes(x = .data[[axis_col]], y = q50)) +
+    geom_ribbon(aes(ymin = q025, ymax = q975), fill = "#3B528B", alpha = 0.18) +
+    geom_ribbon(aes(ymin = q25,  ymax = q75),  fill = "#3B528B", alpha = 0.32) +
+    geom_line(colour = "#3B528B", linewidth = 0.9) +
+    labs(
+      title    = sprintf("Posterior marginal: log(lambda) vs %s", title_suffix),
+      subtitle = sprintf("%s; other dims integrated out over the domain grid. Median + 50%% / 95%% CI.", sp_common[1]),
+      x        = axis_lab,
+      y        = expression(log(lambda))
+    ) +
+    theme_bw(base_size = 11) +
+    theme(plot.title = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 9, colour = "grey40"))
+}
+
+p_marg_x <- plot_axis_marginal(f_x_summary, "X",       "X (km, easting)",          "Easting")
+p_marg_y <- plot_axis_marginal(f_y_summary, "Y",       "Y (km, northing)",         "Latitude")
+p_marg_z <- plot_axis_marginal(f_z_summary, "Z_bathy", "Z_bathy (m, bottom depth)", "Bottom depth")
+
+ggsave(file.path(OUTPUT_DIR, "posterior_marginals_1d.png"),
+       p_marg_x / p_marg_y / p_marg_z,
+       width = 8, height = 10)
+
+# 2D marginal: f(Y, Z_bathy) with X integrated out
+yz_post_mean <- apply(f_yz_marg, c(2, 3), mean)
+yz_df <- expand.grid(Y = y_grid, Z_bathy = z_grid) %>%
+  mutate(log_lambda = as.vector(yz_post_mean))
+
+p_marg_yz <- ggplot(yz_df, aes(x = Y, y = Z_bathy, fill = log_lambda)) +
+  geom_raster() +
+  scale_y_reverse() +
+  scale_fill_viridis_c(option = "viridis", name = expression(log(lambda))) +
+  labs(
+    title    = "Posterior marginal: log(lambda) over (Y, Z_bathy), X integrated out",
+    subtitle = sprintf("%s; posterior mean.", sp_common[1]),
+    x        = "Y (km, northing)",
+    y        = "Z_bathy (m, bottom depth)"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(plot.title = element_text(face = "bold", size = 11),
+        plot.subtitle = element_text(size = 9, colour = "grey40"),
+        panel.grid = element_blank())
+
+ggsave(file.path(OUTPUT_DIR, "posterior_marginal_yz.png"),
+       p_marg_yz, width = 8, height = 5)
+
+# CSV exports for downstream use
+write_csv(f_x_summary, file.path(OUTPUT_DIR, "posterior_marginal_x.csv"))
+write_csv(f_y_summary, file.path(OUTPUT_DIR, "posterior_marginal_y.csv"))
+write_csv(f_z_summary, file.path(OUTPUT_DIR, "posterior_marginal_z.csv"))
+
+cat(sprintf("  log(lambda) range across 1D marginals: x [%.2f, %.2f], y [%.2f, %.2f], z [%.2f, %.2f]\n",
+            min(f_x_summary$q50), max(f_x_summary$q50),
+            min(f_y_summary$q50), max(f_y_summary$q50),
+            min(f_z_summary$q50), max(f_z_summary$q50)))
+
+# -----------------------------------------------------------------------------
+# 8. Save diagnostics and session info
 # -----------------------------------------------------------------------------
 cat("=== Saving diagnostics ===\n")
 
