@@ -162,7 +162,20 @@ habitat preference as v3.)
 - **Sampled parameters**: only `mu_sp`, `gp_sigma`, `gp_l`, `z_beta`,
   `sigma_ct`. With kappa and the MB block gone, the only thing the
   posterior has to identify is the latent GP and the Ct noise.
-- **HSGP / length-scale priors**: kept at v3 values (same `gp_l` priors).
+- **`log_vol_filtered` in the eDNA log-mean**: the previous v3.2 model
+  computed `log_lambda_edna = log_lambda + log_zsample_effect +
+  log_conv_factor`, missing the `log(vol_filtered) ≈ 0.92` factor that
+  the simulation uses when generating bottle copies
+  (`E[bottle] = conv_factor · λ · zsample_effect · vol_filtered`). This
+  forced the posterior `mu_sp` upward by ~0.7-0.9 to compensate; now
+  passed in as data and included in `log_lambda_edna`.
+- **`gp_l` priors centred on the v3 truth**: the previous priors `gp_lx
+  ~ N(50, 40)`, `gp_ly ~ N(150, 80)`, `gp_lz ~ N(300, 150)` had `ly` and
+  `lz` mu's at half / double the simulated truth (left-overs from an
+  earlier sim configuration). Now `gp_lx ~ N(50, 30)`, `gp_ly ~ N(300,
+  100)`, `gp_lz ~ N(150, 50)` — centred on truth and ~30% tighter to
+  fight the multi-modality the previous mismatch was producing
+  (Rhat 1.4+ on `gp_l[1,1]` and `gp_l[1,3]`).
 - **HSGP basis count**: `M = (14, 8, 32)`. Bumped from `(10, 8, 8)`
   in v3 → `(10, 8, 20)` after the normalisation fix → `(14, 8, 32)`
   paired with Option A. Sized to Riutort-Mayol's faithful-

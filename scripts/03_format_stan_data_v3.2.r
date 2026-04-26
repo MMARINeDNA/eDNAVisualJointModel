@@ -59,6 +59,7 @@ R            <- sim$meta$n_qpcr_rep
 sp_common    <- sim$meta$sp_common
 vol_aliquot  <- 2        # microlitres (from simulation script)
 conv_factor  <- 10       # animals -> copies
+vol_filtered <- sim$meta$vol_filtered   # litres of seawater filtered (= 2.5 L)
 
 cat(sprintf("  Loaded: N=%d samples, S=%d species, R=%d qPCR reps\n", N, S, R))
 stopifnot(S == 1L)
@@ -160,8 +161,10 @@ stan_data <- list(
   # Water column offset (fixed; all zeros at surface)
   log_zsample_effect = log_zsample_effect,
 
-  # Conversion factor
-  log_conv_factor = log(conv_factor),
+  # Conversion factor + volume filtered (both contribute to expected
+  # bottle copies = conv_factor * lambda * zsample_effect * vol_filtered).
+  log_conv_factor   = log(conv_factor),
+  log_vol_filtered  = log(vol_filtered),
 
   # Aliquot volume (microlitres)
   vol_aliquot = vol_aliquot,
@@ -186,9 +189,16 @@ stan_data <- list(
   prior_mu_sp_sig        =   1.5,
   prior_gp_sigma_shape   =   4.0,
   prior_gp_sigma_rate    =   2.0,
-  prior_gp_lx_mu         =  50.0, prior_gp_lx_sig        =  40.0,
-  prior_gp_ly_mu         = 150.0, prior_gp_ly_sig        =  80.0,
-  prior_gp_lz_mu         = 300.0, prior_gp_lz_sig        = 150.0,
+  # gp_l priors. The previous (50, 150, 300) means were leftovers from
+  # an earlier sim configuration (likely v1/v2) and never updated when
+  # v3 set (lx, ly, lz) = (50, 300, 150). With M_total = 3584 the
+  # length-scale posterior is mildly multi-modal and even small prior
+  # mis-centring was producing chains stuck at different gp_l values
+  # (Rhat 1.4+ on lx and lz). Centred on the v3 truth and tightened
+  # ~30% to fight the multi-modality.
+  prior_gp_lx_mu         =  50.0, prior_gp_lx_sig        =  30.0,
+  prior_gp_ly_mu         = 300.0, prior_gp_ly_sig        = 100.0,
+  prior_gp_lz_mu         = 150.0, prior_gp_lz_sig        =  50.0,
   prior_sigma_ct_mu      =   0.5, prior_sigma_ct_sig     =   0.3
 )
 

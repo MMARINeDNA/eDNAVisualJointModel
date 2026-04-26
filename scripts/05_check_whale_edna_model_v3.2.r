@@ -361,7 +361,14 @@ x_grid <- seq(0, X_km_max,    length.out = n_grid_x)
 y_grid <- seq(0, Y_km_max,    length.out = n_grid_y)
 z_grid <- seq(0, Z_bathy_max, length.out = n_grid_z)
 
-coord_centre_use <- as.numeric(stan_data$coord_centre)
+# coord_centre was added to stan_data in a recent format-script revision.
+# Older fits (pre-revision) don't have it; in those cases the convention
+# was centre = scale (origin at the half-range), so fall back accordingly.
+coord_centre_use <- if (is.null(stan_data$coord_centre)) {
+  as.numeric(stan_data$coord_scale)
+} else {
+  as.numeric(stan_data$coord_centre)
+}
 coord_scale_use  <- as.numeric(stan_data$coord_scale)
 L_hsgp_use       <- as.numeric(stan_data$L_hsgp)
 m_hsgp_use       <- as.integer(stan_data$m_hsgp)
