@@ -140,10 +140,19 @@ data {
   // v3.2 (the calibration is treated as known, same as alpha_ct/beta_ct).
   real<lower=0, upper=1> kappa;
 
-  // Prior hyperparameters (passed as data for easy tuning)
+  // Prior hyperparameters (passed as data for easy tuning).
+  // gp_sigma now uses a Gamma(shape, rate) prior. The previous
+  // half_normal(0, prior_gp_sigma_sig) had its mode at 0, which - even
+  // with informative qPCR Ct data - pinned the gp_sigma posterior near
+  // zero (chains visibly trapped at the boundary, posterior mean three
+  // orders of magnitude below truth). Gamma puts zero density at 0, so
+  // the prior cannot trap the chain there; with shape=4, rate=2 the
+  // mode sits at 1.5 and the mean at 2.0, comfortably bracketing the
+  // simulated truth of 1.2.
   real prior_mu_sp_mu;
   real prior_mu_sp_sig;
-  real prior_gp_sigma_sig;
+  real<lower=0> prior_gp_sigma_shape;
+  real<lower=0> prior_gp_sigma_rate;
   real prior_gp_lx_mu;       real<lower=0> prior_gp_lx_sig;
   real prior_gp_ly_mu;       real<lower=0> prior_gp_ly_sig;
   real prior_gp_lz_mu;       real<lower=0> prior_gp_lz_sig;
@@ -208,7 +217,7 @@ model {
   // Priors
   // ------------------------------------------------------------------
   mu_sp    ~ normal(prior_mu_sp_mu, prior_mu_sp_sig);
-  gp_sigma ~ normal(0, prior_gp_sigma_sig);
+  gp_sigma ~ gamma(prior_gp_sigma_shape, prior_gp_sigma_rate);
 
   for (s in 1:S) {
     gp_l[s, 1] ~ normal(prior_gp_lx_mu, prior_gp_lx_sig);
