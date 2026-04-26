@@ -108,6 +108,13 @@ data {
   // Conversion factor (log scale): log(copies per animal per litre per km^2)
   real log_conv_factor;
 
+  // log(volume filtered, litres). Bottle copy expectation is
+  //   E[bottle] = conv_factor * lambda * zsample_effect * vol_filtered
+  // and the previous v3.2 model dropped the vol_filtered factor entirely,
+  // forcing mu_sp upward by ~log(vol_filtered) to compensate. Now passed
+  // as data so it's part of the eDNA log-mean.
+  real log_vol_filtered;
+
   // Coordinates normalised to [-1, 1] (col 1=X km, 2=Y km, 3=Z_bathy m)
   matrix[N, 3] coords;
 
@@ -204,7 +211,8 @@ transformed parameters {
       log_lambda[i, s]      = mu_sp[s] + f_s[i];
       log_lambda_edna[i, s] = log_lambda[i, s]
                               + log_zsample_effect[i, s]
-                              + log_conv_factor;
+                              + log_conv_factor
+                              + log_vol_filtered;
     }
   }
 
