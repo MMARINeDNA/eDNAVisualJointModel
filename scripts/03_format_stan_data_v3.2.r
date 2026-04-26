@@ -149,8 +149,9 @@ stan_data <- list(
   M = M_total,
 
   # Coordinates (normalised to [-1, 1])
-  coords      = coords_norm,
-  coord_scale = coord_scale,
+  coords       = coords_norm,
+  coord_centre = coord_centre,   # not used by Stan; needed for post-hoc grid evals
+  coord_scale  = coord_scale,
 
   # HSGP
   L_hsgp = HSGP_C,
