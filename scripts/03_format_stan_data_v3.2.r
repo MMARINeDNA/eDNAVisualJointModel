@@ -176,10 +176,15 @@ stan_data <- list(
   beta_ct  = sim$truth$qpcr_params$beta_ct,
   kappa    = sim$truth$qpcr_params$kappa,
 
-  # Prior hyperparameters (Normal mu / sigma for each scalar or vector prior)
+  # Prior hyperparameters. gp_sigma now uses Gamma(shape, rate) instead
+  # of half_normal - half_normal had its mode at 0 and was visibly
+  # trapping the gp_sigma posterior at the boundary even when the qPCR
+  # Ct data were informative. Gamma(4, 2) has mode 1.5, mean 2.0, sd 1.0;
+  # zero density at gp_sigma = 0, so the prior cannot collapse there.
   prior_mu_sp_mu         =   2.0,
   prior_mu_sp_sig        =   1.5,
-  prior_gp_sigma_sig     =   1.5,
+  prior_gp_sigma_shape   =   4.0,
+  prior_gp_sigma_rate    =   2.0,
   prior_gp_lx_mu         =  50.0, prior_gp_lx_sig        =  40.0,
   prior_gp_ly_mu         = 150.0, prior_gp_ly_sig        =  80.0,
   prior_gp_lz_mu         = 300.0, prior_gp_lz_sig        = 150.0,

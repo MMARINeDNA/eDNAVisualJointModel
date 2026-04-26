@@ -156,10 +156,19 @@ habitat preference as v3.)
 - **Sampled parameters**: only `mu_sp`, `gp_sigma`, `gp_l`, `z_beta`,
   `sigma_ct`. With kappa and the MB block gone, the only thing the
   posterior has to identify is the latent GP and the Ct noise.
-- **HSGP / priors**: kept at v3 values (`HSGP_M = c(10, 8, 8)`,
-  same `gp_l` priors). Not v3.1's tightened versions — the goal here
-  is to test v3's geometry against a simpler likelihood, not to
-  layer additional reparameterisations on top.
+- **HSGP / length-scale priors**: kept at v3 values (same `gp_l` priors).
+- **HSGP basis count**: `M = (10, 8, 20)` — `M_z` bumped from 8 to 20
+  after the normalisation fix, since the corrected Z half-range of
+  1750 m needed a denser basis to resolve the 150 m true length-scale.
+- **`gp_sigma` prior**: switched from `half_normal(0, 1.5)` to
+  `gamma(4, 2)` (mode 1.5, mean 2). The half-normal's mode at zero was
+  visibly trapping the `gp_sigma` posterior near the boundary even
+  with informative qPCR Ct data; Gamma's zero density at 0 prevents
+  the collapse.
+- **Coordinate normalisation**: `coord_centre` / `coord_scale` derived
+  from the actual v3 domain extents (`X_km_max / 2`, `Y_km_max / 2`,
+  `3500 / 2`) so all normalised coords land in `[-1, 1]`.
+  Pre-existing bug carried over from v1/v2 fixed.
 - Outputs land in `outputs/whale_edna_output_v3.2/`.
 
 - **Domain**: extended to cover the full US West Coast — San Francisco
