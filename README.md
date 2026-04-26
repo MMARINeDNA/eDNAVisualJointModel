@@ -147,6 +147,12 @@ habitat preference as v3.)
 - **Sample depth**: surface only (`Z_sample = 0`). The water-column
   multiplier collapses to 1 everywhere, so `log_zsample_effect` is all
   zeros and contributes nothing to the likelihood.
+- **Sim matches model exactly** (Option A). The deterministic habitat
+  preference function (`zbathy_pref` + `y_pref`) that v3 added to the
+  GP mean has been removed. The simulated `f_s` is now a pure
+  zero-mean GP draw with covariance `K(lx, ly, lz)`, so the named
+  length-scales are unambiguously the truth and length-scale recovery
+  is a clean test.
 - **Observations**: qPCR only. The metabarcoding likelihood and all
   MB-only parameters (`beta0_phi` / `gamma0_phi` / `gamma1_phi`) are
   removed from the Stan model.
@@ -157,9 +163,12 @@ habitat preference as v3.)
   `sigma_ct`. With kappa and the MB block gone, the only thing the
   posterior has to identify is the latent GP and the Ct noise.
 - **HSGP / length-scale priors**: kept at v3 values (same `gp_l` priors).
-- **HSGP basis count**: `M = (10, 8, 20)` — `M_z` bumped from 8 to 20
-  after the normalisation fix, since the corrected Z half-range of
-  1750 m needed a denser basis to resolve the 150 m true length-scale.
+- **HSGP basis count**: `M = (14, 8, 32)`. Bumped from `(10, 8, 8)`
+  in v3 → `(10, 8, 20)` after the normalisation fix → `(14, 8, 32)`
+  paired with Option A. Sized to Riutort-Mayol's faithful-
+  representation rule `m >= 1.75 c / ρ_ℓ`, which with `c = 1.5` and
+  the corrected half-ranges (250 km, 635 km, 1750 m) requires
+  `m >= (13, 6, 31)` for the true `(lx, ly, lz) = (50, 300, 150)`.
 - **`gp_sigma` prior**: switched from `half_normal(0, 1.5)` to
   `gamma(4, 2)` (mode 1.5, mean 2). The half-normal's mode at zero was
   visibly trapping the `gp_sigma` posterior near the boundary even

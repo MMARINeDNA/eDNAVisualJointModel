@@ -154,14 +154,15 @@ gp_params <- list(
     ly    = 300,
     lz    = 150,
     mu    = log(20),
-    zbathy_pref_mu  = 200,
-    zbathy_pref_sd  = 100,
-    zbathy_pref_amp = 2.0,
-    y_pref_mu  = 800,
-    y_pref_sd  = 500,
-    y_pref_amp = 1.0,
     # Surface only: pref at z=0 is 0.0, so exp(0) = 1 (multiplier = 1)
     zsample_pref = c(0.0)
+    # Habitat-preference fields (zbathy_pref_*, y_pref_*) removed in v3.2
+    # Option A: the simulation now matches the model's structural
+    # assumption that f_s is a zero-mean GP. The deterministic preference
+    # mean function present in v3 was being absorbed into the model's GP
+    # field, making length-scale recovery against the named (lx, ly, lz)
+    # ambiguous because the model was estimating the length-scale of the
+    # combined preference + residual structure.
   )
 
 )
@@ -184,39 +185,17 @@ aniso_cov <- function(coords, sigma, lx, ly, lz) {
   K + diag(1e-6, n)
 }
 
-gauss_pref <- function(x, mu, sd, amp) {
-  raw <- dnorm(x, mu, sd)
-  raw <- raw / dnorm(mu, mu, sd)
-  amp * (raw - 0.5)
-}
-
-zbathy_pref_fn <- function(Z_bathy, mu_z, sd_z, amp)
-  gauss_pref(Z_bathy, mu_z, sd_z, amp)
-
-y_pref_fn <- function(Y, mu_y, sd_y, amp)
-  gauss_pref(Y, mu_y, sd_y, amp)
-
-cat("Drawing GP realisation (N =", N, ")...\n")
+cat("Drawing zero-mean GP realisation (N =", N, ")...\n")
 lambda_true_si <- matrix(NA, N, n_species)
 gp_field_si    <- matrix(NA, N, n_species)
-gp_mean_si     <- matrix(NA, N, n_species)
+gp_mean_si     <- matrix(0,  N, n_species)   # zero-mean GP - kept for output shape
 
 for (s in seq_len(n_species)) {
   p  <- gp_params[[s]]
 
   K  <- aniso_cov(coords_gp, p$sigma, p$lx, p$ly, p$lz)
 
-  gp_mean <- zbathy_pref_fn(samples$Z_bathy,
-                            p$zbathy_pref_mu,
-                            p$zbathy_pref_sd,
-                            p$zbathy_pref_amp) +
-             y_pref_fn(samples$Y,
-                       p$y_pref_mu,
-                       p$y_pref_sd,
-                       p$y_pref_amp)
-  gp_mean_si[, s] <- gp_mean
-
-  fs <- as.vector(mvrnorm(1, mu = gp_mean, Sigma = K))
+  fs <- as.vector(mvrnorm(1, mu = rep(0.0, N), Sigma = K))
   gp_field_si[, s] <- fs
 
   lambda_true_si[, s] <- exp(p$mu + fs)

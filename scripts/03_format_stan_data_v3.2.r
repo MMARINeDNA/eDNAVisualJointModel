@@ -22,17 +22,17 @@ set.seed(42)
 # 0. Configuration
 # -----------------------------------------------------------------------------
 
-# HSGP basis terms per dimension. Riutort-Mayol et al. (2023) rule of
-# thumb: M >= 3.2 * c * (S / l), where c = boundary factor (1.5),
-# S = data half-range in raw units (250 km, 635 km, 1750 m after the
-# v3.2 normalisation fix), and l = the smallest length-scale to
-# resolve. Hake true (lx, ly, lz) = (50, 300, 150) gives min M of
-# (24, 10, 56). v3.2 keeps M_x / M_y at v3 values for now and bumps
-# M_z from 8 to 20 - that's a ~88 m basis resolution against a 150 m
-# z length-scale, comfortable without exploding the parameter count.
-# (M_z = 56 is the textbook target; we step there if recovery still
-# fights us on the bathymetric structure.)
-HSGP_M <- c(10L, 8L, 20L)    # M_total = 1600  (was 640 in v3)
+# HSGP basis terms per dimension. Riutort-Mayol et al. (2023):
+#   m >= 1.75 * c / rho_l  where rho_l = l / S_norm and S_norm = 1.
+# With c = 1.5 and the v3.2 normalisation fix (half-ranges 250 km,
+# 635 km, 1750 m), the named (lx, ly, lz) = (50, 300, 150) require
+# m >= (13, 6, 31). v3.2 now sets M = (14, 8, 32) so every dimension
+# sits at or above the faithful-representation threshold. This is paired
+# with the Option-A simulation change (zero-mean GP, no preference
+# function) so length-scale recovery is a clean test - the truth is
+# unambiguously a single SE GP with these length-scales, and the basis
+# is rich enough to represent it.
+HSGP_M <- c(14L, 8L, 32L)    # M_total = 3584  (was 1600)
 HSGP_C <- c(1.5, 1.5, 1.5)   # boundary extension (>= 1.5 recommended)
 
 OUTPUT_DIR <- "outputs/whale_edna_output_v3.2"
