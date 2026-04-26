@@ -18,6 +18,7 @@ simulated data in Stan.
 ├── 00_pipeline_v2.r                    `Rscript 00_pipeline_v{N}.r` sources
 ├── 00_pipeline_v3.r                     each step in order.
 ├── 00_pipeline_v3.1.r                  v3 + reparameterised model fit
+├── 00_pipeline_v3.2.r                  v3 hake-only / surface / qPCR-only debug
 ├── 00_pipeline_v4.r
 │
 ├── stan/                               Stan model source
@@ -25,6 +26,7 @@ simulated data in Stan.
 │   ├── whale_edna_hsgp_v2.stan
 │   ├── whale_edna_hsgp_v3.stan
 │   ├── whale_edna_hsgp_v3.1.stan       reparameterised v3
+│   ├── whale_edna_hsgp_v3.2.stan       v3 hake-only / qPCR-only
 │   └── whale_edna_hsgp_v4.stan
 │
 ├── scripts/                            R pipeline steps (sim → plot → format → run → check)
@@ -32,31 +34,36 @@ simulated data in Stan.
 │   ├── 01_simulate_whale_edna_v2.r
 │   ├── 01_simulate_whale_edna_v3.r
 │   ├── 01_simulate_whale_edna_v3.1.r
+│   ├── 01_simulate_whale_edna_v3.2.r
 │   ├── 01_simulate_whale_edna_v4.r
 │   ├── 02_plot_simulated_data_v2.r         plot the simulated truth
 │   ├── 02_plot_simulated_data_v3.r
 │   ├── 02_plot_simulated_data_v3.1.r
+│   ├── 02_plot_simulated_data_v3.2.r
 │   ├── 02_plot_simulated_data_v4.r
 │   ├── 03_format_stan_data_v1.r            assemble stan_data list
 │   ├── 03_format_stan_data_v2.r
 │   ├── 03_format_stan_data_v3.r
 │   ├── 03_format_stan_data_v3.1.r
+│   ├── 03_format_stan_data_v3.2.r
 │   ├── 03_format_stan_data_v4.r
 │   ├── 04_run_whale_edna_model_v1.r        compile + fit Stan model
 │   ├── 04_run_whale_edna_model_v2.r
 │   ├── 04_run_whale_edna_model_v3.r
 │   ├── 04_run_whale_edna_model_v3.1.r
+│   ├── 04_run_whale_edna_model_v3.2.r
 │   ├── 04_run_whale_edna_model_v4.r
 │   ├── 05_check_whale_edna_model_v1.r      diagnostics, PPC, recovery plots
 │   ├── 05_check_whale_edna_model_v2.r
 │   ├── 05_check_whale_edna_model_v3.r
 │   ├── 05_check_whale_edna_model_v3.1.r
+│   ├── 05_check_whale_edna_model_v3.2.r
 │   ├── 05_check_whale_edna_model_v4.r
 │   ├── DetectionsBySpecies.R               Ad-hoc data exploration
 │   └── FinWhales.R
 │
 ├── outputs/                            Generated artifacts (per-version)
-│   └── whale_edna_output_v{1,2,3,3.1,4}/   Per-version output folder:
+│   └── whale_edna_output_v{1,2,3,3.1,3.2,4}/   Per-version output folder:
 │           whale_edna_sim_v{N}.rds           Sim output (gitignored)
 │           simulated_edna_fields_v{N}.pdf    Tracked multi-page sim plot
 │           stan_data.rds                     stan_data list from step 03 (gitignored)
@@ -128,6 +135,32 @@ the v3 sampler pathology — `HSGP_M = c(5, 5, 5)` instead of
 `gamma_phi` priors substantially tightened. Outputs land in
 `outputs/whale_edna_output_v3.1/`
 so the two pipelines don't collide.)
+
+### V3.2 — hake-only, surface-only, qPCR-only debug case
+
+(Files: `*_v3.2.*`. Stripped-down debug version of v3 to isolate
+the HSGP latent-field recovery problem from the metabarcoding
+likelihood. Same domain, bathymetry, station design, and hake
+habitat preference as v3.)
+
+- **Species**: Pacific hake only (S=1). Humpback / PWSD removed.
+- **Sample depth**: surface only (`Z_sample = 0`). The water-column
+  multiplier collapses to 1 everywhere, so `log_zsample_effect` is all
+  zeros and contributes nothing to the likelihood.
+- **Observations**: qPCR only. The metabarcoding likelihood and all
+  MB-only parameters (`beta0_phi` / `gamma0_phi` / `gamma1_phi`) are
+  removed from the Stan model.
+- **Fixed `kappa`**: promoted from a sampled parameter to data (joining
+  `alpha_ct` / `beta_ct`). The qPCR detection-rate calibration is
+  treated as known.
+- **Sampled parameters**: only `mu_sp`, `gp_sigma`, `gp_l`, `z_beta`,
+  `sigma_ct`. With kappa and the MB block gone, the only thing the
+  posterior has to identify is the latent GP and the Ct noise.
+- **HSGP / priors**: kept at v3 values (`HSGP_M = c(10, 8, 8)`,
+  same `gp_l` priors). Not v3.1's tightened versions — the goal here
+  is to test v3's geometry against a simpler likelihood, not to
+  layer additional reparameterisations on top.
+- Outputs land in `outputs/whale_edna_output_v3.2/`.
 
 - **Domain**: extended to cover the full US West Coast — San Francisco
   (37.77°N) to the US/Canada border (~49°N), 500 km × 1270 km in UTM 10N.
