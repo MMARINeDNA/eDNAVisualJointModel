@@ -9,6 +9,11 @@ format:
   pdf: 
     number-sections: true
     echo: false
+    geometry:
+      - bottom=3cm
+      - top=3cm
+      - left=2cm
+      - right=2cm
 execute: 
   cache: true
 ---
@@ -23,6 +28,7 @@ execute:
 #Load some libraries
 library(inlabru) 
 library(ggplot2)
+library(sf)
 
 library(rstan)
 rstan_options(auto_write = TRUE)
@@ -34,20 +40,20 @@ library(truncnorm)
 
 Here we demonstrate a model-based Bayesian distance sampling analysis using an HMC algorithm, implemented using Stan via the `R` package `rstan`. Thanks to 
 
-- Juan Morales for his online example code (from 2020, in an [Rpubs document](https://rpubs.com/pajaro/jsds)), which provided some initial inspiration
-- the excellent Stan [Function Reference](https://mc-stan.org/docs/functions-reference/index.html) and [Users Guide](https://mc-stan.org/docs/stan-users-guide/index.html)
-- ChatGPT for providing some suggestions for improvements
-- MMARINeDNA collaborators for further suggestions
+- Juan Morales for his online example code (from 2020, in an [Rpubs document](https://rpubs.com/pajaro/jsds)), which provided some initial inspiration;
+- the excellent Stan [Function Reference](https://mc-stan.org/docs/functions-reference/index.html) and [Users Guide](https://mc-stan.org/docs/stan-users-guide/index.html);
+- MMARINeDNA collaborators for helpful suggestions;
+- ChatGPT for providing some further suggestions for improvements.
 
-Currently, we fit data using a half-normal detection function (with no adjustment terms) and use this to estimate probability of detection.  We combine with encounter rate to estimate density -- but without including uncertainty on that component -- this will come next!
+Currently, we fit data using a half-normal detection unction (with no adjustment terms) and use this to estimate probability of detection.  We combine with encounter rate to estimate density -- but without including uncertainty on that component -- this will come next!
 
-We test the function on some simulated data, and on datasets available in the `R` `Distance` and `inlabru` packages.
+We test the function on some simulated data, and on datasets available in the `R` `Distance` and `inlabru` packages.  We compare results with those derived using maximum likelihood from the `Distance` package.
 
 # Background
 
 ## Distance sampling detection function likelihood
 
-In line transect distance sampling, observers traverse a set of linear transects searching for objects of interest (animals or animal groups).  We assume that the probability of detecting objects depends on their distance from the transect line.  This is described using a "detection function", $g(x)$, which gives the probability of detection of an animal at distance $x$ from the line.  Parametric or semi-parametric functions are used for $g$.  These are generally set up under the assumption that $g(0)=1$ -- i.e., that the probability of detecting animals at 0 distance is 1.  (There are lots of further options, such as having $g$ depend on additional variables such as observer, weather, etc., and allowing $g(0)<1$, but we ignore them here.)  Observations further away than some specified ``truncation distance", $w$ are generally discarded, and hence $g(x)$ for $x>w$ is 0.
+A canonical reference for basic distance sampling is Buckland et al. (2001); here we give a very compact summary of relevant components.  In line transect distance sampling, observers traverse a set of linear transects searching for objects of interest (animals or animal groups).  We assume that the probability of detecting objects depends on their distance from the transect line.  This is described using a "detection function", $g(x)$, which gives the probability of detection of an animal at distance $x$ from the line.  Parametric or semi-parametric functions are used for $g$.  These are generally set up under the assumption that $g(0)=1$ -- i.e., that the probability of detecting animals at 0 distance is 1.  (There are lots of further options, such as having $g$ depend on additional variables such as observer, weather, etc., and allowing $g(0)<1$, but we ignore them here.)  Observations further away than some specified ``truncation distance", $w$ are generally discarded, and hence $g(x)$ for $x>w$ is 0.
 
 Under a further assumption that true (observed and unobserved) animal distances are uniformly distributed wrt distance from the transect line (which is reasonable given random line placement within the study area), then pdf of observed animal distances, $f(x)$ is given by
 \begin{equation}
@@ -57,9 +63,11 @@ The integral in the denominator is typically called the "effective strip width" 
 
 In conventional distance sampling, the detection function is estimated using maximum likelihood.  Given a set of $n$ detections with observed distances $\mathbf{x} = (x_1, \ldots, x_n)$ the log-likelihood of detection function parameters  $\boldsymbol{\theta}$ is given by
 \begin{align}
-\ell \left(\boldsymbol{\theta}; \mathbf{x}\right) & = \sum_{i=1}^n \log (f(x)) \nonumber \\
+\ell \left(\boldsymbol{\theta}; n, \mathbf{x}\right) & = \sum_{i=1}^n \log (f(x)) \nonumber \\
 & = \sum_{i=1}^n \log(g(x)) - n \log(\mu).
 \end{align}
+
+(Note that here we are treating the number of detections $n$ as fixed; clearly there is information in this number about the number of animals but we ignore this for the present as we are just focussing on estimating the detection function.)
 
 ## Half-normal detection function
 
@@ -70,10 +78,11 @@ g(x) =
 \exp \left( - \frac{x^2}{2 \sigma^2}\right) & x \leq w \\
 0 & x > w
 \end{cases}
+\label{eq:hn}
 \end{equation}
 where $\sigma$ is the single parameter of this function.  Given this detection function, the log-likelihood is given by
 \begin{equation}
-\ell \left(\sigma; \mathbf{x}\right) = - \frac{1}{2 \sigma^2} \sum_{i=1}^n \left( x_i^2 \right) - n \log(\mu).
+\ell \left(\sigma; n, \mathbf{x}\right) = - \frac{1}{2 \sigma^2} \sum_{i=1}^n \left( x_i^2 \right) - n \log(\mu).
 \end{equation}
 Conveniently, $\mu$ in this case can be evaluated without the need for numerical integration, as 
 \begin{equation}
@@ -85,26 +94,25 @@ where $\text{erf}(x)$ denotes the error function evaluated at $x$.
 
 Our goal here was to develop a Bayesian distance sampling model, and fit it using the Stan software.  
 
-One consideration was the prior distribution for $\sigma$.  After some experimentation, we decided to specify a normal prior on $\log \sigma$.  Working on the log scale meant we did not need to truncate the value of $\sigma$ (which cannot be negative); sampling could take place on the log scale which seemed to work better. We found a flat prior for $\sigma$ or $\log \sigma$ did not work well, but instead that we needed to specify a distribution with less mass at values of $\sigma$ close to 0, and also decreasing density with increasing values of $\sigma$ as the values approached and exceeded $w$.  [Some more thoughts on the justification for this could go here.]  After some experimentation, a $\text{N}(\log(w/2), 0.5)$ was found to be a good compromise between being quite uninformative while having the above properties.  [Some evidence around this experimentation could go here, or could be a separate section.]  This prior is shown in [put a figure here for some arbitrary w].
+One consideration is the prior distribution for $\sigma$.  After some experimentation, we specify a normal prior on $\log \sigma$.  This is discussed further in @sec-prior.
 
 ## Stan code
 
-Below is the developed Stan model.
+Below is the developed Stan model code.
 
-```{stan output.var="cds_stan"}
-#| code-summary: "Code: stan model"
+```{stan output.var="cds_hn_stan"}
+#| code-summary: "Code: stan model for fitting half-normal detection function"
 #| echo: true
 
+//uncomment the following line, and the corresponding one at the bottom
+// to run from inside R (e.g., RStudio)
+//cds_hn_stan <- stan_model(model_code = " 
 data {
   int n; //Number of observations
   vector[n] x; //Vector of observed distances
   real w; //Truncation distance
-  real L; //Line length
-  real hyper_sigma1; //Mean of normal prior on log sigma
-  real<lower=0> hyper_sigma2; //Standard deviation of normal prior on log sigma
-}
-transformed data {
-  real er2 = n / (2.0 * L); //Encounter rate (/2) - used in calculating D
+  real log_sigma_prior_mean; //Mean of normal prior on log sigma
+  real<lower=0> log_sigma_prior_sd; //SD of normal prior on log sigma
 }
 parameters {
   real log_sigma; //Log of half normal sigma parameter
@@ -112,28 +120,509 @@ parameters {
 transformed parameters {
   real<lower=0> sigma = exp(log_sigma); //Define sigma
   //Calculate effective strip width - can be done analytically in this case
-  // as it's a half normal
+  // as the detection function is a half normal with no adjustments
   real esw_hn = sigma * sqrt(pi() / 2) * erf(w / (sqrt(2) * sigma));
 }
 model {
   //Priors
-  log_sigma ~ normal(hyper_sigma1, hyper_sigma2); 
-
+  log_sigma ~ normal(log_sigma_prior_mean, log_sigma_prior_sd); 
   //Likelihood - vectorized
   target += -sum(square(x)) / (2.0 * square(sigma)) - n * log(esw_hn);
 }
 generated quantities {
   real p = esw_hn / w;
-  //Implement the formula D = n / (2 * L * esw) with n/2L pre-computed as er2 
-  real D = er2 / esw_hn;
+}
+//") 
+//uncomment the above to run from inside R
+```
+
+## Prior hyperparameters and prior sensitivity {#sec-prior}
+
+As noted previously, we specify a normal prior on log $\sigma$.  This was the result of some experimentation.  We initially tried a flat prior, such a a uniform, or the conjugate inverse gamma on $1/\sigma^2$ with small $\alpha$ and $\beta$ values).  This was in order to most closely conform with the MLE approach that is currently the standard method.  However, we found (a) the NUTS sampler in Stan tended to give some divergent transitions, and (b) estimates of $\sigma$ tended to have a long right tail, particularly for smaller datasets.  This makes sense because once $\sigma$ gets much larger than about $2w$, the resulting detection function is flat, and increasing values of $\sigma$ produce detection functions with practically indistinguishable likelihoods.  This is illustrated in @fig-hn-demo.
+
+```{r}
+#| code-summary: "Code: Example half-normal detection functions"
+#| label: fig-hn-demo
+#| fig-cap: "Example half-normal detection functions, illustrating how the function flattens out as $\\sigma$ increases.  In this example the truncation distance, $w$ is set to 1.  $\\sigma$ values used are shown on the rhs of the plot."
+
+sigma <- seq(0.5, 3, by = 0.5)
+hn <- function(x, sigma){exp(-(x^2 / (2 * sigma^2)))}
+n_vals <- 1000
+x <- seq(0, 1, length = n_vals)
+for(i in 1:length(sigma)){
+  gx <- hn(x, sigma[i])
+  if (i == 1) {
+    plot(x, gx, type = "l", xlab = "x", ylab = "g(x)")
+  } else {
+    lines(x, gx, lty = i)
+  }
+  text(x[n_vals], gx[n_vals], sigma[i])
 }
 ```
 
-# Test datasets
+We therefore switched to specifying a normal prior on log $\sigma$.  With suitable choice of hyperparameters, this allowed us to specify a gently decreasing density with increasing $\sigma$ at larger values of $\sigma$. Another advantage was that this distribution gives low densities to very small values of $\sigma$, which are not plausible in practice as they would denote a very "spiked" detection function, with probability of detection going to small values at relatively small distances.  If such a situation were found in practice, a smaller value of $w$ would be used in the analysis.  The value of $w$ used is often an analysis choice; for example Buckland et al. (2001) recommend truncating at a value of $w$ where $g(w) \approx 0.15$.
 
-I have tried the above Stan code on a bunch of example datasets, and compared the results with those from the `Distance` package.  Here I will document those datasets (briefly).
+A sensible choice of prior mean on log $\sigma$, which we will denote $\mu_{l\sigma}$, will depend on the scale of the distance data.  Since a sensible $w$ also depends on the scale of the data, it makes intuitive sense for the prior mean to be set by the value of $w$.  Indeed, if the analyst follows the advice to have $g(w) \approx 0.15$ then this suggests a value to use, since we can back-calculate a $\sigma$ from Equation \ref{eq:hn}:
+\begin{align}
+g(x) & = \exp \left( - \frac{x^2}{2 \sigma^2}\right) \nonumber \\
+0.15 & = \exp \left( - \frac{w^2}{2 \sigma^2}\right) \nonumber \\
+\sigma & = \frac{w}{\sqrt{-2 \log(0.15)}} \nonumber \\
+ & = w / 1.9479 \nonumber \\
+ & \approx w / 2
+\end{align}
+Hence, a reasonable prior mean parameter for log $\sigma$ is $\mu_{l\sigma} = \log (w / 2)$.  (Note that this parameter for a lognormal distribution corresponds to the median on the natural scale.)
+
+In choosing the prior standard deviation on log $\sigma$, which we will denote $\sigma_{l\sigma}$ we want a value that has the desirable properties of mildly discouraging very small values of $\sigma$, or values greater than approximately $2w$, while not overly influencing the result (e.g., posterior mean on $\sigma$) with small datasets.  Note that Buckland et al. (2001) recommend a minimum sample size of approximately 60 observations for line transect analysis, so in this context a "small" dataset will be one of about that size.  The standard deviation of a lognormal distribution is approximately equal to the coefficient of variation (CV) of the distribution -- this relationship holds for small CVs; the exact relationship is $\sigma^2_{l\sigma} = \log(1 + \text{CV}^2)$ and hence $\text{CV}=\sqrt{\exp(\sigma^2_{l\sigma}) - 1}$.  Values in the range of 0.5 to 1 seem reasonable, since we would hope that a sample of data would considerably improve a prior CV of these values (although 0.5 may perhaps be a bit too informative).  We undertook a small sensitivity analysis using value of $\sigma_{l\sigma}$ = 0.5, 0.8 and 1.0 (corresponding to CVs of 0.53, 0.95 and 1.31) and report findings in the Results section.  For reference, the pdf of these three prior distributions on $\log\sigma$ is shown in @fig-sigma-priors.
+
+```{r}
+#| code-summary: "Code: Plot sigma priors"
+#| label: fig-sigma-priors
+#| fig-cap: "Three potential prior distributions for log $\\sigma$ (transformed to the natural scale to show the implied prior on $\\sigma$).  All specify a normal distribution on log $\\sigma$, and all have the same lognormal mean parameter of 0.5 (i.e., $w/2$ given a $w$ in this example of 1, shown by the vertical red dashed line).  The solid, dashed and dotted lines have lognormal sd parameters of 0.5, 0.8 and 1.0 respectively."
+
+w <- 1
+mu_lsigma <- log(w / 2)
+sigma_lsigma <- c(0.5, 0.8, 1.0)
+#Need to compute out to 10w to get higher values of p when calculating
+# density of p in the next chunk
+sigma <- seq(0, w * 10, length = 1000); sigma <- sigma[-1]
+dsigma <- matrix(0, 3, length(sigma))
+for(i in 1:3){
+  dsigma[i, ] <- dlnorm(sigma, mu_lsigma, sigma_lsigma[i])
+  if (i == 1){
+    plot(sigma, dsigma[i, ], type = "l", 
+         xlab = expression(sigma), ylab = "Density",
+         xlim = c(0, w * 2))
+  } else {
+    lines(sigma, dsigma[i, ], lty = i)
+  }
+  abline(v = 1, lty = 2, col = "red")
+}
+```
+
+```{r}
+#| code-summary: "Code: Plot implied priors on p"
+#| label: fig-p-priors
+#| fig-cap: "The implied prior on $p$ (average detection probability between 0 and $w$ of the three potential prior distributions for log $\\sigma$.  All three specify a normal distribution on log $\\sigma$, and all have the same lognormal mean parameter of 0.5 (i.e., $w/2$ given a $w$ in this example of 1, shown by the vertical red dashed line).  The solid, dashed and dotted lines have lognormal sd parameters of 0.5, 0.8 and 1.0 respectively."
+
+get_p <- function(sigma, w) {
+  return(sigma * sqrt(2 * pi) * (pnorm(w / sigma) - 0.5))
+}
+
+#Numerical derivative of p wrt sigma
+dp_dsigma <- function(sigma, w) {
+  eps <- 1e-6
+  return ((get_p(sigma + eps, w) - get_p(sigma - eps, w)) / (2 * eps))
+}
+
+#Compute density of p
+p <- get_p(sigma, w)
+#For density of p, change of variables from sigma to p
+# so divide by Jacobian
+dp <- matrix(0, 3, length(sigma))
+jac <- abs(dp_dsigma(sigma, w))
+for(i in 1:3){
+  dp[i, ] <- dsigma[i, ] / jac
+}
+
+#Plot density of p
+for(i in 1:3){
+  if(i ==1) {
+    plot(p, dp[i, ], type = "l", xlab = "p", ylab = "Density", 
+         xlim = c(0, 1), ylim = c(0, max(dp)))
+  } else {
+    lines(p, dp[i, ], lty = i)
+  }
+}
+```
+
+
+Also implies a prior distribution on average detection probability $p$, which we can calculate.
+
+# Datasets
+
+## Simulated data
+
+```{r}
+#| code-summary: "Code: simulate data"
+
+sim_n <- 10000
+sim_w <- 10
+sim_sigma <- 1
+sim_x <- abs(rtruncnorm(sim_n, -sim_w, sim_w, mean = 0, sd = sim_sigma))
+```
+
+We initially fitted the model to a simulated dataset of simulate `r sim_n` samples from a half-normal detection function with $\sigma=$ `r sim_sigma` and truncation distance $w=$ `r sim_w`.  The reason to have such a large truncation distance is that there is an analytical formula for the maximum likelihood estimate of the half-normal sigma parameter from untruncated data (Buckland et al. 2001, section 3.3.4.1):
+\begin{equation}
+\hat{\sigma}^2 = \sum_{i=1}^n x_i^2 / n
+\label{eq:mle}
+\end{equation}
+We can therefore check the result we get from Stan against this -- given the size of the dataset we expect the MLE to be very close to the posterior mean, for example (although we could also check the posterior mode if desired).  We note, however, that with this value of $w$ we are very far from the advice that $g(w) \approx 0.15$ which motivated our choice of prior mean for $\log \sigma$.
+
+Nevertheless, this dataset is really just a proof that the code is not obviously wrong.
+
+## GoMx Dolphin data
+
+```{r}
+#| code-summary: "Code: Load mexdolphin"
+mexdolphin <- mexdolphin_sf
+mesh <- mexdolphin$mesh
+
+```
+
+We next used a line transect dataset collected using visual observations from a shipboard survey in the Gulf of Mexico (GoMx) -- see Miller et al. (2013).  Here we use observations of pantropical spotted dolphin (_Stenella attenuata_); this dataset is provided with the `inlabru` package (and also available in `dsm`). @fig-map-data shows the sample and detection locations and @fig-plot-distances gives a histogram of the observed distances. There are `r nrow(mexdolphin$points)` observations.  The truncation distance used in previous analyses of these data is `r  w` m.
+
+This dataset is a good example of one with a small sample size, so we expect more prior sensitivity.
+
+```{r}
+#| code-summary: "Code: Map dolphin data"
+#| label: fig-map-data
+#| fig-cap: "Location of transects (lines) and observations (points) in Gulf of Mexico dolphin data"
+
+#Plot lines and point locations
+ggplot() +
+  gg(mexdolphin$ppoly) +
+  gg(mexdolphin$samplers, color = "grey") +
+  gg(mexdolphin$points, size = 1, alpha = 1) +
+  theme(
+    legend.key.width = unit(x = 0.2, "cm"),
+    legend.key.height = unit(x = 0.3, "cm")
+  ) +
+  theme(legend.text = element_text(size = 6)) +
+  labs( x = "longitude", y = "latitude")
+#  coord_sf(datum = fm_crs(mexdolphin$ppoly))
+```
+
+```{r}
+#| code-summary: "Code: Plot dolphin distances"
+#| label: fig-plot-distances
+#| fig-cap: "Histogram of detection distances.  Individual detection distances are marked as tick marks on the x-axis."
+#Plot distances
+ggplot(mexdolphin$points) +
+  geom_histogram(aes(x = distance),
+    breaks = seq(0, w, length.out = 9),
+    boundary = 0, fill = NA, color = "black"
+  ) +
+  geom_point(aes(x = distance), y = 0, pch = "|", cex = 4)
+```
+
+## Other datasets
+
+We also tried the code on some other line transect datasets available in the `Distance` package (and the `mrds` package, which is a dependency of `Distance` and is the one that actually does the fitting -- `Distance` is largely a wrapper for `mrds`).  These datasets were:
+
+- Wren. Songbird data collected by Steve Buckland near his (old) home in Fife, Scotland -- see Buckland (2006).
+- Sika deer. Data from a survey of Scottish sika deer dung pellets (sika deer spend most of their time in woodland areas, so abundance estimates are based on pellet group counts).  These data are from the Peebleshire portion of the survey - see Marques et al. (2001).
+- Golf tee. These data are from a survey of groups of golf tees laid out in a simulation exercise and surveyed by a student class at St Andrews using double-observer distance sampling methods (see Borchers et al. 2002).  Here we just use the data from the first observation team.  
+- ETP dolphin.  These data are from shipboard line transect surveys in the Eastern Tropical Pacific; the data here are for spotted dolphin schools -- see Marques et al. (2003).  Here we use only the data with "Cue type 3", which means data where the observers were cued by the presence of birds above the dolphin school.  The reason for this is that this cue type has a slightly more "spiked" histogram of distances and in that sense is a bit different from the other datasets analyzed here.
+
+A summary of the datasets is given in @tbl-data-summary and histograms of detection function distances are in @fig-plot-data-distances.
+
+```{r}
+#| code-summary: "Code: Load and summarize other datasets"
+#| tbl-cap: "Summary of datasets used in this report.  n is the sample size of detections, w is the truncation distance.  The last column is the median observed distance divided by w; lower values indicate more observations at smaller distances."
+#| label: tbl-data-summary
+
+#Record truncation points for each dataset
+truncation <- c(8, 100, 175, 4, 5)
+
+#Create a list of datasets.  Each one is a dataframe and, at minimum has a distance column
+data <- list()
+
+data[[1]] <- sf::st_drop_geometry(mexdolphin$points)
+
+data(wren_lt)
+data[[2]] <- wren_lt
+
+data(sikadeer)
+#Need to truncate and remove NAs before storing
+tmp <- sikadeer[sikadeer$distance <= truncation[3], ]
+tmp <- tmp[!is.na(tmp$distance), ]
+data[[3]] <- tmp
+
+data(book.tee.data)
+#Get the detection data and select just observer 1 data
+tee_data <- book.tee.data$book.tee.dataframe
+ind <- tee_data$observer == 1 & tee_data$detected == 1
+tee_data <- tee_data[ind, ]
+data[[4]] <- tee_data
+
+data(ETP_Dolphin)
+data[[5]] <- ETP_Dolphin[ETP_Dolphin$Cue.type == 3, ]
+
+names(data) <- c("GoMx dolphin", "wren", "deer", "golf tee", "ETP dolphin")
+
+#Make a summary table
+data_summary <- data.frame(name = names(data))
+data_summary$n <- as.vector(lapply(data, nrow))
+data_summary$w <- truncation
+data_summary$mxw <- unlist(lapply(data, 
+  function(x){median(x$distance)})) / truncation
+knitr::kable(data_summary, digits = c(NA, 1, 1, 3),
+             col.names = c("Name", "n", "w", "median distance / w"))
+```
+
+```{r}
+#| code-summary: "Code: Plot datasets"
+#| label: fig-plot-data-distances
+#| fig-cap: "Histogram of detection distances for each of the additional datasets used.  Individual detection distances are marked as tick marks on the x-axis."
+
+plot_list <- list()
+for(i in 1:(length(data) - 1)){
+  p <- ggplot(data[[i + 1]]) +
+  geom_histogram(aes(x = distance),
+    breaks = seq(0, truncation[i + 1], length.out = 9),
+    boundary = 0, fill = NA, color = "black"
+  ) +
+  geom_point(aes(x = distance), y = 0, pch = "|", cex = 4) +
+  labs(title = names(data)[[i + 1]])
+  plot_list[[i]] <- p
+}
+patchwork::wrap_plots(plot_list)
+```
 
 # Results
 
-Here I will show results from the trials.
+```{r}
+#| code-summary: "Code: Stan params"
+n_iter <- 3000
+n_chains <- 6
+```
 
+All Stan model results reported are based on `r n_chains` chains and `r n_iter` samples per chain (half of which were discarded as warmup), with no thinning.  Monte Carlo error on reported results was not checked formally, but is likely to be small.  Start values for $\sigma$ were chosen at random, sampling uniformly between $w/100$ and $2w$.  During Stan runs, we monitored for diagnostic warnings and did not receive any -- note that Stan messages are suppressed from the output in this rendered file, so it would be necessary to run the code in RStudio interactively to see any warning messages.
+
+## Simulated data
+
+```{r}
+#| code-summary: "Code: Analytic MLE"
+sim_sigma_hat <- sqrt(sum(sim_x^2)/sim_n)
+```
+
+Analytic evaluation of the MLE using Equation \ref{eq:mle} gives `r sim_sigma_hat`, very close to the true value of `r sim_sigma` used to simulate the data.  (Recall that this does not take truncation into account, but we do not expect it to make any difference in this case as all distance are very far from the truncation distance.)
+
+We then fit using the `Distance` package (where truncation is taken into account).  A summary of the output is given below.  Note that the `N in covered region` on the last line is meaningless as we have not passed in any information about survey effort (line length covered).
+
+```{r}
+#| code-summary: "Code: Fit sim data with Distance"
+#| warning: false
+
+cds_sim_res <- ds(sim_x, truncation = sim_w, nadj = 0, w = sim_w)
+cds_summary <- summary(cds_sim_res)
+print(cds_summary)
+```
+
+The `(Intercept)` term is the log of the estimated sigma parameter.  So, exponentiating we get $\hat{\sigma}=$ `r exp(cds_sim_res$ddf$par[1])`.
+
+Lastly we fit using Stan (in this case just using $\sigma_{l\sigma}=0.5$ as we expect the prior to make a negligible difference to the results given the very large sample size of simulated distances).  A summary of the Stan output is given below. Trace plots and a kernel is shown in @fig-stan-sim.  
+
+```{r}
+#| code-summary: "Code: Stan setup"
+#Specify data, parameters to return and initialization function for sigma
+
+#Function to return a list containing the data stan needs
+create_stan_data <- function(x, w, log_sigma_prior_sd){
+  return(list(n = length(x), x = x, w = w, 
+              log_sigma_prior_mean = log(w / 2),
+              log_sigma_prior_sd = log_sigma_prior_sd))
+}
+stan_pars <- c("sigma", "p")
+#Initialization function for sigma
+create_stan_init_f <- function(w){
+  stan_init_f <- function(){list(sigma = runif(1, w/100, w * 2))}
+  return(stan_init_f)  
+}
+```
+
+```{r}
+#| code-summary: "Code: Fit sim data with Stan"
+#| messages: false
+#| output: false
+
+#Fit the model
+stan_cds_fit <- sampling(cds_hn_stan, 
+                         data = create_stan_data(sim_x, sim_w, 0.5), 
+                         init = create_stan_init_f(sim_w),
+                         pars = stan_pars, 
+                         iter = n_iter, thin = 1, chains = n_chains)
+samples <- extract(stan_cds_fit)
+
+#Function to extract posterior max
+get_dens_max <- function(x){
+  dens_x <- density(x)
+  w_max <- which.max(dens_x$y)
+  return(x[w_max])
+}
+```
+
+```{r}
+#| code-summary: "Code: Print stan results"
+print(stan_cds_fit)
+```
+
+```{r}
+#| code-summary: "Code: Plot results"
+#| label: fig-stan-sim
+#| fig-cap: "Trace plot (left) and density(right) for sigma from Stan run on simulated data."
+p1 <- stan_trace(stan_cds_fit, "sigma")
+p2 <- stan_dens(stan_cds_fit, "sigma")
+patchwork:: wrap_plots(p1 + p2)
+```
+
+The posterior mean for $\sigma$ was `r mean(samples$sigma)` and the posterior mode was `r get_dens_max(samples$sigma)` -- as expected, very close to the true value. We can also extract from the Stan outputs the value of $p$ (average detection probability between 0 and $w$), as this was saved as a generated quantity.  The posterior mean was `r mean(samples$p)`, which compares well with the value estimated by `Distance` of `r cds_summary$ds$average.p`.  It is also of interest to compare measures of uncertainty.  The SD of the samples from the Stan model run was `r sd(samples$p)`, which is very similar to the SD on $p$ (i.e., the SE) estimated by `Distance` (which uses the inverse Hessian evaluated at the MLE) of `r as.numeric(cds_summary$ds$average.p.se)`.
+
+## GoMx dolphin data
+
+The output from `Distance` is shown below (again, ignore `N in covered region'). 
+
+```{r}
+#| code-summary: "Code: CDS dolphin data"
+cds_res <- ds(data[[1]]$distance, truncation = truncation[1], nadj = 0)
+cds_summary <- summary(cds_res)
+print(cds_summary)
+```
+The estimated $\sigma$ is `r exp(cds_res$ddf$par)`.  Estimated $p$ is `r cds_summary$ds$average.p` with SE of `r as.numeric(cds_summary$ds$average.p.se)`.
+
+We ran Stan with each of the three priors on $\sigma$, i.e., with $\sigma_{l\sigma}$ of 0.5, 0.8 and 1.0.  Results are shown in @tbl-dolphin-results.
+
+```{r}
+#| code-summary: "Code: Fit GoMx dolphin data with Stan"
+#| messages: false
+#| output: false
+
+log_sigma_prior_sd_vals <- c(0.5, 0.8, 1.0)
+res <- data.frame(sigma_lsigma = log_sigma_prior_sd_vals,
+                  sigma_mean = rep(0, 3), 
+                  sigma_mode = rep(0, 3),
+                  sigma_sd = rep(0, 3),
+                  p_mean = rep(0, 3),
+                  p_mode = rep(0, 3),
+                  p_sd = rep(0, 3))
+for(i in 1:3){
+  stan_cds_fit <- sampling(cds_hn_stan, 
+    data = create_stan_data(data[[1]]$distance, truncation[1],
+      log_sigma_prior_sd_vals[i]), 
+    init = create_stan_init_f(truncation[1]),
+    pars = stan_pars, 
+    iter = n_iter, thin = 1, chains = n_chains)
+  samples <- extract(stan_cds_fit)
+  res$sigma_mean[i] <- mean(samples$sigma)
+  res$sigma_mode[i] <- get_dens_max(samples$sigma)
+  res$sigma_sd[i] <- sd(samples$sigma)
+  res$p_mean[i] <- mean(samples$p)
+  res$p_mode[i] <- get_dens_max(samples$p)
+  res$p_sd[i] <- sd(samples$p)
+}
+```
+
+```{r}
+#| code-summary: "Code: Summarize results for GoMx dolphin data"
+#| label: tbl-dolphin-results
+#| tbl-cap: "Summary of Stan fits to the GoMx dolphin data"
+knitr::kable(res, col.names = c("log sigma prior sd", "mean sigma", 
+  "mode sigma", "sd sigma", "mean p", "mode p", "sd p"), digits = 4)
+```
+
+Comparing the ML and Baysian results, it looks like the Bayesian posterior mean for $\sigma$ and $p$ are closer to the ML results when $\sigma_{l\sigma} = 0.5$ but that the standard deviation on $p$ is a little lower in this case.  This is perhaps unsurprising as some information about $\sigma$ has been given in the form of the prior.  Mean $\sigma$ and $p$ increases as $\sigma_{l\sigma}$ increases, becoming further away from the MLE.  
+
+Figure @fig-dolphin-cds of the fitted detection function
+
+```{r}
+#| code-summary: "Code: Plot dolphin fitted detection functions"
+#| label: fig-dolphin-cds
+#| fig-cap: "Fitted GoMx dolphin detection functions from Distance (i.e., maximum likelihood) (black) and from Stan (i.e., Bayesian)(red) with prior log sigma sd of 0.5 (dashed), 0.8 (dotted) and 1.0 (dot-dashed)"
+plot(cds_res)
+x <- seq(0, truncation[1], length = 1000)
+for(i in 1:3){
+  lines(x, hn(x, res$sigma_mean[i]), lty = i + 1, col = "red")
+}
+```
+
+
+## Other datasets
+
+```{r}
+#| code-summary: "Code: Fit other datasets with Distance and Stan"
+#| messages: false
+#| output: false
+
+n_rows <- 3 * 4
+res_sigma <- res_p <- 
+  data.frame(data = rep(names(data[-1]), each = 3),
+    sigma_lsigma = log_sigma_prior_sd_vals,
+    MLE = rep(0, n_rows),
+    MLE_SE = rep(0, n_rows),
+    Bayes_mean = rep(0, n_rows),
+    Bayes_mode = rep(0, n_rows),
+    Bayes_SD = rep(0, n_rows))
+res_sigma <- res_sigma[, -4] #Not calculating SE of MLE on natural scale
+res_row <- 1
+for(i in 1:4){
+  cds_res <- ds(data[[i + 1]]$distance, 
+                truncation = truncation[i + 1], nadj = 0)
+  cds_summary <- summary(cds_res)
+  for(j in 1:3){
+    res_sigma$MLE[res_row] <- exp(cds_res$ddf$par)
+    res_p$MLE[res_row] <- cds_summary$ds$average.p
+    res_p$MLE_SE[res_row] <- as.numeric(cds_summary$ds$average.p.se)
+
+    stan_cds_fit <- sampling(cds_hn_stan, 
+      data = create_stan_data(data[[i + 1]]$distance, truncation[i + 1],
+        log_sigma_prior_sd_vals[j]), 
+      init = create_stan_init_f(truncation[i + 1]),
+      pars = stan_pars, 
+      iter = n_iter, thin = 1, chains = n_chains)
+    samples <- extract(stan_cds_fit)
+    res_sigma$Bayes_mean[res_row] <- mean(samples$sigma)
+    res_sigma$Bayes_mode[res_row] <- get_dens_max(samples$sigma)
+    res_sigma$Bayes_SD[res_row] <- sd(samples$sigma)
+    res_p$Bayes_mean[res_row] <- mean(samples$p)
+    res_p$Bayes_mode[res_row] <- get_dens_max(samples$p)
+    res_p$Bayes_SD[res_row] <- sd(samples$p)
+
+    res_row = res_row + 1    
+  }
+}
+```
+
+Results from the other datasets for $\sigma$ and $p$ are summarised in @tbl-other-data-sigma and @tbl-other-data-p respectively.  The results generally concur with those found for the GoMx dolphins: posterior mean matches the MLE better with the more informative prior $\sigma_{l\sigma}=0.5$, but the standard error of the estimate of $p$ is lower than the MLE for this prior.  One exception is ETP dolphins, where the posterior standard deviation was considerably larger than the standard error from the MLE at all levels of $\sigma_{l\sigma}$.
+
+As expected, the posterior mean for $\sigma$ and $p$ are very similar to the MLEs for the dataset with the largest sample size, i.e., deer.  In general the match scales with sample size and in any case differences between MLE estimate an posterior mean are small (see @tbl-other-data-sigma and @tbl-other-data-p).
+
+```{r}
+#| code-summary: "Code: Summarize results for other datasets for sigma"
+#| label: tbl-other-data-sigma
+#| tbl-cap: "Summary results for $\\sigma$ for other datasets"
+knitr::kable(res_sigma, col.names = c("dataset", "log sigma prior sd", "MLE", 
+  "posterior mean", "posterior mode", "posterior SD"), digits = 4)
+```
+
+```{r}
+#| code-summary: "Code: Summarize results for other datasets for p"
+#| label: tbl-other-data-p
+#| tbl-cap: "Summary results for $p$ for other datasets"
+knitr::kable(res_p, col.names = c("dataset", "log sigma prior sd", "MLE", 
+  "MLE SE", "posterior mean", "posterior mode", "posterior SD"), digits = 4)
+```
+
+# Discussion
+
+We have demonstrated Bayesian estimation of the half-normal detection function for line transect analysis using Stan (accessed in `R` via `Rstan`).  We suggested a normal prior on $\log \sigma$ as well as a suitable choice for the prior mean.  FO rthe prior standard deviation ($\sigma_{l\sigma}$), we undertook a small sensitivity analysis, by trying the values 0.5, 0.8 and 1.0 on five datasets.  Overall we found that $\sigma_{l\sigma}=0.5$ gave the most similar estimate to the MLE, but that it could give a smaller estimated standard deviation of the posterior estimate of $p$.  Differences were generally small, and overall we recommend using $\sigma_{l\sigma}=0.5$.
+
+If we ever write this up as part of a publication, it might be worth noting that the first Bayesian application to distance sampling we are aware of is Karunamuni and Quinn (1995), with another useful reference being Oedekoven (2014).  A classic paper on weakly informative priors for variance parameters is Gelman (2006), although we would need to check whether it includes lognormal priors, and also whether it's in the context of random effects variances which is rather different from here (because here 0 is not a very likely number at all for the variance).
+
+# References
+
+Borchers, D. L., S.T. Buckland, and W. Zucchini. 2002. Estimating Animal Abundance: Closed Populations. Statistics for Biology and Health. London: Springer-Verlag
+
+Buckland, S. T. 2006. Point-transect surveys for songbirds: robust methodologies. The Auk 123 (2): 345–357.
+
+Buckland, S.T., D.R. Anderson, K.P. Burnham, J.L. Laake, D.L. Borchers and L. Thomas. 2001. Introduction to Distance Sampling. Oxford University Press. 
+Gelman, A. 2006. Prior distributions for variance parameters in hierarchical models. Bayesian Analysis 1: 515–533.
+
+Karunamuni, R. J. and Quinn, T. J. 1995. Bayesian estimation of animal abundance for line-transect sampling Biometrics 51: 1325–1337.
+
+Marques, F.F.C., S.T. Buckland, D. Goffin, C.E. Dixon, D.L. Borchers, B.A. Mayle, and A.J. Peace. 2001. Estimating deer abundance from line transect surveys of dung: sika deer in southern Scotland. Journal of Applied Ecology 38 (2): 349–363.
+
+Marques, F.F.C. and S.T. Buckland. 2003. Incorporating covariates into standard line transect analyses. Biometrics 59: 924-935.
+
+Miller, D. L., Burt, M. L., Rexstad, E. A., Thomas, L. 2013. Spatial models for distance sampling data: recent developments and future directions. Methods in Ecology and Evolution, 4: 1001-1010. doi: 10.1111/2041-210X.12105
+
+Oedekoven, C. S., Buckland, S. T., MacKenzie, M. L., King, R., Evans, K. O., and Burger, L. W. 2014. Bayesian methods for hierarchical distance sampling models. JABES 19: 219-239.
