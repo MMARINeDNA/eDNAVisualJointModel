@@ -27,7 +27,12 @@ N_WARMUP      <- 1000   # bumped from 500: with M=3584 and a near-degenerate
                         # adapt away from the low-sigma trap.
 N_SAMPLE      <- 500
 ADAPT_DELTA   <- 0.90
-MAX_TREEDEPTH <- 12
+MAX_TREEDEPTH <- 14   # bumped from 12: previous run at sigma_ct=0.4 (data)
+                      # had 50% of transitions hitting tree depth 12 because
+                      # the stiff geometry needs long trajectories. With
+                      # sigma_ct now bumped to 0.6 (giving the field a noise
+                      # budget) the geometry should soften, but keep the
+                      # extra headroom anyway.
 
 OUTPUT_DIR <- "outputs/whale_edna_output_v3.2"
 dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)

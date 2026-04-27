@@ -163,8 +163,19 @@ habitat preference as v3.)
   a `Ct ~ log(integer count)` vs `Ct ~ log(expected count)`
   discreteness mismatch between sim and model; pinning it removes
   that nuisance.
-- **Simulation `sigma_ct`** changed from 0.5 to **0.4** (paired with
-  pinning it as data — keeps the truth and data values consistent).
+- **Simulation `sigma_ct`** = 0.4 (the explicit PCR-noise SD added
+  in the sim).
+- **Model `sigma_ct`** = **0.6** (data-fixed, deliberately *higher*
+  than the sim's PCR-noise truth). The sim's Ct values also carry
+  discrete-count noise from `Ct ~ log(integer aliquot count)`, which
+  contributes ~0.46 of additional SD at the simulated mean aliquot
+  copies. Pinning `sigma_ct = 0.4` (PCR-only) made the model fit the
+  field too tightly to absorb that extra noise — 50% max-treedepth
+  saturation, length-scales biased low. 0.6 ≈ the honest
+  `√(0.4² + 0.46²)` combined PCR + discrete-count noise.
+- **`max_treedepth`** bumped from 12 to 14 — the geometry is still
+  somewhat stiff with `M = 3584` even after the `sigma_ct` bump, and
+  the extra trajectory headroom prevents truncated transitions.
 - **Sampled parameters**: only `mu_sp`, `gp_sigma`, `gp_l`, `z_beta`.
   With kappa, sigma_ct, and the MB block all out of the parameter
   block, the only things the posterior has to identify are `mu_sp`

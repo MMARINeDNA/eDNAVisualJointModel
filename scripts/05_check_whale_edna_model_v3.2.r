@@ -24,7 +24,7 @@ library(dplyr)
 
 set.seed(42)
 
-MAX_TREEDEPTH <- 12
+MAX_TREEDEPTH <- 14   # must match the value in 04_run_whale_edna_model_v3.2.r
 
 OUTPUT_DIR <- "outputs/whale_edna_output_v3.2"
 

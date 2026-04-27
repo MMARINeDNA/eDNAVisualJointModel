@@ -177,14 +177,19 @@ stan_data <- list(
 
   # Fixed qPCR calibration. v3.2: kappa and sigma_ct now join
   # alpha_ct/beta_ct as data - the entire standard-curve fit is treated
-  # as known. (sigma_ct was previously sampled but consistently inflated
-  # to ~0.79 against truth 0.5, likely from the Ct ~ log(integer count)
-  # vs Ct ~ log(expected count) discreteness mismatch. Pinning it
-  # removes that nuisance from the inference.)
+  # as known. sigma_ct deliberately set HIGHER than the sim's PCR-noise
+  # truth (0.4): the simulated Ct's also carry discrete-count noise from
+  # Ct ~ log(integer count), which contributes ~0.46 of additional SD
+  # at the simulated mean aliquot copies (E[C] ~ 10, Var[log(C)] ~ 0.1,
+  # times beta_ct = 1.44). Pinning sigma_ct = 0.4 (PCR-only) made the
+  # model fit the field too tightly to absorb that extra noise -
+  # 50% max-treedepth saturation, length-scales biased low. 0.6 is the
+  # honest combined PCR + discrete-count noise (sqrt(0.4^2 + 0.46^2)),
+  # giving the field a noise budget for what it can't explain.
   alpha_ct = sim$truth$qpcr_params$alpha_ct,
   beta_ct  = sim$truth$qpcr_params$beta_ct,
   kappa    = sim$truth$qpcr_params$kappa,
-  sigma_ct = sim$truth$qpcr_params$sigma_ct,
+  sigma_ct = 0.6,
 
   # Prior hyperparameters. gp_sigma uses Gamma(shape, rate). Tightened
   # from Gamma(4, 2) (mode 1.5, mean 2.0, sd 1.0) to Gamma(8, 4) (mode
