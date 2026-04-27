@@ -545,7 +545,123 @@ cat(sprintf("  log(lambda) range across 1D marginals: x [%.2f, %.2f], y [%.2f, %
             min(f_z_summary$q50), max(f_z_summary$q50)))
 
 # -----------------------------------------------------------------------------
-# 8. Save diagnostics and session info
+# 8. Prior vs posterior densities
+#
+# For each scalar GP parameter (mu_sp, gp_sigma, gp_l[lx, ly, lz]),
+# overlay the prior density (from the stan_data hyperparameters) on the
+# posterior density estimate, with a vertical dashed line at the
+# simulated truth. The gp_l priors are normal truncated at 0 (matching
+# the <lower=0> constraint in the Stan parameter block); we renormalise
+# the truncated normal to integrate to 1 over [0, inf) so the prior
+# height is comparable to the posterior. mu_sp's prior is plain normal,
+# gp_sigma's is gamma (no truncation issue).
+# -----------------------------------------------------------------------------
+cat("=== Prior vs posterior density plots ===\n")
+
+dnorm_trunc0 <- function(x, mu, sig) {
+  ifelse(x >= 0, dnorm(x, mu, sig) / (1 - pnorm(0, mu, sig)), 0)
+}
+
+prior_post_specs <- list(
+  list(
+    var      = "mu_sp[1]",
+    label    = "mu_sp",
+    truth    = sim$truth$gp_params$hake$mu,
+    prior_fn = function(x) dnorm(x, stan_data$prior_mu_sp_mu, stan_data$prior_mu_sp_sig),
+    xrange   = stan_data$prior_mu_sp_mu + c(-3, 3) * stan_data$prior_mu_sp_sig
+  ),
+  list(
+    var      = "gp_sigma[1]",
+    label    = "gp_sigma",
+    truth    = sim$truth$gp_params$hake$sigma,
+    prior_fn = function(x) dgamma(x, stan_data$prior_gp_sigma_shape,
+                                  stan_data$prior_gp_sigma_rate),
+    xrange   = c(0, qgamma(0.995, stan_data$prior_gp_sigma_shape,
+                           stan_data$prior_gp_sigma_rate))
+  ),
+  list(
+    var      = "gp_l[1,1]",
+    label    = "lx (km)",
+    truth    = sim$truth$gp_params$hake$lx,
+    prior_fn = function(x) dnorm_trunc0(x, stan_data$prior_gp_lx_mu,
+                                         stan_data$prior_gp_lx_sig),
+    xrange   = c(0, stan_data$prior_gp_lx_mu + 3 * stan_data$prior_gp_lx_sig)
+  ),
+  list(
+    var      = "gp_l[1,2]",
+    label    = "ly (km)",
+    truth    = sim$truth$gp_params$hake$ly,
+    prior_fn = function(x) dnorm_trunc0(x, stan_data$prior_gp_ly_mu,
+                                         stan_data$prior_gp_ly_sig),
+    xrange   = c(0, stan_data$prior_gp_ly_mu + 3 * stan_data$prior_gp_ly_sig)
+  ),
+  list(
+    var      = "gp_l[1,3]",
+    label    = "lz (m)",
+    truth    = sim$truth$gp_params$hake$lz,
+    prior_fn = function(x) dnorm_trunc0(x, stan_data$prior_gp_lz_mu,
+                                         stan_data$prior_gp_lz_sig),
+    xrange   = c(0, stan_data$prior_gp_lz_mu + 3 * stan_data$prior_gp_lz_sig)
+  )
+)
+
+prior_post_plots <- lapply(prior_post_specs, function(p) {
+  draws_v <- as.numeric(fit$draws(p$var, format = "matrix"))
+
+  # Post density - bound to xrange so the comparison is fair
+  post_dens <- density(draws_v,
+                       from = max(min(p$xrange), min(draws_v) - 0.05 * diff(p$xrange)),
+                       to   = min(max(p$xrange), max(draws_v) + 0.05 * diff(p$xrange)),
+                       n    = 512)
+  post_df <- tibble(x = post_dens$x, y = post_dens$y, dist = "posterior")
+
+  # Prior density on the same range
+  x_grid  <- seq(min(p$xrange), max(p$xrange), length.out = 512)
+  prior_df <- tibble(x = x_grid, y = p$prior_fn(x_grid), dist = "prior")
+
+  ggplot(bind_rows(post_df, prior_df),
+         aes(x = x, y = y, colour = dist, fill = dist)) +
+    geom_area(alpha = 0.30, position = "identity",
+              colour = NA) +
+    geom_line(linewidth = 0.8) +
+    geom_vline(xintercept = p$truth,
+               linetype = "dashed", colour = "red", linewidth = 0.6) +
+    scale_colour_manual(values = c(posterior = "#3B528B", prior = "grey40")) +
+    scale_fill_manual  (values = c(posterior = "#3B528B", prior = "grey60")) +
+    labs(title = p$label, x = NULL, y = "density") +
+    theme_bw(base_size = 10) +
+    theme(plot.title    = element_text(face = "bold", size = 11),
+          legend.position = "none")
+})
+
+# Build a single legend for the combined plot
+legend_plot <- ggplot(tibble(x = 1, dist = c("prior", "posterior", "truth")),
+                      aes(x = x, y = x, colour = dist, linetype = dist)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_manual(values = c(prior = "grey40",
+                                 posterior = "#3B528B",
+                                 truth = "red")) +
+  scale_linetype_manual(values = c(prior = "solid",
+                                   posterior = "solid",
+                                   truth = "dashed")) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title    = element_blank())
+
+prior_post_combined <- wrap_plots(prior_post_plots, ncol = 2) /
+  legend_plot + plot_layout(heights = c(20, 1)) +
+  plot_annotation(
+    title = "Prior vs posterior density",
+    subtitle = "Vertical dashed line = simulated truth",
+    theme = theme(plot.title    = element_text(face = "bold", size = 13),
+                  plot.subtitle = element_text(size = 10, colour = "grey40"))
+  )
+
+ggsave(file.path(OUTPUT_DIR, "prior_vs_posterior.png"),
+       prior_post_combined, width = 10, height = 9)
+
+# -----------------------------------------------------------------------------
+# 9. Save diagnostics and session info
 # -----------------------------------------------------------------------------
 cat("=== Saving diagnostics ===\n")
 
