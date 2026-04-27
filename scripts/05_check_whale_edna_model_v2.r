@@ -4,7 +4,7 @@
 # Diagnostics + posterior predictive checks for the fit produced by
 # scripts/04_run_whale_edna_model_v2.r.
 #
-# Inputs:  outputs/whale_edna_sim_v2.rds
+# Inputs:  outputs/whale_edna_output_v2/whale_edna_sim_v2.rds
 #          outputs/whale_edna_output_v2/stan_data.rds
 #          outputs/whale_edna_output_v2/whale_edna_fit.rds
 # Outputs: plots, CSVs, and session info in outputs/whale_edna_output_v2/
@@ -25,7 +25,7 @@ OUTPUT_DIR    <- "outputs/whale_edna_output_v2"
 cat("=== Loading fit and context ===\n")
 fit       <- readRDS(file.path(OUTPUT_DIR, "whale_edna_fit.rds"))
 stan_data <- readRDS(file.path(OUTPUT_DIR, "stan_data.rds"))
-sim       <- readRDS("outputs/whale_edna_sim_v2.rds")
+sim       <- readRDS("outputs/whale_edna_output_v2/whale_edna_sim_v2.rds")
 
 samples         <- sim$design$samples
 gp_params       <- sim$truth$gp_params
@@ -60,8 +60,11 @@ cat(sprintf("  Divergences       : %d\n", sum(sampler_diag$divergent__)))
 cat(sprintf("  Max treedepth hits: %d\n",
             sum(sampler_diag$treedepth__ >= MAX_TREEDEPTH)))
 
+# bayesplot's mcmc_nuts_* family expects a tidy NUTS data frame (Chain,
+# Iteration, Parameter, Value), not the wide CmdStanR shape used above.
+nuts_df <- bayesplot::nuts_params(fit)
 ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
-       mcmc_nuts_energy(sampler_diag) + ggtitle("NUTS Energy"),
+       mcmc_nuts_energy(nuts_df) + ggtitle("NUTS Energy"),
        width = 8, height = 4)
 
 scalar_pars <- c(

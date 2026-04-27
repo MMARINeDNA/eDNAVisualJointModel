@@ -439,4 +439,5 @@ sim <- list(
   )
 )
 
-saveRDS(sim, "outputs/whale_edna_sim_v2.rds")
+dir.create("outputs/whale_edna_output_v2", showWarnings = FALSE, recursive = TRUE)
+saveRDS(sim, "outputs/whale_edna_output_v2/whale_edna_sim_v2.rds")

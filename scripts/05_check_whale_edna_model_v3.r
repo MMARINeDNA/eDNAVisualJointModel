@@ -4,7 +4,7 @@
 # Diagnostics + posterior predictive checks for the fit produced by
 # scripts/04_run_whale_edna_model_v3.r.
 #
-# Inputs:  outputs/whale_edna_sim_v3.rds        (for true parameters / truth)
+# Inputs:  outputs/whale_edna_output_v3/whale_edna_sim_v3.rds        (for true parameters / truth)
 #          outputs/whale_edna_output_v3/stan_data.rds
 #          outputs/whale_edna_output_v3/whale_edna_fit.rds
 # Outputs: plots, CSVs, and session info in outputs/whale_edna_output_v3/
@@ -16,6 +16,7 @@ library(bayesplot)
 library(loo)
 library(patchwork)
 library(viridis)
+library(dplyr)
 
 set.seed(42)
 
@@ -29,7 +30,7 @@ OUTPUT_DIR <- "outputs/whale_edna_output_v3"
 cat("=== Loading fit and context ===\n")
 fit       <- readRDS(file.path(OUTPUT_DIR, "whale_edna_fit.rds"))
 stan_data <- readRDS(file.path(OUTPUT_DIR, "stan_data.rds"))
-sim       <- readRDS("outputs/whale_edna_sim_v3.rds")
+sim       <- readRDS("outputs/whale_edna_output_v3/whale_edna_sim_v3.rds")
 
 samples         <- sim$design$samples
 gp_params       <- sim$truth$gp_params
@@ -66,15 +67,18 @@ rhat_bad <- diag_sum %>% filter(Rhat > 1.01)
 ess_bad  <- diag_sum %>% filter(ESS_bulk < 400 | ESS_tail < 400)
 cat(sprintf("  Rhat > 1.01 : %d parameters\n", nrow(rhat_bad)))
 cat(sprintf("  ESS < 400   : %d parameters\n", nrow(ess_bad)))
-if (nrow(rhat_bad) > 0) print(rhat_bad %>% select(variable, Rhat))
+if (nrow(rhat_bad) > 0) print(rhat_bad %>% dplyr::select(variable, Rhat))
 
 sampler_diag <- fit$sampler_diagnostics(format = "df")
 cat(sprintf("  Divergences       : %d\n", sum(sampler_diag$divergent__)))
 cat(sprintf("  Max treedepth hits: %d\n",
             sum(sampler_diag$treedepth__ >= MAX_TREEDEPTH)))
 
-# Energy plot
-energy_plot <- mcmc_nuts_energy(sampler_diag) +
+# Energy plot. bayesplot's mcmc_nuts_* family expects a tidy NUTS data
+# frame (Chain, Iteration, Parameter, Value), not the wide CmdStanR
+# shape used above for the divergence / treedepth counters.
+nuts_df <- bayesplot::nuts_params(fit)
+energy_plot <- mcmc_nuts_energy(nuts_df) +
   ggtitle("NUTS Energy")
 ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
        energy_plot, width = 8, height = 4)

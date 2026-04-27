@@ -1,155 +1,153 @@
 # =============================================================================
-# plot_simulated_data.R
+# plot_simulated_data_v2.R
 #
-# Three-row figure:
-#   Row 1 — True animal density lambda at the surface, plotted on the X/Y
-#            grid at 1 km resolution using the deterministic mean function
-#            (mu + zbathy_pref(Z_bathy(X))); sampled locations overlaid.
+# Three-panel figure for the V2 simulation (Oregon / Washington coast,
+# bathymetry as a function of X only, 150 stations × 5 sample depths).
+# Output is a multi-page PDF with one page per panel:
 #
-#   Row 2 — Relationship between bathymetry Z_bathy and true animal density
-#            lambda. Z_bathy on x-axis, lambda on y-axis; one line per
-#            species showing the mean and spread across all stations.
-#            This shows the ecological habitat preference over the
-#            shelf-slope bathymetric gradient.
+#   Page 1 — Expected density surface λ on a 1 km grid (closed-form GP
+#             mean evaluated at every grid cell). Station locations
+#             overlaid.
 #
-#   Row 3 — Water column sampling depth effect: the multiplicative effect
-#            of Z_sample on eDNA concentration (zsample_effect), shown on
-#            a reversed depth axis (shallow at top). This is the separate
-#            observation process, distinct from animal density.
+#   Page 2 — 3 × 3 grid of the true marginal relationship between each
+#             species' expected density λ and each spatial covariate
+#             (X, Y, Z_bathy). True relationship only — no points, no
+#             second geom. Rows = species, columns = covariate; each
+#             species column has its own y-scale.
 #
+#             V2 has no latitude preference and bathymetry depends only
+#             on X, so the λ vs Y panels are flat by construction —
+#             they're kept in the layout for parity with later versions.
+#
+#   Page 3 — Water column sampling depth effect exp(δ_Z_sample) on the
+#             reversed depth axis (V2 uses 5 depths: 0, 50, 150, 300,
+#             500 m).
+#
+# Lambda is rendered via expression() / plotmath so the Greek letter
+# always shows up, and the final PDF is written with cairo_pdf for
+# correct Unicode support.
 # =============================================================================
 
 library(tidyverse)
 library(patchwork)
 library(viridis)
-library(dplyr)
 
-sim <- readRDS("outputs/whale_edna_sim_v2.rds")
+sim <- readRDS("outputs/whale_edna_output_v2/whale_edna_sim_v2.rds")
 
 sp_common      <- sim$meta$sp_common
-sp_names       <- sim$meta$sp_names
 n_species      <- sim$meta$n_species
-sample_depths  <- sim$meta$sample_depths    # 0, 50, 150, 300, 500
-D              <- sim$meta$n_sample_depth   # 5
+sample_depths  <- sim$meta$sample_depths
+D              <- sim$meta$n_sample_depth
 gp_params      <- sim$truth$gp_params
-lambda_true    <- sim$truth$lambda_true     # N × S  (animal density)
-zsample_effect <- sim$truth$zsample_effect  # N × S  (water column factor)
-samples        <- sim$design$samples        # X, Y, Z_bathy, Z_sample, etc.
-stations       <- sim$design$stations       # one row per station
+lambda_true    <- sim$truth$lambda_true_si
+samples        <- sim$design$samples
+stations       <- sim$design$stations
+
+# v2 doesn't store these in meta — derive them from the UTM box.
+X_km_max <- (sim$meta$X_max_utm - sim$meta$X_min_utm) / 1000   # 300 km
+Y_km_max <- (sim$meta$Y_max_utm - sim$meta$Y_min_utm) / 1000   # 400 km
+
+# ---------------------------------------------------------------------------
+# Re-create the deterministic functions used in the v2 sim. Bathymetry is
+# a function of X alone (no rotation, no Y dependence). There is no
+# latitude preference (no y_pref* fields in gp_params).
+# ---------------------------------------------------------------------------
+bathy_mean_fn <- function(X_km, Y_km = NULL) {
+  abyssal <- 2500
+  shelf   <- 80
+  pmax(
+    abyssal + (shelf - abyssal) / (1 + exp(-0.06 * (X_km - 180))),
+    10
+  )
+}
+
+gauss_pref <- function(x, mu, sd, amp) {
+  raw <- dnorm(x, mu, sd) / dnorm(mu, mu, sd)
+  amp * (raw - 0.5)
+}
+
+# Expected log(λ) at (X, Y, Z_bathy) for species s — GP mean only.
+# v2's mean function is mu + zbathy_pref(Z_bathy); no Y dependence.
+expected_log_lambda <- function(X_km, Y_km, Z_bathy, p) {
+  p$mu +
+    gauss_pref(Z_bathy, p$zbathy_pref_mu, p$zbathy_pref_sd, p$zbathy_pref_amp)
+}
 
 sp_colours <- viridis(n_species, option = "viridis", end = 0.85)
 
 # =============================================================================
-# Row 1 — Surface density on 1 km X/Y grid
-#
-# Deterministic mean surface:
-#   log(lambda) = mu_s + zbathy_pref(Z_bathy(X)) + 0  [no GP residual]
-# Z_bathy is derived from the shelf-slope profile function using X.
-# Sampled station locations overlaid as open circles.
+# Page 1 — Expected density surface, 1 km grid
 # =============================================================================
 
-bathy_mean_fn <- function(X_km) {
-  abyssal <- 2500
-  shelf   <- 80
-  pmax(abyssal + (shelf - abyssal) / (1 + exp(-0.06 * (X_km - 180))), 10)
-}
-
-zbathy_pref_fn <- function(Z_bathy, mu_z, sd_z, amp) {
-  raw <- dnorm(Z_bathy, mu_z, sd_z)
-  raw <- raw / max(raw)
-  amp * (raw - 0.5)
-}
+cat("Building 1 km grid (",
+    X_km_max + 1, " × ", Y_km_max + 1, " cells)...\n", sep = "")
 
 grid_1km <- expand.grid(
-  X = seq(0, 300, by = 1),
-  Y = seq(0, 400, by = 1)
+  X = seq(0, X_km_max, by = 1),
+  Y = seq(0, Y_km_max, by = 1)
 ) %>%
   mutate(Z_bathy = bathy_mean_fn(X))
 
 for (s in seq_len(n_species)) {
-  p    <- gp_params[[s]]
-  z_mu <- zbathy_pref_fn(grid_1km$Z_bathy,
-                         p$zbathy_pref_mu,
-                         p$zbathy_pref_sd,
-                         p$zbathy_pref_amp)
-  grid_1km[[paste0("lambda_s", s)]] <- exp(p$mu + z_mu)
+  p <- gp_params[[s]]
+  grid_1km[[paste0("log_lambda_s", s)]] <-
+    expected_log_lambda(grid_1km$X, grid_1km$Y, grid_1km$Z_bathy, p)
 }
 
-# Shared colour limits (log scale)
-log_lam_all <- unlist(lapply(seq_len(n_species), function(s)
-  log(grid_1km[[paste0("lambda_s", s)]] + 0.01)))
+# Shared colour limits across species (1st and 99th percentiles on log scale)
+log_lam_all <- unlist(lapply(seq_len(n_species),
+                             function(s) grid_1km[[paste0("log_lambda_s", s)]]))
 clim <- quantile(log_lam_all, c(0.01, 0.99))
 
-# Surface samples (Z_sample == 0) for overlay
-surf_samples <- samples %>%
-  filter(Z_sample == 0) %>%
-  mutate(
-    lambda_s1 = lambda_true[sample_id, 1],
-    lambda_s2 = lambda_true[sample_id, 2],
-    lambda_s3 = lambda_true[sample_id, 3]
-  )
+# 200 m and ~1000 m isobaths
+iso_levels <- c(200, 1000)
 
 p_row1 <- lapply(seq_len(n_species), function(s) {
-  
+
   grid_df <- grid_1km %>%
-    transmute(X, Y,
-              log_lambda = log(.data[[paste0("lambda_s", s)]] + 0.01))
-  
-  surf_pts <- surf_samples %>%
-    transmute(X, Y,
-              log_lambda_obs = log(.data[[paste0("lambda_s", s)]] + 0.01))
-  
+    transmute(X, Y, Z_bathy,
+              log_lambda = .data[[paste0("log_lambda_s", s)]])
+
   ggplot() +
-    geom_raster(
-      data = grid_df,
-      aes(X, Y, fill = log_lambda)
+    geom_raster(data = grid_df, aes(X, Y, fill = log_lambda)) +
+    geom_contour(
+      data      = grid_df,
+      aes(X, Y, z = Z_bathy),
+      breaks    = iso_levels,
+      colour    = "white",
+      linewidth = 0.25,
+      alpha     = 0.5
     ) +
     geom_point(
-      data   = surf_pts,
-      aes(X, Y, colour = log_lambda_obs),
+      data   = stations,
+      aes(X, Y),
       shape  = 21,
-      size   = 1.8,
+      size   = 0.8,
+      stroke = 0.3,
       fill   = NA,
-      stroke = 0.7
-    ) +
-    # Approximate shelf break (~200 m isobath) at X ≈ 180 km
-    geom_vline(
-      xintercept = 180,
-      linetype   = "dashed",
-      colour     = "white",
-      linewidth  = 0.5,
-      alpha      = 0.75
-    ) +
-    annotate(
-      "text", x = 183, y = 388,
-      label  = "shelf break",
-      colour = "white",
-      size   = 2.6,
-      hjust  = 0,
-      fontface = "italic"
+      colour = "white"
     ) +
     scale_fill_viridis_c(
       option = "viridis",
       limits = clim,
-      name   = "log(λ)",
+      name   = expression(log(lambda)),
       oob    = scales::squish
     ) +
-    scale_colour_viridis_c(
-      option = "viridis",
-      limits = clim,
-      guide  = "none",
-      oob    = scales::squish
+    coord_fixed(
+      ratio  = 1,
+      xlim   = c(0, X_km_max),
+      ylim   = c(0, Y_km_max),
+      expand = FALSE
     ) +
-    scale_x_continuous(breaks = seq(0, 300, 100), expand = c(0, 0)) +
-    scale_y_continuous(breaks = seq(0, 400, 100), expand = c(0, 0)) +
-    coord_fixed(ratio = 1, xlim = c(0, 300), ylim = c(0, 400)) +
+    scale_x_continuous(breaks = seq(0, X_km_max, 100)) +
+    scale_y_continuous(breaks = seq(0, Y_km_max, 100)) +
     labs(
       title    = sp_common[s],
-      subtitle = "Mean surface density (Z_sample = 0 m)",
-      x = "Easting (km from offshore)",
-      y = "Northing (km from Cape Blanco)"
+      subtitle = expression("Expected " * lambda * " (z = 0 m, 1 km grid)"),
+      x        = "Easting (km from offshore boundary)",
+      y        = "Northing (km from Cape Blanco)"
     ) +
-    theme_bw(base_size = 11) +
+    theme_bw(base_size = 10) +
     theme(
       plot.title      = element_text(face = "italic", size = 11),
       plot.subtitle   = element_text(size = 8.5, colour = "grey40"),
@@ -161,110 +159,122 @@ p_row1 <- lapply(seq_len(n_species), function(s) {
     )
 })
 
-# =============================================================================
-# Row 2 — Bathymetry (Z_bathy) vs true animal density
-# =============================================================================
-
-# Build a long data frame directly from samples without the broken select()
-bathy_df <- bind_rows(lapply(seq_len(n_species), function(s) {
-  data.frame(
-    station = samples$station,
-    Z_bathy = samples$Z_bathy,
-    lambda  = lambda_true[, s],
-    species = sp_common[s]
-  )
-})) %>%
-  # Average lambda over sample depths within each station
-  group_by(station, Z_bathy, species) %>%
-  summarise(lambda = mean(lambda), .groups = "drop") %>%
-  mutate(species = factor(species, levels = sp_common))
-
-# Deterministic mean function over a fine Z_bathy grid
-zbathy_seq <- seq(10, 2600, by = 10)
-
-bathy_mean_df <- bind_rows(lapply(seq_len(n_species), function(s) {
-  p    <- gp_params[[s]]
-  z_mu <- zbathy_pref_fn(zbathy_seq,
-                         p$zbathy_pref_mu,
-                         p$zbathy_pref_sd,
-                         p$zbathy_pref_amp)
-  data.frame(
-    Z_bathy = zbathy_seq,
-    lambda  = exp(p$mu + z_mu),
-    species = sp_common[s]
-  )
-})) %>%
-  mutate(species = factor(species, levels = sp_common))
-
-p_row2 <- ggplot() +
-  geom_point(
-    data  = bathy_df,
-    aes(x = Z_bathy, y = lambda, colour = species),
-    size  = 1.2,
-    alpha = 0.35
-  ) +
-  geom_line(
-    data      = bathy_mean_df,
-    aes(x = Z_bathy, y = lambda, colour = species),
-    linewidth = 1.2
-  ) +
-  geom_vline(
-    xintercept = 200,
-    linetype   = "dashed",
-    colour     = "grey50",
-    linewidth  = 0.5
-  ) +
-  annotate(
-    "text", x = 210, y = max(bathy_mean_df$lambda) * 0.95,
-    label    = "shelf break\n(~200 m)",
-    colour   = "grey40",
-    size     = 3.0,
-    hjust    = 0,
-    fontface = "italic"
-  ) +
-  scale_colour_manual(
-    values = sp_colours,
-    name   = NULL,
-    labels = sp_common
-  ) +
-  scale_x_continuous(
-    breaks = c(0, 200, 500, 1000, 1500, 2000, 2500),
-    expand = c(0.02, 0)
-  ) +
-  scale_y_continuous(expand = c(0.02, 0)) +
-  labs(
-    title    = "Bathymetric habitat preference",
-    subtitle = paste("True animal density λ vs bottom depth Z_bathy;",
-                     "line = deterministic mean function,",
-                     "points = station means (including GP residual)"),
-    x = "Bottom depth Z_bathy (m)",
-    y = "λ (copies / L)"
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    plot.title      = element_text(size = 11, face = "bold"),
-    plot.subtitle   = element_text(size = 9, colour = "grey40"),
-    legend.position = "right",
-    legend.text     = element_text(face = "italic", size = 9)
-  )
+page1 <- wrap_plots(p_row1, nrow = 1) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title    = "Simulated eDNA fields - Oregon / Washington coast (v2)",
+    subtitle = expression("Expected density " * lambda *
+                          " on a 1 km grid at z = 0 m"),
+    theme    = theme(
+      plot.title    = element_text(size = 13, face = "bold"),
+      plot.subtitle = element_text(size = 9,  colour = "grey40")
+    )
+  ) &
+  theme(legend.position = "right")
 
 # =============================================================================
-# Row 3 — Water column sampling depth effect (Z_sample)
+# Page 2 — True marginal relationships (3 species × 3 covariates)
 #
-# Shows exp(zsample_pref[d]) for each species at each sample depth.
-# Depth on reversed y-axis (oceanographic convention: shallow at top).
-# This is entirely separate from animal density — it reflects where in
-# the water column eDNA is concentrated given animals are present.
+# v2 mean function is mu + zbathy_pref(Z_bathy); Z_bathy depends only on
+# X. So:
+#
+#   λ vs X     :  Z_bathy = bathy(X), expected λ = exp(mu + zbathy_pref(.)).
+#                 The X response folds in the bathymetric preference.
+#   λ vs Y     :  λ does not depend on Y in v2; line is flat by design.
+#                 Kept in the grid for parity with v3+ plots.
+#   λ vs Z_bathy : exp(mu + zbathy_pref(Z_bathy)). Standalone curve.
+#
+# Free y-scales per species (densities differ); free x-scales per covariate.
+# =============================================================================
+
+covariate_levels <- c(
+  "X (km, easting)",
+  "Y (km, northing)",
+  "Z_bathy (m, bottom depth)"
+)
+cov_X <- covariate_levels[1]
+cov_Y <- covariate_levels[2]
+cov_Z <- covariate_levels[3]
+
+row2_df <- bind_rows(lapply(seq_len(n_species), function(s) {
+  p <- gp_params[[s]]
+
+  # X sweep — Z_bathy varies through bathy_mean_fn(X)
+  x_seq    <- seq(0, X_km_max, length.out = 300)
+  zb_x     <- bathy_mean_fn(x_seq)
+  ll_x     <- expected_log_lambda(x_seq, NA_real_, zb_x, p)
+
+  # Y sweep — λ doesn't depend on Y. Hold X at domain centre and Z_bathy
+  # at the corresponding shelf-slope value, so the line shows the
+  # constant exp(mu + zbathy_pref(Z_bathy(X_centre))).
+  y_seq    <- seq(0, Y_km_max, length.out = 300)
+  X_fixed  <- X_km_max / 2
+  zb_y     <- bathy_mean_fn(rep(X_fixed, length(y_seq)))
+  ll_y     <- expected_log_lambda(X_fixed, y_seq, zb_y, p)
+
+  # Z_bathy sweep — direct
+  z_seq    <- seq(10, 2600, length.out = 300)
+  ll_z     <- expected_log_lambda(NA_real_, NA_real_, z_seq, p)
+
+  bind_rows(
+    data.frame(species = sp_common[s], covariate = cov_X,
+               axis_val = x_seq, lambda = exp(ll_x)),
+    data.frame(species = sp_common[s], covariate = cov_Y,
+               axis_val = y_seq, lambda = exp(ll_y)),
+    data.frame(species = sp_common[s], covariate = cov_Z,
+               axis_val = z_seq, lambda = exp(ll_z))
+  )
+})) %>%
+  mutate(
+    species   = factor(species,   levels = sp_common),
+    covariate = factor(covariate, levels = covariate_levels)
+  )
+
+# Species in columns, covariates in rows, with per-species y-scales.
+page2_species <- lapply(seq_len(n_species), function(s) {
+  df <- row2_df %>% filter(species == sp_common[s])
+  p <- ggplot(df, aes(x = axis_val, y = lambda)) +
+    geom_line(colour = sp_colours[s], linewidth = 1.1) +
+    facet_wrap(~ covariate, nrow = 3, scales = "free_x",
+               strip.position = "right") +
+    labs(title = sp_common[s], x = NULL, y = NULL) +
+    theme_bw(base_size = 10) +
+    theme(
+      plot.title       = element_text(face = "italic", size = 11, hjust = 0.5),
+      strip.text.y     = element_text(size = 9),
+      panel.grid.minor = element_blank()
+    )
+  if (s == 1) {
+    p <- p + labs(y = expression(lambda ~ "(animals/km"^2 * ")"))
+  }
+  p
+})
+
+page2 <- wrap_plots(page2_species, nrow = 1) +
+  plot_annotation(
+    title    = "True marginal density relationships - v2",
+    subtitle = expression(
+      "Expected " * lambda * " (animals/km"^2 *
+      "); v2 has no Y dependence so middle row is flat by design"
+    ),
+    theme    = theme(
+      plot.title    = element_text(size = 13, face = "bold"),
+      plot.subtitle = element_text(size = 9,  colour = "grey40")
+    )
+  )
+
+# =============================================================================
+# Page 3 — Water column sampling depth effect (5 depths in v2)
 # =============================================================================
 
 zsample_df <- bind_rows(lapply(seq_len(n_species), function(s) {
   p <- gp_params[[s]]
   tibble(
-    species        = sp_common[s],
-    depth_idx      = seq_len(D),
-    Z_sample       = sample_depths,
-    log_offset     = p$zsample_pref,
-    edna_mult      = exp(p$zsample_pref)
+    species    = sp_common[s],
+    depth_idx  = seq_len(D),
+    Z_sample   = sample_depths,
+    log_offset = p$zsample_pref,
+    edna_mult  = exp(p$zsample_pref)
   )
 })) %>%
   mutate(species = factor(species, levels = sp_common))
@@ -277,34 +287,19 @@ xlim_mult <- c(
 p_row3 <- lapply(seq_len(n_species), function(s) {
   df  <- filter(zsample_df, species == sp_common[s])
   col <- sp_colours[s]
-  
+
   ggplot(df, aes(x = edna_mult, y = Z_sample)) +
-    geom_vline(
-      xintercept = 1,
-      linetype   = "dashed",
-      colour     = "grey60",
-      linewidth  = 0.5
-    ) +
-    geom_path(
-      colour      = col,
-      linewidth   = 1.0,
-      orientation = "y"
-    ) +
+    geom_vline(xintercept = 1, linetype = "dashed",
+               colour = "grey60", linewidth = 0.5) +
+    geom_path(colour = col, linewidth = 1.0) +
     geom_point(colour = col, size = 3.5) +
     geom_text(
       aes(label = sprintf("%+.2f", log_offset)),
-      hjust  = -0.30,
-      size   = 3.2,
-      colour = "grey25"
+      hjust = -0.30, size = 3.2, colour = "grey25"
     ) +
-    scale_y_reverse(
-      breaks = sample_depths,
-      labels = paste0(sample_depths, " m")
-    ) +
-    scale_x_continuous(
-      limits = xlim_mult,
-      expand = c(0.05, 0)
-    ) +
+    scale_y_reverse(breaks = sample_depths,
+                    labels = paste0(sample_depths, " m")) +
+    scale_x_continuous(limits = xlim_mult, expand = c(0.05, 0)) +
     labs(
       title    = sp_common[s],
       subtitle = "eDNA water column effect",
@@ -321,35 +316,26 @@ p_row3 <- lapply(seq_len(n_species), function(s) {
     )
 })
 
-# =============================================================================
-# Assemble
-# =============================================================================
-
-row1 <- wrap_plots(p_row1, nrow = 1) +
-  plot_layout(guides = "collect") &
-  theme(legend.position = "right")
-
-row2 <- p_row2
-
-row3 <- wrap_plots(p_row3, nrow = 1)
-
-fig <- row1 / row2 / row3 +
-  plot_layout(heights = c(1.4, 0.9, 1.0)) +
+page3 <- wrap_plots(p_row3, nrow = 1) +
   plot_annotation(
-    title    = "Simulated eDNA fields — Oregon / Washington coast",
-    subtitle = paste0(
-      "Row 1: mean surface density (1 km grid, Z_sample = 0 m)  |  ",
-      "Row 2: true animal density λ vs bathymetry Z_bathy  |  ",
-      "Row 3: eDNA water column concentration effect by sample depth"
-    ),
-    theme = theme(
+    title    = "eDNA water column effect - v2",
+    subtitle = "Per-species multiplicative shift on eDNA at each sample depth",
+    theme    = theme(
       plot.title    = element_text(size = 13, face = "bold"),
       plot.subtitle = element_text(size = 9,  colour = "grey40")
     )
   )
 
-ggsave("outputs/simulated_edna_fields_v2.png", fig,
-       width = 14, height = 15, dpi = 150)
+# =============================================================================
+# Write multi-page PDF (one page per panel) with cairo_pdf for Unicode
+# =============================================================================
 
-cat("Saved outputs/simulated_edna_fields_v2.png\n")
-print(fig)
+out_pdf <- "outputs/whale_edna_output_v2/simulated_edna_fields_v2.pdf"
+dir.create(dirname(out_pdf), showWarnings = FALSE, recursive = TRUE)
+grDevices::cairo_pdf(out_pdf, width = 8, height = 8, onefile = TRUE)
+print(page1)
+print(page2)
+print(page3)
+invisible(dev.off())
+
+cat(sprintf("Saved %s (3 pages)\n", out_pdf))

@@ -17,45 +17,57 @@ simulated data in Stan.
 ├── 00_pipeline_v1.r                    End-to-end orchestrators (run from root)
 ├── 00_pipeline_v2.r                    `Rscript 00_pipeline_v{N}.r` sources
 ├── 00_pipeline_v3.r                     each step in order.
+├── 00_pipeline_v3.1.r                  v3 + reparameterised model fit
+├── 00_pipeline_v3.2.r                  v3 hake-only / surface / qPCR-only debug
 ├── 00_pipeline_v4.r
 │
 ├── stan/                               Stan model source
 │   ├── whale_edna_hsgp_v1.stan
 │   ├── whale_edna_hsgp_v2.stan
 │   ├── whale_edna_hsgp_v3.stan
+│   ├── whale_edna_hsgp_v3.1.stan       reparameterised v3
+│   ├── whale_edna_hsgp_v3.2.stan       v3 hake-only / qPCR-only
 │   └── whale_edna_hsgp_v4.stan
 │
 ├── scripts/                            R pipeline steps (sim → plot → format → run → check)
 │   ├── 01_simulate_whale_edna_v1.r         simulate eDNA data
 │   ├── 01_simulate_whale_edna_v2.r
 │   ├── 01_simulate_whale_edna_v3.r
+│   ├── 01_simulate_whale_edna_v3.1.r
+│   ├── 01_simulate_whale_edna_v3.2.r
 │   ├── 01_simulate_whale_edna_v4.r
 │   ├── 02_plot_simulated_data_v2.r         plot the simulated truth
 │   ├── 02_plot_simulated_data_v3.r
+│   ├── 02_plot_simulated_data_v3.1.r
+│   ├── 02_plot_simulated_data_v3.2.r
 │   ├── 02_plot_simulated_data_v4.r
 │   ├── 03_format_stan_data_v1.r            assemble stan_data list
 │   ├── 03_format_stan_data_v2.r
 │   ├── 03_format_stan_data_v3.r
+│   ├── 03_format_stan_data_v3.1.r
+│   ├── 03_format_stan_data_v3.2.r
 │   ├── 03_format_stan_data_v4.r
 │   ├── 04_run_whale_edna_model_v1.r        compile + fit Stan model
 │   ├── 04_run_whale_edna_model_v2.r
 │   ├── 04_run_whale_edna_model_v3.r
+│   ├── 04_run_whale_edna_model_v3.1.r
+│   ├── 04_run_whale_edna_model_v3.2.r
 │   ├── 04_run_whale_edna_model_v4.r
 │   ├── 05_check_whale_edna_model_v1.r      diagnostics, PPC, recovery plots
 │   ├── 05_check_whale_edna_model_v2.r
 │   ├── 05_check_whale_edna_model_v3.r
+│   ├── 05_check_whale_edna_model_v3.1.r
+│   ├── 05_check_whale_edna_model_v3.2.r
 │   ├── 05_check_whale_edna_model_v4.r
 │   ├── DetectionsBySpecies.R               Ad-hoc data exploration
 │   └── FinWhales.R
 │
-├── outputs/                            Generated artifacts
-│   ├── simulated_edna_fields_v2.png        Tracked plots of simulated data
-│   ├── simulated_edna_fields_v3.png
-│   ├── simulated_edna_fields_v4.pdf        (v4: multi-page PDF, one panel per page)
-│   ├── whale_edna_sim_v{1,2,3,4}.rds       Sim outputs (gitignored)
-│   └── whale_edna_output_v{1,2,3,4}/       Stan fit artifacts (gitignored):
-│           stan_data.rds                     stan_data list from step 03
-│           whale_edna_fit.rds                CmdStanR fit object from step 04
+├── outputs/                            Generated artifacts (per-version)
+│   └── whale_edna_output_v{1,2,3,3.1,3.2,4}/   Per-version output folder:
+│           whale_edna_sim_v{N}.rds           Sim output (gitignored)
+│           simulated_edna_fields_v{N}.pdf    Tracked multi-page sim plot
+│           stan_data.rds                     stan_data list from step 03 (gitignored)
+│           whale_edna_fit.rds                CmdStanR fit object from step 04 (gitignored)
 │           *.png, *.csv, session_info.txt   diagnostics from step 05
 │
 ├── Data/                               Real survey data (effort, sightings, detections)
@@ -73,8 +85,8 @@ Rscript 00_pipeline_v4.r
 …or run individual steps in order:
 
 ```
-Rscript scripts/01_simulate_whale_edna_v4.r     # -> outputs/whale_edna_sim_v4.rds
-Rscript scripts/02_plot_simulated_data_v4.r     # -> outputs/simulated_edna_fields_v4.pdf (3 pages)
+Rscript scripts/01_simulate_whale_edna_v4.r     # -> outputs/whale_edna_output_v4/whale_edna_sim_v4.rds
+Rscript scripts/02_plot_simulated_data_v4.r     # -> outputs/whale_edna_output_v4/simulated_edna_fields_v4.pdf (3 pages)
 Rscript scripts/03_format_stan_data_v4.r        # -> outputs/whale_edna_output_v4/stan_data.rds
 Rscript scripts/04_run_whale_edna_model_v4.r    # -> outputs/whale_edna_output_v4/whale_edna_fit.rds
 Rscript scripts/05_check_whale_edna_model_v4.r  # -> diagnostics in outputs/whale_edna_output_v4/
@@ -110,6 +122,81 @@ Each script expects the **project root as the working directory**. Artifacts
 
 ### V3 — extended domain, rotated bathymetry, realistic species distributions
 
+(Files: `*_v3.*`. Original v3 model fit, kept alongside v3.1 for
+side-by-side comparison.)
+
+### V3.1 — v3 + reparameterised model fit
+
+(Files: `*_v3.1.*`. Same simulation, plotting, and downstream
+structure as v3, but the model fit chain is reparameterised to fix
+the v3 sampler pathology — `HSGP_M = c(5, 5, 5)` instead of
+`c(10, 8, 8)`; the BB-phi `fmax(..., 0)` hinge replaced with
+`log1p_exp`; `kappa` fixed as data instead of sampled; `gp_l` and
+`gamma_phi` priors substantially tightened. Outputs land in
+`outputs/whale_edna_output_v3.1/`
+so the two pipelines don't collide.)
+
+### V3.2 — hake-only, surface-only, qPCR-only debug case
+
+(Files: `*_v3.2.*`. Stripped-down debug version of v3 to isolate
+the HSGP latent-field recovery problem from the metabarcoding
+likelihood. Same domain, bathymetry, station design, and hake
+habitat preference as v3.)
+
+- **Species**: Pacific hake only (S=1). Humpback / PWSD removed.
+- **Sample depth**: surface only (`Z_sample = 0`). The water-column
+  multiplier collapses to 1 everywhere, so `log_zsample_effect` is all
+  zeros and contributes nothing to the likelihood.
+- **Sim matches model exactly** (Option A). The deterministic habitat
+  preference function (`zbathy_pref` + `y_pref`) that v3 added to the
+  GP mean has been removed. The simulated `f_s` is now a pure
+  zero-mean GP draw with covariance `K(lx, ly, lz)`, so the named
+  length-scales are unambiguously the truth and length-scale recovery
+  is a clean test.
+- **Observations**: qPCR only. The metabarcoding likelihood and all
+  MB-only parameters (`beta0_phi` / `gamma0_phi` / `gamma1_phi`) are
+  removed from the Stan model.
+- **Fixed `kappa`**: promoted from a sampled parameter to data (joining
+  `alpha_ct` / `beta_ct`). The qPCR detection-rate calibration is
+  treated as known.
+- **Sampled parameters**: only `mu_sp`, `gp_sigma`, `gp_l`, `z_beta`,
+  `sigma_ct`. With kappa and the MB block gone, the only thing the
+  posterior has to identify is the latent GP and the Ct noise.
+- **`log_vol_filtered` in the eDNA log-mean**: the previous v3.2 model
+  computed `log_lambda_edna = log_lambda + log_zsample_effect +
+  log_conv_factor`, missing the `log(vol_filtered) ≈ 0.92` factor that
+  the simulation uses when generating bottle copies
+  (`E[bottle] = conv_factor · λ · zsample_effect · vol_filtered`). This
+  forced the posterior `mu_sp` upward by ~0.7-0.9 to compensate; now
+  passed in as data and included in `log_lambda_edna`.
+- **`gp_l` priors centred on the v3 truth**: the previous priors `gp_lx
+  ~ N(50, 40)`, `gp_ly ~ N(150, 80)`, `gp_lz ~ N(300, 150)` had `ly` and
+  `lz` mu's at half / double the simulated truth (left-overs from an
+  earlier sim configuration). Now `gp_lx ~ N(50, 30)`, `gp_ly ~ N(300,
+  100)`, `gp_lz ~ N(150, 50)` — centred on truth and ~30% tighter to
+  fight the multi-modality the previous mismatch was producing
+  (Rhat 1.4+ on `gp_l[1,1]` and `gp_l[1,3]`).
+- **HSGP basis count**: `M = (14, 8, 32)`. Bumped from `(10, 8, 8)`
+  in v3 → `(10, 8, 20)` after the normalisation fix → `(14, 8, 32)`
+  paired with Option A. Sized to Riutort-Mayol's faithful-
+  representation rule `m >= 1.75 c / ρ_ℓ`, which with `c = 1.5` and
+  the corrected half-ranges (250 km, 635 km, 1750 m) requires
+  `m >= (13, 6, 31)` for the true `(lx, ly, lz) = (50, 300, 150)`.
+- **`gp_sigma` prior**: `gamma(8, 4)` (mode 1.75, mean 2, sd 0.71).
+  Tightened from `gamma(4, 2)` after the latter was found to be bimodal
+  across chains (some chains got trapped in a low-`gp_sigma` mode where
+  `f ≈ 0` and `sigma_ct` absorbed the variance). With `M = 3584` the
+  posterior has a near-degenerate `gp_sigma ↔ z_beta` ridge; the
+  tighter prior makes the low-`gp_sigma` mode essentially unreachable.
+  Original switch from `half_normal(0, 1.5)` to gamma was needed
+  because half-normal's mode at zero was visibly trapping `gp_sigma`
+  at the boundary; gamma puts zero density at 0.
+- **Coordinate normalisation**: `coord_centre` / `coord_scale` derived
+  from the actual v3 domain extents (`X_km_max / 2`, `Y_km_max / 2`,
+  `3500 / 2`) so all normalised coords land in `[-1, 1]`.
+  Pre-existing bug carried over from v1/v2 fixed.
+- Outputs land in `outputs/whale_edna_output_v3.2/`.
+
 - **Domain**: extended to cover the full US West Coast — San Francisco
   (37.77°N) to the US/Canada border (~49°N), 500 km × 1270 km in UTM 10N.
 - **Bathymetry**: rotated cross-shore axis `X_prime` (25° in normalised
@@ -125,7 +212,7 @@ Each script expects the **project root as the working directory**. Artifacts
 - **Model form**: bathymetric + latitude habitat structure is absorbed
   into the GP via a non-zero GP mean, so the exposed model is
   `log(λ) = μ + f`.
-- **Plotting**: the 1 km grid in `02_plot_simulated_data_v3.r` evaluates
+- **Plotting**: the 1 km grid in `02_plot_simulated_data_v3.1.r` evaluates
   the closed-form GP mean at every cell (501 × 1271 = 637k cells) — no
   kriging.
 
@@ -187,9 +274,12 @@ Each script expects the **project root as the working directory**. Artifacts
 
 - Every file in `scripts/`, `stan/`, and the root `00_pipeline_v{N}.r`
   has an explicit `_v{N}` suffix (lowercase `v`).
-- V{N} simulation writes `outputs/whale_edna_sim_v{N}.rds`.
-- V{N} plotting reads `outputs/whale_edna_sim_v{N}.rds` and writes
-  `outputs/simulated_edna_fields_v{N}.png`.
+- V{N} simulation writes `outputs/whale_edna_output_v{N}/whale_edna_sim_v{N}.rds`.
+- V{N} plotting reads `outputs/whale_edna_output_v{N}/whale_edna_sim_v{N}.rds`
+  and writes
+  `outputs/whale_edna_output_v{N}/simulated_edna_fields_v{N}.pdf`
+  (multi-page PDF, one panel
+  per page).
 - V{N} Stan-data formatting writes
   `outputs/whale_edna_output_v{N}/stan_data.rds`.
 - V{N} model runner writes
