@@ -8,9 +8,9 @@
 # Outputs: outputs/whale_edna_output_v3.2/whale_edna_fit.rds
 #          + CmdStan output files in outputs/whale_edna_output_v3.2/
 #
-# v3.2: kappa is fixed in data; metabarcoding overdispersion params
-# (beta0_phi / gamma0_phi / gamma1_phi) are gone. Only mu_sp, gp_sigma,
-# gp_l, z_beta, sigma_ct are sampled.
+# v3.2: kappa and sigma_ct are fixed in data; metabarcoding
+# overdispersion params (beta0_phi / gamma0_phi / gamma1_phi) are gone.
+# Only mu_sp, gp_sigma, gp_l, z_beta are sampled.
 # =============================================================================
 
 library(cmdstanr)
@@ -57,10 +57,9 @@ init_fn <- function() {
   list(
     mu_sp      = rep(2.0, S),
     gp_sigma   = rep(0.8, S),
-    gp_l       = matrix(c(50, 150, 300),
+    gp_l       = matrix(c(50, 300, 150),
                         nrow = S, ncol = 3, byrow = TRUE),
-    z_beta     = matrix(0.0, nrow = S, ncol = M_total),
-    sigma_ct   = 0.50
+    z_beta     = matrix(0.0, nrow = S, ncol = M_total)
   )
 }
 

@@ -227,7 +227,7 @@ qpcr_p <- list(
   kappa    = 0.85,
   alpha_ct = 38.0,
   beta_ct  = 1.44,
-  sigma_ct = 0.50
+  sigma_ct = 0.40
 )
 
 qpcr_detect_raw <- matrix(NA_integer_, N * R, n_species)

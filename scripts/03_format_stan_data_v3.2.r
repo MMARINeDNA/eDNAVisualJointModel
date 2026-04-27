@@ -175,10 +175,16 @@ stan_data <- list(
   qpcr_detect     = qpcr_detect_vec,
   qpcr_ct         = qpcr_ct_vec,
 
-  # Fixed qPCR calibration. v3.2: kappa joins alpha_ct/beta_ct as data.
+  # Fixed qPCR calibration. v3.2: kappa and sigma_ct now join
+  # alpha_ct/beta_ct as data - the entire standard-curve fit is treated
+  # as known. (sigma_ct was previously sampled but consistently inflated
+  # to ~0.79 against truth 0.5, likely from the Ct ~ log(integer count)
+  # vs Ct ~ log(expected count) discreteness mismatch. Pinning it
+  # removes that nuisance from the inference.)
   alpha_ct = sim$truth$qpcr_params$alpha_ct,
   beta_ct  = sim$truth$qpcr_params$beta_ct,
   kappa    = sim$truth$qpcr_params$kappa,
+  sigma_ct = sim$truth$qpcr_params$sigma_ct,
 
   # Prior hyperparameters. gp_sigma uses Gamma(shape, rate). Tightened
   # from Gamma(4, 2) (mode 1.5, mean 2.0, sd 1.0) to Gamma(8, 4) (mode
@@ -203,8 +209,7 @@ stan_data <- list(
   # ~30% to fight the multi-modality.
   prior_gp_lx_mu         =  50.0, prior_gp_lx_sig        =  30.0,
   prior_gp_ly_mu         = 300.0, prior_gp_ly_sig        = 100.0,
-  prior_gp_lz_mu         = 150.0, prior_gp_lz_sig        =  50.0,
-  prior_sigma_ct_mu      =   0.5, prior_sigma_ct_sig     =   0.3
+  prior_gp_lz_mu         = 150.0, prior_gp_lz_sig        =  50.0
 )
 
 # Sanity checks

@@ -147,6 +147,11 @@ data {
   // v3.2 (the calibration is treated as known, same as alpha_ct/beta_ct).
   real<lower=0, upper=1> kappa;
 
+  // Fixed Ct measurement noise. Promoted from parameter to data so the
+  // calibration noise is treated as known (in practice it would come
+  // from the standard-curve fit). Was a parameter in earlier v3.2.
+  real<lower=0> sigma_ct;
+
   // Prior hyperparameters (passed as data for easy tuning).
   // gp_sigma now uses a Gamma(shape, rate) prior. The previous
   // half_normal(0, prior_gp_sigma_sig) had its mode at 0, which - even
@@ -163,7 +168,6 @@ data {
   real prior_gp_lx_mu;       real<lower=0> prior_gp_lx_sig;
   real prior_gp_ly_mu;       real<lower=0> prior_gp_ly_sig;
   real prior_gp_lz_mu;       real<lower=0> prior_gp_lz_sig;
-  real prior_sigma_ct_mu;    real<lower=0> prior_sigma_ct_sig;
 
 }
 
@@ -186,8 +190,7 @@ parameters {
   matrix<lower=0>[S, 3] gp_l;       // GP length-scales: lx(km), ly(km), lz(m)
   matrix[S, M]          z_beta;     // non-centred basis coefficients
 
-  // qPCR Ct noise. alpha_ct, beta_ct, kappa are fixed in the data block.
-  real<lower=0> sigma_ct;
+  // alpha_ct, beta_ct, kappa, sigma_ct are all fixed in the data block.
 
 }
 
@@ -235,7 +238,7 @@ model {
 
   to_vector(z_beta) ~ std_normal();
 
-  sigma_ct ~ normal(prior_sigma_ct_mu, prior_sigma_ct_sig);
+  // sigma_ct is now fixed in the data block (no prior here).
 
   // ------------------------------------------------------------------
   // Likelihood - qPCR hurdle (hake only, s=1)
