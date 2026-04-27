@@ -1,7 +1,7 @@
 ---
-title: "Distance in Stan v2"
+title: "Distance in Stan: half-normal detection function."
 author: "Len Thomas"
-date: "2026-04-24"
+date: "2026-04-27"
 format:
   html:
     number-sections: true
@@ -29,6 +29,8 @@ execute:
 library(inlabru) 
 library(ggplot2)
 library(sf)
+library(knitr)
+library(kableExtra)
 
 library(rstan)
 rstan_options(auto_write = TRUE)
@@ -36,6 +38,8 @@ options(mc.cores = parallel::detectCores() - 1)
 
 library(Distance)
 library(truncnorm)
+
+set.seed(302834)
 ```
 
 Here we demonstrate a model-based Bayesian distance sampling analysis using an HMC algorithm, implemented using Stan via the `R` package `rstan`. Thanks to 
@@ -172,12 +176,13 @@ g(x) & = \exp \left( - \frac{x^2}{2 \sigma^2}\right) \nonumber \\
 \end{align}
 Hence, a reasonable prior mean parameter for log $\sigma$ is $\mu_{l\sigma} = \log (w / 2)$.  (Note that this parameter for a lognormal distribution corresponds to the median on the natural scale.)
 
-In choosing the prior standard deviation on log $\sigma$, which we will denote $\sigma_{l\sigma}$ we want a value that has the desirable properties of mildly discouraging very small values of $\sigma$, or values greater than approximately $2w$, while not overly influencing the result (e.g., posterior mean on $\sigma$) with small datasets.  Note that Buckland et al. (2001) recommend a minimum sample size of approximately 60 observations for line transect analysis, so in this context a "small" dataset will be one of about that size.  The standard deviation of a lognormal distribution is approximately equal to the coefficient of variation (CV) of the distribution -- this relationship holds for small CVs; the exact relationship is $\sigma^2_{l\sigma} = \log(1 + \text{CV}^2)$ and hence $\text{CV}=\sqrt{\exp(\sigma^2_{l\sigma}) - 1}$.  Values in the range of 0.5 to 1 seem reasonable, since we would hope that a sample of data would considerably improve a prior CV of these values (although 0.5 may perhaps be a bit too informative).  We undertook a small sensitivity analysis using value of $\sigma_{l\sigma}$ = 0.5, 0.8 and 1.0 (corresponding to CVs of 0.53, 0.95 and 1.31) and report findings in the Results section.  For reference, the pdf of these three prior distributions on $\log\sigma$ is shown in @fig-sigma-priors.
+In choosing the prior standard deviation on log $\sigma$, which we will denote $\sigma_{l\sigma}$ we want a value that has the desirable properties of mildly discouraging very small values of $\sigma$, or values greater than approximately $2w$, while not overly influencing the result (e.g., posterior mean on $\sigma$) with small datasets.  Note that Buckland et al. (2001) recommend a minimum sample size of approximately 60 observations for line transect analysis, so in this context a "small" dataset will be one of about that size.  The standard deviation of a lognormal distribution is approximately equal to the coefficient of variation (CV) of the distribution -- this relationship holds for small CVs; the exact relationship is $\sigma^2_{l\sigma} = \log(1 + \text{CV}^2)$ and hence $\text{CV}=\sqrt{\exp(\sigma^2_{l\sigma}) - 1}$.  Values in the range of 0.5 to 1 seem reasonable, since we would hope that a sample of data would considerably improve a prior CV of these values (although 0.5 may perhaps be a bit too informative).  We undertook a small sensitivity analysis using value of $\sigma_{l\sigma}$ = 0.5, 0.8 and 1.0 (corresponding to CVs of 0.53, 0.95 and 1.31) and report findings in the Results section.  For reference, the pdf of these three prior distributions on $\log\sigma$ is shown in @fig-sigma-priors.  
+
 
 ```{r}
 #| code-summary: "Code: Plot sigma priors"
 #| label: fig-sigma-priors
-#| fig-cap: "Three potential prior distributions for log $\\sigma$ (transformed to the natural scale to show the implied prior on $\\sigma$).  All specify a normal distribution on log $\\sigma$, and all have the same lognormal mean parameter of 0.5 (i.e., $w/2$ given a $w$ in this example of 1, shown by the vertical red dashed line).  The solid, dashed and dotted lines have lognormal sd parameters of 0.5, 0.8 and 1.0 respectively."
+#| fig-cap: "Three potential prior distributions for log $\\sigma$ (transformed to the natural scale to show the implied prior on $\\sigma$).  All specify a normal distribution on log $\\sigma$, and all have the same lognormal mean parameter of 0.5 (i.e., $w/2$ given a $w$ in this example of 1, shown by the vertical red dashed line).  The dashed and dotted and dot-dashed lines have lognormal sd parameters of 0.5, 0.8 and 1.0 respectively."
 
 w <- 1
 mu_lsigma <- log(w / 2)
@@ -191,9 +196,9 @@ for(i in 1:3){
   if (i == 1){
     plot(sigma, dsigma[i, ], type = "l", 
          xlab = expression(sigma), ylab = "Density",
-         xlim = c(0, w * 2))
+         xlim = c(0, w * 2), lty = 2)
   } else {
-    lines(sigma, dsigma[i, ], lty = i)
+    lines(sigma, dsigma[i, ], lty = i + 1)
   }
   abline(v = 1, lty = 2, col = "red")
 }
@@ -202,7 +207,7 @@ for(i in 1:3){
 ```{r}
 #| code-summary: "Code: Plot implied priors on p"
 #| label: fig-p-priors
-#| fig-cap: "The implied prior on $p$ (average detection probability between 0 and $w$ of the three potential prior distributions for log $\\sigma$.  All three specify a normal distribution on log $\\sigma$, and all have the same lognormal mean parameter of 0.5 (i.e., $w/2$ given a $w$ in this example of 1, shown by the vertical red dashed line).  The solid, dashed and dotted lines have lognormal sd parameters of 0.5, 0.8 and 1.0 respectively."
+#| fig-cap: "The implied prior on $p$ (average detection probability between 0 and $w$ of the three potential prior distributions for log $\\sigma$ ($w$ is equal to 1 in this example, but the plot should look the same for all values of $w$).  All three priors specify a normal distribution on log $\\sigma$, and all have the same lognormal mean parameter of $w/2$.  The solid, dashed and dotted lines have lognormal sd parameters of 0.5, 0.8 and 1.0 respectively."
 
 get_p <- function(sigma, w) {
   return(sigma * sqrt(2 * pi) * (pnorm(w / sigma) - 0.5))
@@ -235,8 +240,17 @@ for(i in 1:3){
 }
 ```
 
+```{r}
+#| code-summary: "Code: Calculate prior mean on p"
+mean_p <- numeric(3)
+dx <- sigma[2] - sigma[1]
 
-Also implies a prior distribution on average detection probability $p$, which we can calculate.
+for(i in 1:3){
+  mean_p[i] <- sum(get_p(sigma, w) * dsigma[i, ]) * dx
+}
+```
+
+The above values for $\mu_{l\sigma}$ and $\sigma_{l\sigma}$ implies a prior distribution on average detection probability $p$. This is shown in @fig-p-priors for $\sigma_{l\sigma}$ = 0.5, 0.8 and 1.0.  The prior mean on $p$ for the three are quite similar: `r knitr::combine_words(round(mean_p, 3))` respectively.
 
 # Datasets
 
@@ -299,7 +313,7 @@ ggplot() +
 #Plot distances
 ggplot(mexdolphin$points) +
   geom_histogram(aes(x = distance),
-    breaks = seq(0, w, length.out = 9),
+    breaks = seq(0, 8, length.out = 9),
     boundary = 0, fill = NA, color = "black"
   ) +
   geom_point(aes(x = distance), y = 0, pch = "|", cex = 4)
@@ -383,11 +397,11 @@ patchwork::wrap_plots(plot_list)
 
 ```{r}
 #| code-summary: "Code: Stan params"
-n_iter <- 3000
-n_chains <- 6
+n_iter <- 6000
+n_chains <- 8
 ```
 
-All Stan model results reported are based on `r n_chains` chains and `r n_iter` samples per chain (half of which were discarded as warmup), with no thinning.  Monte Carlo error on reported results was not checked formally, but is likely to be small.  Start values for $\sigma$ were chosen at random, sampling uniformly between $w/100$ and $2w$.  During Stan runs, we monitored for diagnostic warnings and did not receive any -- note that Stan messages are suppressed from the output in this rendered file, so it would be necessary to run the code in RStudio interactively to see any warning messages.
+All Stan model results reported are based on `r n_chains` chains and `r n_iter` samples per chain (half of which were discarded as warmup), with no thinning.  (This is more samples than one might typically use but here we are looking at small differences in results between, e.g., different prior formulations.  Monte Carlo error on reported results was not checked formally, but is likely to be small.)  Start values for $\sigma$ were chosen at random, sampling uniformly between $w/100$ and $2w$.  During Stan runs, we monitored for diagnostic warnings and did not receive any -- note that Stan messages are suppressed from the output in this rendered file, so it would be necessary to run the code in RStudio interactively to see any warning messages.
 
 ## Simulated data
 
@@ -480,7 +494,13 @@ print(cds_summary)
 ```
 The estimated $\sigma$ is `r exp(cds_res$ddf$par)`.  Estimated $p$ is `r cds_summary$ds$average.p` with SE of `r as.numeric(cds_summary$ds$average.p.se)`.
 
-We ran Stan with each of the three priors on $\sigma$, i.e., with $\sigma_{l\sigma}$ of 0.5, 0.8 and 1.0.  Results are shown in @tbl-dolphin-results.
+We ran Stan with each of the three priors on $\sigma$, i.e., with $\sigma_{l\sigma}$ of 0.5, 0.8 and 1.0.  The posterior density on $\sigma$ and $p$ are shown in @fig-dolphin-cds-dens.  As would be expected, the posterior becomes increasingly less peaked when going from $\sigma_{l\sigma}$ of 0.5 to 1.0 (@fig-dolphin-cds-dens left panel).  Density in the upper tail of $\sigma$ increases (because this is getting more prior weight), and this results in more posterior mass on $p$ at values close to 1 (@fig-dolphin-cds-dens right panel).  
+
+Numerical summaries of the posterior are shown in @tbl-dolphin-results.  Although the posterior mode of $\sigma$ does not change much over the 3 different priors (nor does it change in a consistent way), the posterior SD increases appreciably, and given the right skew the posterior mean also increases.  Translating this to a pattern in $p$ (which is a deterministic nonlinear function of $\sigma$, as discussed earlier), we see the mode of $p$ goes down somewhat with increasing $\sigma_{l\sigma}$, while the SD goes up; the posterior mean also goes up due to the increasing posterior mass close to 1 pointed out previously.
+
+Comparing the ML and Bayesian results, the estimated posterior mean and mode are closest to the MLE values for $\sigma_{l\sigma} = 0.5$ (perhaps surprisingly).  The posterior SD on $p$ is slightly closer to the MLE value for $\sigma_{l\sigma} = 0.8$ but it is almost as close (in the other direction) at $\sigma_{l\sigma} = 0.5$.
+
+@fig-dolphin-cds shows the fitted detection functions.  It is clear from this that the posterior mean with $\sigma_{l\sigma} = 0.5$ is closest to the MLE.
 
 ```{r}
 #| code-summary: "Code: Fit GoMx dolphin data with Stan"
@@ -495,6 +515,7 @@ res <- data.frame(sigma_lsigma = log_sigma_prior_sd_vals,
                   p_mean = rep(0, 3),
                   p_mode = rep(0, 3),
                   p_sd = rep(0, 3))
+res_density_sigma <- res_density_p <- list()
 for(i in 1:3){
   stan_cds_fit <- sampling(cds_hn_stan, 
     data = create_stan_data(data[[1]]$distance, truncation[1],
@@ -503,6 +524,8 @@ for(i in 1:3){
     pars = stan_pars, 
     iter = n_iter, thin = 1, chains = n_chains)
   samples <- extract(stan_cds_fit)
+  res_density_sigma[[i]] <- density(samples$sigma, adjust = 1.5)
+  res_density_p[[i]] <- density(samples$p, adjust = 1.5)
   res$sigma_mean[i] <- mean(samples$sigma)
   res$sigma_mode[i] <- get_dens_max(samples$sigma)
   res$sigma_sd[i] <- sd(samples$sigma)
@@ -513,6 +536,38 @@ for(i in 1:3){
 ```
 
 ```{r}
+#| code-summary: "Code: Plot dolphin posterior density"
+#| label: fig-dolphin-cds-dens
+#| fig-cap: "Posterior density on $\\sigma$ and $p$ from Stan with  prior log sigma sd of 0.5 (dashed), 0.8 (dotted) and 1.0 (dot-dashed)"
+
+par(mfrow = c(1, 2))
+
+#Plot posterior on sigma
+x_lim <- range(res_density_sigma[[1]]$x, res_density_sigma[[2]]$x,
+              res_density_sigma[[3]]$x)
+y_lim <- range(res_density_sigma[[1]]$y, res_density_sigma[[2]]$y,
+              res_density_sigma[[3]]$y)
+plot(c(x_lim[1], 20), y_lim, type = "n", xlab = expression(sigma), ylab = "Density")
+for(i in 1:3){
+  lines(res_density_sigma[[i]]$x, res_density_sigma[[i]]$y, 
+        col = "red", lty = i + 1)
+}
+
+#Plot posterior on p
+x_lim <- range(res_density_p[[1]]$x, res_density_p[[2]]$x,
+              res_density_p[[3]]$x)
+y_lim <- range(res_density_p[[1]]$y, res_density_p[[2]]$y,
+              res_density_p[[3]]$y)
+plot(x_lim, y_lim, type = "n", xlab = expression(p), ylab = "Density")
+for(i in 1:3){
+  lines(res_density_p[[i]]$x, res_density_p[[i]]$y, 
+        col = "red", lty = i + 1)
+}
+
+par(mfrow = c(1, 1))
+```
+
+```{r}
 #| code-summary: "Code: Summarize results for GoMx dolphin data"
 #| label: tbl-dolphin-results
 #| tbl-cap: "Summary of Stan fits to the GoMx dolphin data"
@@ -520,15 +575,12 @@ knitr::kable(res, col.names = c("log sigma prior sd", "mean sigma",
   "mode sigma", "sd sigma", "mean p", "mode p", "sd p"), digits = 4)
 ```
 
-Comparing the ML and Baysian results, it looks like the Bayesian posterior mean for $\sigma$ and $p$ are closer to the ML results when $\sigma_{l\sigma} = 0.5$ but that the standard deviation on $p$ is a little lower in this case.  This is perhaps unsurprising as some information about $\sigma$ has been given in the form of the prior.  Mean $\sigma$ and $p$ increases as $\sigma_{l\sigma}$ increases, becoming further away from the MLE.  
-
-Figure @fig-dolphin-cds of the fitted detection function
 
 ```{r}
 #| code-summary: "Code: Plot dolphin fitted detection functions"
 #| label: fig-dolphin-cds
-#| fig-cap: "Fitted GoMx dolphin detection functions from Distance (i.e., maximum likelihood) (black) and from Stan (i.e., Bayesian)(red) with prior log sigma sd of 0.5 (dashed), 0.8 (dotted) and 1.0 (dot-dashed)"
-plot(cds_res)
+#| fig-cap: "Fitted GoMx dolphin detection functions from Distance (i.e., maximum likelihood) (black) and from Stan (i.e., Bayesian)(red) with lines showing the detection function evaluated at the posterior mean, given prior log sigma sd of 0.5 (dashed), 0.8 (dotted) and 1.0 (dot-dashed)"
+plot(cds_res, showpoints = FALSE)
 x <- seq(0, truncation[1], length = 1000)
 for(i in 1:3){
   lines(x, hn(x, res$sigma_mean[i]), lty = i + 1, col = "red")
@@ -553,13 +605,14 @@ res_sigma <- res_p <-
     Bayes_mode = rep(0, n_rows),
     Bayes_SD = rep(0, n_rows))
 res_sigma <- res_sigma[, -4] #Not calculating SE of MLE on natural scale
+res_cds <- list()
 res_row <- 1
 for(i in 1:4){
-  cds_res <- ds(data[[i + 1]]$distance, 
+  res_cds[[i]] <- ds(data[[i + 1]]$distance, 
                 truncation = truncation[i + 1], nadj = 0)
-  cds_summary <- summary(cds_res)
+  cds_summary <- summary(res_cds[[i]])
   for(j in 1:3){
-    res_sigma$MLE[res_row] <- exp(cds_res$ddf$par)
+    res_sigma$MLE[res_row] <- exp(res_cds[[i]]$ddf$par)
     res_p$MLE[res_row] <- cds_summary$ds$average.p
     res_p$MLE_SE[res_row] <- as.numeric(cds_summary$ds$average.p.se)
 
@@ -582,29 +635,52 @@ for(i in 1:4){
 }
 ```
 
-Results from the other datasets for $\sigma$ and $p$ are summarised in @tbl-other-data-sigma and @tbl-other-data-p respectively.  The results generally concur with those found for the GoMx dolphins: posterior mean matches the MLE better with the more informative prior $\sigma_{l\sigma}=0.5$, but the standard error of the estimate of $p$ is lower than the MLE for this prior.  One exception is ETP dolphins, where the posterior standard deviation was considerably larger than the standard error from the MLE at all levels of $\sigma_{l\sigma}$.
-
-As expected, the posterior mean for $\sigma$ and $p$ are very similar to the MLEs for the dataset with the largest sample size, i.e., deer.  In general the match scales with sample size and in any case differences between MLE estimate an posterior mean are small (see @tbl-other-data-sigma and @tbl-other-data-p).
+Results from the other datasets for $\sigma$ and $p$ are summarised in @tbl-other-data-sigma and @tbl-other-data-p respectively.  With these larger datasets, the posterior means were largely unaffected by the prior on $\sigma_{l\sigma}$ and all were close to (but a little higher than) the MLE estimates.  This can also be seen by plotting the detection functions, see @fig-other-data-cd.  The SD of the posterior distributions increased with increasing  $\sigma_{l\sigma}$ but still remained below the MLE SE.
 
 ```{r}
 #| code-summary: "Code: Summarize results for other datasets for sigma"
 #| label: tbl-other-data-sigma
 #| tbl-cap: "Summary results for $\\sigma$ for other datasets"
-knitr::kable(res_sigma, col.names = c("dataset", "log sigma prior sd", "MLE", 
-  "posterior mean", "posterior mode", "posterior SD"), digits = 4)
+kbl(res_sigma, col.names = c("dataset", "log sigma prior sd", "MLE", 
+  "posterior mean", "posterior mode", "posterior SD"), 
+  digits = 4, longtable = FALSE)
 ```
 
 ```{r}
 #| code-summary: "Code: Summarize results for other datasets for p"
 #| label: tbl-other-data-p
 #| tbl-cap: "Summary results for $p$ for other datasets"
-knitr::kable(res_p, col.names = c("dataset", "log sigma prior sd", "MLE", 
-  "MLE SE", "posterior mean", "posterior mode", "posterior SD"), digits = 4)
+kbl(res_p, col.names = c("dataset", "log sigma prior sd", "MLE", 
+  "MLE SE", "posterior mean", "posterior mode", "posterior SD"), 
+  digits = 4, longtable = FALSE)
 ```
 
-# Discussion
+```{r}
+#| code-summary: "Code: Plot other dataset fitted detection functions"
+#| label: fig-other-data-cds
+#| fig-height: 8
+#| fig-cap: "Fitted detection functions for four example datasets.  Fittting was done from Distance (i.e., maximum likelihood) (black) and from Stan (i.e., Bayesian)(red) with prior log sigma sd of 0.5 (dashed), 0.8 (dotted) and 1.0 (dot-dashed)"
 
-We have demonstrated Bayesian estimation of the half-normal detection function for line transect analysis using Stan (accessed in `R` via `Rstan`).  We suggested a normal prior on $\log \sigma$ as well as a suitable choice for the prior mean.  FO rthe prior standard deviation ($\sigma_{l\sigma}$), we undertook a small sensitivity analysis, by trying the values 0.5, 0.8 and 1.0 on five datasets.  Overall we found that $\sigma_{l\sigma}=0.5$ gave the most similar estimate to the MLE, but that it could give a smaller estimated standard deviation of the posterior estimate of $p$.  Differences were generally small, and overall we recommend using $\sigma_{l\sigma}=0.5$.
+par(mfrow = c(2, 2))
+res_row <- 1
+for(i in 1:4){
+  plot(res_cds[[i]], showpoints = FALSE, 
+    main = paste0(names(data)[i+1], 
+    "(n = ", nrow(data[[i + 1]]), ")" ))
+  x <- seq(0, truncation[i+1], length = 1000)
+  for(j in 1:3){
+    lines(x, hn(x, res_sigma$Bayes_mean[res_row]), 
+          lty = j + 1, col = "red")
+    res_row <- res_row + 1
+  }
+}
+par(mfrow = c(1, 1))
+```
+
+
+# Discussion and conclusions
+
+We have demonstrated Bayesian estimation of the half-normal detection function for line transect analysis using Stan (accessed in `R` via `Rstan`).  We suggested a normal prior on $\log \sigma$ as well as a suitable choice for the prior mean.  For the prior standard deviation ($\sigma_{l\sigma}$), we undertook a small sensitivity analysis, by trying the values 0.5, 0.8 and 1.0 on five datasets.  Overall we found some sensitivity in the smallest dataset, with $\sigma_{l\sigma}=0.5$ giving a posterior mean estimate of $\sigma$ that was closest to the MLE, while $\sigma_{l\sigma}=0.5$ or $0.8$ gave a standard deviation on $\sigma$ closest to the MLE.  However, we note that MLE and posterior summaries are not the same thing in any case.  We found very little sensitivity in the four larger datasets used, but we did note that the MLE SE was larger than the Bayesian SD in all cases.  Overall there seems little to choose between the prior values of $\sigma_{l\sigma}$; on balance we recommend using the value of 0.5 on the basis of its performance with the GoMx dolphin dataset.  
 
 If we ever write this up as part of a publication, it might be worth noting that the first Bayesian application to distance sampling we are aware of is Karunamuni and Quinn (1995), with another useful reference being Oedekoven (2014).  A classic paper on weakly informative priors for variance parameters is Gelman (2006), although we would need to check whether it includes lognormal priors, and also whether it's in the context of random effects variances which is rather different from here (because here 0 is not a very likely number at all for the variance).
 
