@@ -182,11 +182,15 @@ habitat preference as v3.)
   representation rule `m >= 1.75 c / ρ_ℓ`, which with `c = 1.5` and
   the corrected half-ranges (250 km, 635 km, 1750 m) requires
   `m >= (13, 6, 31)` for the true `(lx, ly, lz) = (50, 300, 150)`.
-- **`gp_sigma` prior**: switched from `half_normal(0, 1.5)` to
-  `gamma(4, 2)` (mode 1.5, mean 2). The half-normal's mode at zero was
-  visibly trapping the `gp_sigma` posterior near the boundary even
-  with informative qPCR Ct data; Gamma's zero density at 0 prevents
-  the collapse.
+- **`gp_sigma` prior**: `gamma(8, 4)` (mode 1.75, mean 2, sd 0.71).
+  Tightened from `gamma(4, 2)` after the latter was found to be bimodal
+  across chains (some chains got trapped in a low-`gp_sigma` mode where
+  `f ≈ 0` and `sigma_ct` absorbed the variance). With `M = 3584` the
+  posterior has a near-degenerate `gp_sigma ↔ z_beta` ridge; the
+  tighter prior makes the low-`gp_sigma` mode essentially unreachable.
+  Original switch from `half_normal(0, 1.5)` to gamma was needed
+  because half-normal's mode at zero was visibly trapping `gp_sigma`
+  at the boundary; gamma puts zero density at 0.
 - **Coordinate normalisation**: `coord_centre` / `coord_scale` derived
   from the actual v3 domain extents (`X_km_max / 2`, `Y_km_max / 2`,
   `3500 / 2`) so all normalised coords land in `[-1, 1]`.

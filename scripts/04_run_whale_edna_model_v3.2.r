@@ -21,7 +21,10 @@ set.seed(42)
 # 0. Configuration
 # -----------------------------------------------------------------------------
 N_CHAINS      <- 4
-N_WARMUP      <- 500
+N_WARMUP      <- 1000   # bumped from 500: with M=3584 and a near-degenerate
+                        # gp_sigma <-> z_beta ridge in the posterior, NUTS
+                        # needs more warmup to find the correct mode and
+                        # adapt away from the low-sigma trap.
 N_SAMPLE      <- 500
 ADAPT_DELTA   <- 0.90
 MAX_TREEDEPTH <- 12

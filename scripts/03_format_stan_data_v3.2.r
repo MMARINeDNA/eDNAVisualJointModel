@@ -180,15 +180,20 @@ stan_data <- list(
   beta_ct  = sim$truth$qpcr_params$beta_ct,
   kappa    = sim$truth$qpcr_params$kappa,
 
-  # Prior hyperparameters. gp_sigma now uses Gamma(shape, rate) instead
-  # of half_normal - half_normal had its mode at 0 and was visibly
-  # trapping the gp_sigma posterior at the boundary even when the qPCR
-  # Ct data were informative. Gamma(4, 2) has mode 1.5, mean 2.0, sd 1.0;
-  # zero density at gp_sigma = 0, so the prior cannot collapse there.
+  # Prior hyperparameters. gp_sigma uses Gamma(shape, rate). Tightened
+  # from Gamma(4, 2) (mode 1.5, mean 2.0, sd 1.0) to Gamma(8, 4) (mode
+  # 1.75, mean 2.0, sd 0.71) - same mean, much less mass below ~0.3.
+  # The looser prior was visibly bimodal across chains: some chains
+  # found the correct gp_sigma ~ 1 mode, others got trapped near zero
+  # (Rhat 1.74; median 0.008, q95 1.99). With M_total = 3584 the
+  # posterior has a near-degenerate sigma <-> z_beta ridge connecting
+  # the two modes through a funnel-shaped region NUTS can't traverse
+  # during warmup. The tighter prior makes the low-sigma mode
+  # essentially unreachable.
   prior_mu_sp_mu         =   2.0,
   prior_mu_sp_sig        =   1.5,
-  prior_gp_sigma_shape   =   4.0,
-  prior_gp_sigma_rate    =   2.0,
+  prior_gp_sigma_shape   =   8.0,
+  prior_gp_sigma_rate    =   4.0,
   # gp_l priors. The previous (50, 150, 300) means were leftovers from
   # an earlier sim configuration (likely v1/v2) and never updated when
   # v3 set (lx, ly, lz) = (50, 300, 150). With M_total = 3584 the
