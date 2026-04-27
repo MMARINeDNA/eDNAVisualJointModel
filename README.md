@@ -156,12 +156,19 @@ habitat preference as v3.)
 - **Observations**: qPCR only. The metabarcoding likelihood and all
   MB-only parameters (`beta0_phi` / `gamma0_phi` / `gamma1_phi`) are
   removed from the Stan model.
-- **Fixed `kappa`**: promoted from a sampled parameter to data (joining
-  `alpha_ct` / `beta_ct`). The qPCR detection-rate calibration is
-  treated as known.
-- **Sampled parameters**: only `mu_sp`, `gp_sigma`, `gp_l`, `z_beta`,
-  `sigma_ct`. With kappa and the MB block gone, the only thing the
-  posterior has to identify is the latent GP and the Ct noise.
+- **Fixed qPCR calibration**: `kappa` and `sigma_ct` both promoted
+  from sampled parameters to data (joining `alpha_ct` / `beta_ct`).
+  The standard-curve fit is treated as known. `sigma_ct` was
+  consistently inflated when sampled (~0.79 vs truth 0.4) because of
+  a `Ct ~ log(integer count)` vs `Ct ~ log(expected count)`
+  discreteness mismatch between sim and model; pinning it removes
+  that nuisance.
+- **Simulation `sigma_ct`** changed from 0.5 to **0.4** (paired with
+  pinning it as data — keeps the truth and data values consistent).
+- **Sampled parameters**: only `mu_sp`, `gp_sigma`, `gp_l`, `z_beta`.
+  With kappa, sigma_ct, and the MB block all out of the parameter
+  block, the only things the posterior has to identify are `mu_sp`
+  and the latent GP.
 - **`log_vol_filtered` in the eDNA log-mean**: the previous v3.2 model
   computed `log_lambda_edna = log_lambda + log_zsample_effect +
   log_conv_factor`, missing the `log(vol_filtered) ≈ 0.92` factor that

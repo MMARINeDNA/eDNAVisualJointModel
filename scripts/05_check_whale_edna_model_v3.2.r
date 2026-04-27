@@ -81,12 +81,11 @@ energy_plot <- mcmc_nuts_energy(nuts_df) +
 ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
        energy_plot, width = 8, height = 4)
 
-# Scalar parameter trace plots. v3.2 sampled scalars: mu_sp, gp_sigma,
-# sigma_ct (kappa is fixed in data, gamma/beta_phi are gone).
+# Scalar parameter trace plots. v3.2 sampled scalars: mu_sp, gp_sigma
+# (kappa, sigma_ct fixed in data; gamma/beta_phi gone).
 scalar_pars <- c(
   paste0("mu_sp[",    1:S, "]"),
-  paste0("gp_sigma[", 1:S, "]"),
-  "sigma_ct"
+  paste0("gp_sigma[", 1:S, "]")
 )
 
 trace_plot <- mcmc_trace(draws_arr, pars = scalar_pars) +
@@ -112,13 +111,11 @@ cat("=== Parameter recovery ===\n")
 true_scalar <- tibble(
   variable = c(
     paste0("mu_sp[",    1:S, "]"),
-    paste0("gp_sigma[", 1:S, "]"),
-    "sigma_ct"
+    paste0("gp_sigma[", 1:S, "]")
   ),
   true = c(
     sapply(gp_params, `[[`, "mu"),
-    sapply(gp_params, `[[`, "sigma"),
-    sim$truth$qpcr_params$sigma_ct
+    sapply(gp_params, `[[`, "sigma")
   )
 )
 
