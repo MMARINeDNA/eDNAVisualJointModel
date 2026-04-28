@@ -20,6 +20,7 @@ simulated data in Stan.
 ├── 00_pipeline_v3.1.r                  v3 + reparameterised model fit
 ├── 00_pipeline_v3.2.r                  v3 hake-only / surface / qPCR-only debug
 ├── 00_pipeline_v4.r
+├── 00_pipeline_v4.1.r                  v4 + v3.2 lessons + zero-mean GP
 │
 ├── stan/                               Stan model source
 │   ├── whale_edna_hsgp_v1.stan
@@ -27,7 +28,8 @@ simulated data in Stan.
 │   ├── whale_edna_hsgp_v3.stan
 │   ├── whale_edna_hsgp_v3.1.stan       reparameterised v3
 │   ├── whale_edna_hsgp_v3.2.stan       v3 hake-only / qPCR-only
-│   └── whale_edna_hsgp_v4.stan
+│   ├── whale_edna_hsgp_v4.stan
+│   └── whale_edna_hsgp_v4.1.stan       v4 + v3.2 fixes
 │
 ├── scripts/                            R pipeline steps (sim → plot → format → run → check)
 │   ├── 01_simulate_whale_edna_v1.r         simulate eDNA data
@@ -36,34 +38,39 @@ simulated data in Stan.
 │   ├── 01_simulate_whale_edna_v3.1.r
 │   ├── 01_simulate_whale_edna_v3.2.r
 │   ├── 01_simulate_whale_edna_v4.r
+│   ├── 01_simulate_whale_edna_v4.1.r
 │   ├── 02_plot_simulated_data_v2.r         plot the simulated truth
 │   ├── 02_plot_simulated_data_v3.r
 │   ├── 02_plot_simulated_data_v3.1.r
 │   ├── 02_plot_simulated_data_v3.2.r
 │   ├── 02_plot_simulated_data_v4.r
+│   ├── 02_plot_simulated_data_v4.1.r
 │   ├── 03_format_stan_data_v1.r            assemble stan_data list
 │   ├── 03_format_stan_data_v2.r
 │   ├── 03_format_stan_data_v3.r
 │   ├── 03_format_stan_data_v3.1.r
 │   ├── 03_format_stan_data_v3.2.r
 │   ├── 03_format_stan_data_v4.r
+│   ├── 03_format_stan_data_v4.1.r
 │   ├── 04_run_whale_edna_model_v1.r        compile + fit Stan model
 │   ├── 04_run_whale_edna_model_v2.r
 │   ├── 04_run_whale_edna_model_v3.r
 │   ├── 04_run_whale_edna_model_v3.1.r
 │   ├── 04_run_whale_edna_model_v3.2.r
 │   ├── 04_run_whale_edna_model_v4.r
+│   ├── 04_run_whale_edna_model_v4.1.r
 │   ├── 05_check_whale_edna_model_v1.r      diagnostics, PPC, recovery plots
 │   ├── 05_check_whale_edna_model_v2.r
 │   ├── 05_check_whale_edna_model_v3.r
 │   ├── 05_check_whale_edna_model_v3.1.r
 │   ├── 05_check_whale_edna_model_v3.2.r
 │   ├── 05_check_whale_edna_model_v4.r
+│   ├── 05_check_whale_edna_model_v4.1.r
 │   ├── DetectionsBySpecies.R               Ad-hoc data exploration
 │   └── FinWhales.R
 │
 ├── outputs/                            Generated artifacts (per-version)
-│   └── whale_edna_output_v{1,2,3,3.1,3.2,4}/   Per-version output folder:
+│   └── whale_edna_output_v{1,2,3,3.1,3.2,4,4.1}/   Per-version output folder:
 │           whale_edna_sim_v{N}.rds           Sim output (gitignored)
 │           simulated_edna_fields_v{N}.pdf    Tracked multi-page sim plot
 │           stan_data.rds                     stan_data list from step 03 (gitignored)
@@ -287,6 +294,42 @@ habitat preference as v3.)
   v3 already accommodates variable replication per sample.
 - **Domain, bathymetry, species habitat structure, priors**: unchanged
   from v3.
+
+### V4.1 — v4 + v3.2 lessons + zero-mean GP
+
+(Files: `*_v4.1.*`. v4 simulation upgraded with the lessons learned
+in v3.2 / v3.2-bump-sigma-ct-and-treedepth. Output dir:
+`outputs/whale_edna_output_v4.1/`.)
+
+- **Sampling design**: 500 stations × 6 sample depths
+  (0, 50, 150, 250, 350, 500 m), up from 300 × 3. Samples with
+  `Z_sample > Z_bathy` dropped, leaving N ≈ 2000–2400 in practice.
+- **Sim matches model exactly (Option A)**. Habitat-preference fields
+  (`zbathy_pref_*`, `y_pref_*`) deleted; the simulated `f_s` is a
+  pure zero-mean GP draw with covariance `K(lx, ly, lz)`. Length-scale
+  recovery against the named scales is a clean test.
+- **MB junk reads still simulated** for read-depth realism, but —
+  same as v4 — the Stan model only sees the 3 target species
+  (`mb_total` is target-reads-only).
+- **Stan model**: kappa, sigma_ct moved from `parameters` to `data`;
+  `log_vol_filtered` added to `log_lambda_edna`; `gp_sigma` prior
+  switched from `half_normal` to `gamma(8, 4)`; `prior_kappa_*` /
+  `prior_sigma_ct_*` removed from data block.
+- **Format script**: `coord_centre`/`coord_scale` derived from sim
+  domain extents (so all normalised coords sit in `[-1, 1]`);
+  `HSGP_M = (14, 8, 32)` per Riutort-Mayol's threshold for the
+  named length-scales; `gp_l` priors centred on truth
+  (`lx ~ N(50, 30)`, `ly ~ N(300, 100)`, `lz ~ N(150, 50)`);
+  `sigma_ct = 0.7` (inflated above the sim's 0.4 to absorb
+  discrete-count noise from `Ct ~ log(integer count)`).
+- **Run script**: `iter_warmup = 1000`, `iter_sampling = 1000`,
+  `max_treedepth = 14`. kappa / sigma_ct dropped from `init_fn`.
+- **Check script**: scalar trace plots / parameter-recovery scatter
+  drop kappa/sigma_ct (no longer sampled). New per-species
+  posterior-decomposition section produces 1D and 2D marginals of the
+  latent field. New per-species prior-vs-posterior density overlays
+  for `mu_sp`, `gp_sigma`, `gp_l[1..3]` (15 panels: 3 species × 5
+  parameters).
 
 ## Versioning convention
 
