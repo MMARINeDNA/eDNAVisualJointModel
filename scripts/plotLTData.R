@@ -24,10 +24,10 @@ suppressPackageStartupMessages({
 })
 
 # ---------------------------------------------------------------------------
-# Map extent: SF (~37.77 deg N) to a bit past the US/Canada border at 49 N
+# Map extent: SF (~37.77 deg N) and northward; no fixed upper latitude limit
+# (data extent drives the upper bound).
 # ---------------------------------------------------------------------------
 LAT_MIN <- 37.5
-LAT_MAX <- 49.5
 LON_MIN <- -130
 LON_MAX <- -120
 
@@ -47,7 +47,7 @@ sights_sub <- sights |>
   filter(spcode %in% sp_codes,
          !is.na(group_size), group_size > 0,
          !is.na(lat), !is.na(lon),
-         lat >= LAT_MIN, lat <= LAT_MAX,
+         lat >= LAT_MIN,
          lon >= LON_MIN, lon <= LON_MAX) |>
   mutate(species = factor(case_when(
     spcode == 22L ~ "Pacific white-sided dolphin",
@@ -68,36 +68,46 @@ eff_sub <- eff |>
   mutate(mlat_use = coalesce(mlat, latitude_begin),
          mlon_use = coalesce(mlon, longitude_begin)) |>
   filter(!is.na(mlat_use), !is.na(mlon_use),
-         mlat_use >= LAT_MIN, mlat_use <= LAT_MAX,
+         mlat_use >= LAT_MIN,
          mlon_use >= LON_MIN, mlon_use <= LON_MAX)
+
+# Compute upper-latitude bound from the data so the plot has no
+# artificial cap. Add a half-degree of headroom for visual breathing
+# room above the northernmost feature.
+LAT_MAX <- max(c(sights_sub$lat, eff_sub$mlat_use), na.rm = TRUE) + 0.5
 
 cat(sprintf("Filtered effort segments: %d (of %d total)\n",
             nrow(eff_sub), nrow(eff)))
 
 # ---------------------------------------------------------------------------
-# Coastline (US states + Canada). `maps::map_data` is good enough at this
-# scale; switch to rnaturalearth if a finer coastline is wanted later.
+# Coastline. Use `state` for the US (gives CA/OR/WA shoreline + state
+# borders) and `world` filtered to Canada for the bit north of WA.
+# Plotting both `world$USA` and `state$ca/or/wa` in earlier versions
+# produced doubled outlines because both polygons traced the same coast.
 # ---------------------------------------------------------------------------
 states <- map_data("state") |>
   filter(region %in% c("california", "oregon", "washington"))
-world  <- map_data("world") |>
-  filter(region %in% c("Canada", "USA"))
+canada <- map_data("world") |>
+  filter(region == "Canada")
 
 # ---------------------------------------------------------------------------
 # Per-species panel builder
 # ---------------------------------------------------------------------------
 make_panel <- function(species_label, sights_data, size_range, size_trans = "identity") {
   ggplot() +
-    # Land
-    geom_polygon(data = world,  aes(long, lat, group = group),
-                 fill = "grey92", colour = "grey60", linewidth = 0.25) +
+    # Land: Canada (north of WA) + CA/OR/WA via state polygons.
+    # Plotting only one source for each region avoids the doubled-
+    # outline effect from earlier versions.
+    geom_polygon(data = canada, aes(long, lat, group = group),
+                 fill = "grey92", colour = "grey55", linewidth = 0.3) +
     geom_polygon(data = states, aes(long, lat, group = group),
-                 fill = "grey92", colour = "grey60", linewidth = 0.25) +
-    # Effort segments (begin->end)
+                 fill = "grey92", colour = "grey55", linewidth = 0.3) +
+    # Effort segments (begin->end). Darker / thicker than the first
+    # version so they are visible against the land + ocean.
     geom_segment(data = eff_sub,
                  aes(x = longitude_begin, y = latitude_begin,
                      xend = longitude_end, yend = latitude_end),
-                 colour = "grey55", linewidth = 0.25, alpha = 0.4) +
+                 colour = "grey25", linewidth = 0.55, alpha = 0.7) +
     # Sighting points sized by group_size
     geom_point(data = sights_data,
                aes(x = lon, y = lat, size = group_size),
