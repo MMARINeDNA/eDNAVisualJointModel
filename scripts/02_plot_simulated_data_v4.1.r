@@ -3,13 +3,16 @@
 #
 # Three-page summary of the v4.1 simulation (zero-mean GP, 3 species,
 # 500 stations x 6 sample depths). With Option A applied, the simulated
-# field is a pure zero-mean GP draw and there's no closed-form expected
-# lambda surface to plot, so the figures show simulated truth at station
-# locations rather than a continuous expected surface.
+# field is a pure zero-mean GP draw - there's no closed-form expected
+# lambda surface, but we can recover a continuous version by KRIGING
+# the GP draw from station locations onto a 1 km grid (conditional
+# mean: f_grid = K_gs * K_ss^-1 * f_stations). This gives the visual
+# of v4's continuous lambda surface while staying faithful to the
+# specific GP draw the simulation produced.
 #
-#   Page 1 - Stations on the X-Y plane, coloured by log(lambda_true) at
-#            the surface samples for each species. Grey isobaths
-#            (200 m / 1000 m) overlaid for context.
+#   Page 1 - Kriged log(lambda) surface on a 1 km grid for each
+#            species at z = 0 m, with station locations overlaid as
+#            open circles. Same look as v4's page 1.
 #   Page 2 - Per-station log(lambda_true) vs each spatial covariate
 #            (X, Y, Z_bathy), one row per species.
 #   Page 3 - Water-column sampling-depth effect exp(zsample_pref) on
@@ -76,52 +79,142 @@ truth_long <- bind_rows(lapply(seq_len(n_species), function(s) {
   mutate(species = factor(species, levels = sp_common))
 
 # =============================================================================
-# Page 1 - X-Y map of log(lambda) at surface samples, per species
+# Page 1 - 1 km grid of log(lambda), kriged from station-level GP draws,
+#          with stations overlaid as open white circles. Matches v4's
+#          page 1 layout.
 # =============================================================================
-cat("Building bathymetry contour grid...\n")
-grid_iso <- expand.grid(
-  X = seq(0, X_km_max, by = 5),
-  Y = seq(0, Y_km_max, by = 5)
+cat("Building 1 km grid (",
+    X_km_max + 1, " x ", Y_km_max + 1, " cells)...\n", sep = "")
+
+grid_1km <- expand.grid(
+  X = seq(0, X_km_max, by = 1),
+  Y = seq(0, Y_km_max, by = 1)
 ) %>%
   mutate(Z_bathy = bathy_mean_fn(X, Y))
 
+# Anisotropic SE covariance helper. Returns matrix of shape (n1, n2).
+aniso_cross_cov <- function(c1, c2, sigma, lx, ly, lz) {
+  d2 <- outer(c1[, 1], c2[, 1], FUN = function(a, b) ((a - b) / lx)^2) +
+        outer(c1[, 2], c2[, 2], FUN = function(a, b) ((a - b) / ly)^2) +
+        outer(c1[, 3], c2[, 3], FUN = function(a, b) ((a - b) / lz)^2)
+  sigma * sigma * exp(-0.5 * d2)
+}
+
+# Conditioning data: station-level GP coords. Multiple samples at the
+# same station share the same (X, Y, Z_bathy), so we collapse to one
+# row per station. The simulated field is identical (up to 1e-6 jitter)
+# across those redundant rows anyway.
+station_first_idx <- match(seq_len(nrow(stations)), samples$station)
+station_coords    <- as.matrix(samples[station_first_idx,
+                                       c("X", "Y", "Z_bathy")])
+gp_field_si       <- sim$truth$gp_field_si        # N samples x n_species
+station_f         <- gp_field_si[station_first_idx, , drop = FALSE]
+N_st              <- nrow(station_coords)
+
+grid_coords <- as.matrix(grid_1km[, c("X", "Y", "Z_bathy")])
+N_grid      <- nrow(grid_coords)
+
+cat(sprintf("Kriging GP draws onto 1 km grid for %d species...\n", n_species))
+cat(sprintf("  conditioning on %d stations -> %d grid cells\n", N_st, N_grid))
+
+batch_size <- 25000L
+
+for (s in seq_len(n_species)) {
+  p <- gp_params[[s]]
+  t0 <- Sys.time()
+
+  # K_ss + jitter so chol() is numerically stable
+  K_ss <- aniso_cross_cov(station_coords, station_coords,
+                          p$sigma, p$lx, p$ly, p$lz) +
+          diag(1e-4, N_st)
+  chol_K <- chol(K_ss)
+  alpha  <- backsolve(chol_K,
+                      forwardsolve(t(chol_K), station_f[, s]))
+
+  f_grid <- numeric(N_grid)
+  for (b in seq(1L, N_grid, by = batch_size)) {
+    idx  <- b:min(b + batch_size - 1L, N_grid)
+    K_gs <- aniso_cross_cov(grid_coords[idx, , drop = FALSE],
+                            station_coords,
+                            p$sigma, p$lx, p$ly, p$lz)
+    f_grid[idx] <- as.numeric(K_gs %*% alpha)
+  }
+  grid_1km[[paste0("log_lambda_s", s)]] <- p$mu + f_grid
+  cat(sprintf("  %s: %.1f s\n",
+              sp_common[s], as.numeric(Sys.time() - t0,
+                                       units = "secs")))
+}
+
+# Shared colour limits across species (1st and 99th percentiles), so
+# species panels are visually comparable on the log-lambda scale.
+log_lam_all <- unlist(lapply(seq_len(n_species),
+                             function(s) grid_1km[[paste0("log_lambda_s", s)]]))
+clim <- quantile(log_lam_all, c(0.01, 0.99))
+
 iso_levels <- c(200, 1000)
 
-surface_df <- truth_long %>% filter(sample_idx %in% surf_idx)
-
 p_row1 <- lapply(seq_len(n_species), function(s) {
-  df <- surface_df %>% filter(species == sp_common[s])
+  grid_df <- grid_1km %>%
+    transmute(X, Y, Z_bathy,
+              log_lambda = .data[[paste0("log_lambda_s", s)]])
+
   ggplot() +
-    geom_contour(data = grid_iso, aes(X, Y, z = Z_bathy),
-                 breaks = iso_levels,
-                 colour = "grey60", linewidth = 0.3, alpha = 0.8) +
-    geom_point(data = df, aes(X, Y, colour = log_lambda),
-               size = 1.5, alpha = 0.9) +
-    scale_colour_viridis_c(option = "viridis",
-                           name = expression(log(lambda))) +
-    coord_fixed(ratio = 1,
-                xlim = c(0, X_km_max), ylim = c(0, Y_km_max),
-                expand = FALSE) +
+    geom_raster(data = grid_df, aes(X, Y, fill = log_lambda)) +
+    geom_contour(
+      data      = grid_df,
+      aes(X, Y, z = Z_bathy),
+      breaks    = iso_levels,
+      colour    = "white",
+      linewidth = 0.25,
+      alpha     = 0.5
+    ) +
+    geom_point(
+      data   = stations,
+      aes(X, Y),
+      shape  = 21,
+      size   = 0.8,
+      stroke = 0.3,
+      fill   = NA,
+      colour = "white"
+    ) +
+    scale_fill_viridis_c(
+      option = "viridis",
+      limits = clim,
+      name   = expression(log(lambda)),
+      oob    = scales::squish
+    ) +
+    coord_fixed(
+      ratio  = 1,
+      xlim   = c(0, X_km_max),
+      ylim   = c(0, Y_km_max),
+      expand = FALSE
+    ) +
     scale_x_continuous(breaks = seq(0, X_km_max, 200)) +
     scale_y_continuous(breaks = seq(0, Y_km_max, 200)) +
     labs(
-      title = sp_common[s],
-      x     = if (s == 1) "Easting (km)" else NULL,
-      y     = if (s == 1) "Northing (km)" else NULL
+      title    = sp_common[s],
+      subtitle = expression("Kriged " * log(lambda) * " (z = 0 m, 1 km grid)"),
+      x        = "Easting (km, 0 = 100000 UTM E)",
+      y        = "Northing (km, 0 = SF, 1270 = 49 deg N)"
     ) +
     theme_bw(base_size = 10) +
-    theme(plot.title    = element_text(face = "italic", size = 11),
-          axis.title.y  = if (s == 1) element_text() else element_blank(),
-          axis.text.y   = if (s == 1) element_text() else element_blank(),
-          axis.ticks.y  = if (s == 1) element_line() else element_blank(),
-          panel.grid    = element_blank())
+    theme(
+      plot.title      = element_text(face = "italic", size = 11),
+      plot.subtitle   = element_text(size = 8.5, colour = "grey40"),
+      legend.position = if (s == n_species) "right" else "none",
+      axis.title.y    = if (s == 1) element_text() else element_blank(),
+      axis.text.y     = if (s == 1) element_text() else element_blank(),
+      axis.ticks.y    = if (s == 1) element_line() else element_blank(),
+      panel.grid      = element_blank()
+    )
 })
 
 page1 <- wrap_plots(p_row1, nrow = 1) +
   plot_layout(guides = "collect") +
   plot_annotation(
-    title    = "Simulated eDNA fields - v4.1 (zero-mean GP, surface samples)",
-    subtitle = "Per-station log(lambda); grey contours = 200 m and 1000 m isobaths",
+    title    = "Simulated eDNA fields - v4.1 (zero-mean GP)",
+    subtitle = expression("Kriged " * log(lambda) *
+                          " on a 1 km grid; open circles = station locations; white contours = 200 m / 1000 m isobaths"),
     theme    = theme(plot.title    = element_text(size = 13, face = "bold"),
                      plot.subtitle = element_text(size = 9,  colour = "grey40"))
   ) &
