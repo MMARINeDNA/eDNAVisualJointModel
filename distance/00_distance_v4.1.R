@@ -140,6 +140,14 @@ bathy_mean_fn <- function(X_km, Y_km) {
 humpback_mean_gs <- mean(gs_pool_humpback)   # ~1.72
 pwsd_mean_gs     <- mean(gs_pool_pwsd)       # ~42.75
 
+# Method-of-moments seeds for log-normal priors on PWSD: under
+# log-normal, mu = log(mean) - sigma^2/2, sigma^2 = log(1 + (sd/mean)^2).
+pwsd_log_mu0    <- log(pwsd_mean_gs) -
+                   0.5 * log(1 + (sd(gs_pool_pwsd) / pwsd_mean_gs)^2)
+pwsd_log_sigma0 <- sqrt(log(1 + (sd(gs_pool_pwsd) / pwsd_mean_gs)^2))
+cat(sprintf("PWSD log-normal MoM: mu_log0 = %.3f, sigma_log0 = %.3f\n",
+            pwsd_log_mu0, pwsd_log_sigma0))
+
 species_params <- list(
 
   humpback = list(
@@ -150,29 +158,38 @@ species_params <- list(
     lz               = 100,       # m
     mu               = log(0.004),# log animals/km^2
     mean_group_size  = humpback_mean_gs,
-    group_size_dist  = "empirical",
+    sim_group_dist   = "empirical",
     group_size_pool  = gs_pool_humpback,
 
     # Detection function
-    sigma_det        = 2.5,       # km, at s = s_centre
+    sigma_det        = 2.5,                   # km, at s = s_centre
     use_size_covar   = 0L,
-    beta_size_truth  = 0.0,       # ignored under use_size_covar = 0
+    beta_size_truth  = 0.0,                   # unused
     s_centre         = humpback_mean_gs,
 
-    # Stan priors (now data, per-species)
+    # Group-size sub-model: zero-truncated NB. Humpback group sizes are
+    # tightly distributed (max 8 in the empirical pool), so NB is fine.
+    model_group_dist = 0L,                    # 0 = zero-truncated NB
+
+    # Stan priors (per-species; data-supplied)
     log_sigma_prior_mean    = log(2.5),
     log_sigma_prior_sd      = 0.6,
     beta_size_prior_mean    = 0.0,
-    beta_size_prior_sd      = 0.05,           # tight near 0 since not used
-    # Gamma mean ~= empirical mean, mode ~= mean - 1/rate.
-    # shape = 4 -> sd = 0.5 * mean. Mildly informative.
+    beta_size_prior_sd      = 0.05,
+    # NB: mean = empirical, shape 4 -> sd = 0.5*mean
     mu_s_prior_shape        = 4,
     mu_s_prior_rate         = 4 / humpback_mean_gs,
     phi_s_prior_shape       = 1,
     phi_s_prior_rate        = 0.1,
+    # Log-normal priors are sampled but unused. Set to weakly
+    # informative defaults centred at the empirical log-mean.
+    mu_log_prior_mean       = log(humpback_mean_gs),
+    mu_log_prior_sd         = 1.0,
+    sigma_log_prior_shape   = 2,
+    sigma_log_prior_rate    = 2,
     log_lambda_s_prior_mean = log(0.004 / humpback_mean_gs),
     log_lambda_s_prior_sd   = 1.5,
-    S_max                   = 50L              # NB tail upper bound
+    S_max                   = 50L
   ),
 
   pwsd = list(
@@ -183,28 +200,43 @@ species_params <- list(
     lz               = 300,
     mu               = log(0.032),
     mean_group_size  = pwsd_mean_gs,
-    group_size_dist  = "empirical",
+    sim_group_dist   = "empirical",
     group_size_pool  = gs_pool_pwsd,
 
     # Detection function (with group-size covariate)
     sigma_det        = 1.5,                   # km, at s = s_centre
     use_size_covar   = 1L,
-    beta_size_truth  = 0.01,                  # per-individual log(sigma) increment
+    beta_size_truth  = 0.01,                  # per-individual log(sigma)
     s_centre         = pwsd_mean_gs,
+
+    # Group-size sub-model: log-normal (Option A). The empirical PWSD
+    # pool is heavily right-skewed (mean 43, median 21, max 452 ~ 10 sd
+    # above mean) - NB can't capture that shape, biasing E[s|s>0].
+    # Log-normal natively handles heavy right tails.
+    model_group_dist = 1L,                    # 1 = log-normal
 
     # Stan priors
     log_sigma_prior_mean    = log(1.5),
     log_sigma_prior_sd      = 0.6,
     beta_size_prior_mean    = 0.0,
     beta_size_prior_sd      = 0.05,
+    # NB priors sampled but unused (model_group_dist = 1).
     mu_s_prior_shape        = 4,
     mu_s_prior_rate         = 4 / pwsd_mean_gs,
     phi_s_prior_shape       = 1,
     phi_s_prior_rate        = 0.1,
+    # Log-normal: prior on mu_log_s centred at the method-of-moments
+    # estimate (log(median) ish), prior on sigma_log_s gamma-shaped
+    # around the MoM estimate (~1.2 for PWSD).
+    mu_log_prior_mean       = pwsd_log_mu0,
+    mu_log_prior_sd         = 0.5,
+    sigma_log_prior_shape   = 4,
+    sigma_log_prior_rate    = 4 / pwsd_log_sigma0,
     log_lambda_s_prior_mean = log(0.032 / pwsd_mean_gs),
     log_lambda_s_prior_sd   = 1.5,
-    # Empirical PWSD group sizes go up to ~450; need plenty of NB tail
-    # for the Jensen integration. 1000 covers all plausible posteriors.
+    # Empirical PWSD group sizes go up to ~450; S_max = 1000 covers
+    # plausible log-normal posteriors. The integration bins to k = 1, ...,
+    # S_max via the rounded-bin pmf.
     S_max                   = 1000L
   )
 )
@@ -287,12 +319,14 @@ for (sp_key in names(species_params)) {
     n_strip <- n_groups_in_strip[i]
     if (n_strip == 0L) next
     x_true <- runif(n_strip, 0, w)
-    # Group sizes for this segment's groups
-    if (p$group_size_dist == "empirical") {
+    # Group sizes for this segment's groups (drawn from the sim's
+    # data-generating distribution; independent of the Stan model's
+    # likelihood choice for the group-size sub-model).
+    if (p$sim_group_dist == "empirical") {
       s_strip <- sample(p$group_size_pool, n_strip, replace = TRUE)
-    } else if (p$group_size_dist == "constant") {
+    } else if (p$sim_group_dist == "constant") {
       s_strip <- rep(p$mean_group_size, n_strip)
-    } else if (p$group_size_dist == "nb") {
+    } else if (p$sim_group_dist == "nb") {
       s_strip <- rnbinom_zt(n_strip,
                             mu   = p$group_size_nb$mu,
                             size = p$group_size_nb$size)
@@ -348,10 +382,15 @@ for (sp_key in names(species_params)) {
     beta_size_prior_mean    = p$beta_size_prior_mean,
     beta_size_prior_sd      = p$beta_size_prior_sd,
     S_max                   = p$S_max,
+    group_size_dist         = p$model_group_dist,
     mu_s_prior_shape        = p$mu_s_prior_shape,
     mu_s_prior_rate         = p$mu_s_prior_rate,
     phi_s_prior_shape       = p$phi_s_prior_shape,
     phi_s_prior_rate        = p$phi_s_prior_rate,
+    mu_log_prior_mean       = p$mu_log_prior_mean,
+    mu_log_prior_sd         = p$mu_log_prior_sd,
+    sigma_log_prior_shape   = p$sigma_log_prior_shape,
+    sigma_log_prior_rate    = p$sigma_log_prior_rate,
     log_lambda_s_prior_mean = p$log_lambda_s_prior_mean,
     log_lambda_s_prior_sd   = p$log_lambda_s_prior_sd,
     n_seg                   = n_seg_total,
@@ -371,6 +410,9 @@ for (sp_key in names(species_params)) {
                          + rnorm(1, 0, 0.5 * p$mu_s_prior_shape / p$mu_s_prior_rate),
                          0.5),
       phi_s        = runif(1, 0.5, 2),
+      mu_log_s     = p$mu_log_prior_mean + rnorm(1, 0, 0.2),
+      sigma_log_s  = max(p$sigma_log_prior_shape / p$sigma_log_prior_rate
+                         + rnorm(1, 0, 0.2), 0.1),
       log_lambda_s = log(runif(1,
                                max(lam_init * 0.1, 1e-6),
                                lam_init * 1.9 + 1e-6))
@@ -396,36 +438,36 @@ for (sp_key in names(species_params)) {
 
   draws <- fit$draws(format = "df")
 
-  # Implied observed-conditional mean group size E[s | s > 0] under the
-  # fitted zero-truncated NB(mu_s, phi_s). For NB with mean mu, dispersion
-  # phi: P(s = 0) = (phi / (mu + phi))^phi.
-  # E[s | s > 0] = mu / (1 - P(s=0)).
-  # This is what the empirical group-size mean should match if the
-  # zero-truncated NB is a good fit. mu_s itself is the LATENT
-  # (unconditional) mean, which is < empirical mean when there's
-  # truncation effect.
-  p_zero_post <- (draws$phi_s / (draws$mu_s + draws$phi_s))^draws$phi_s
-  mean_s_obs_draw <- draws$mu_s / (1 - p_zero_post)
+  # Implied observed-conditional mean group size, depending on the
+  # group-size sub-model:
+  #   NB (model_group_dist = 0): E[s|s>0] = mu_s / (1 - P(s=0)),
+  #     P(s=0) = (phi/(mu+phi))^phi
+  #   Log-normal (model_group_dist = 1): E[s] = exp(mu_log + sigma_log^2/2),
+  #     and s > 0 always so E[s|s>0] = E[s].
+  # In both cases this is what the empirical pool mean should match if
+  # the chosen distribution is a good fit.
+  if (p$model_group_dist == 0L) {
+    p_zero_post     <- (draws$phi_s / (draws$mu_s + draws$phi_s))^draws$phi_s
+    mean_s_obs_draw <- draws$mu_s / (1 - p_zero_post)
+  } else {
+    mean_s_obs_draw <- exp(draws$mu_log_s + 0.5 * draws$sigma_log_s^2)
+  }
 
-  # D = lambda_s * E[s | s > 0]. Animal density per detected-group means.
-  # (Slightly different from the model's `D = lambda_s * mu_s` if mu_s
-  # is the latent NB mean, since lambda_s itself is the GROUP density,
-  # i.e. one entry per group regardless of size).
   D_animals_draw <- draws$lambda_s * mean_s_obs_draw
 
+  # Recovery table: drop the latent NB mu_s row (only meaningful when
+  # the NB sub-model is in use, and even then it's a parameter-of-the-
+  # latent-distribution rather than a "mean group size"). Report the
+  # observed-conditional mean and let that be the apples-to-apples
+  # comparison with the empirical pool mean.
   param_truths <- tibble(
     param = c("sigma (km)",
               "beta_size",
-              "mu_s (latent NB mean)",
-              "E[s|s>0] (observed-cond. mean)",
+              "E[s|s>0] (mean group size)",
               "lambda_s (groups/km^2)",
               "D (animals/km^2)"),
     truth = c(p$sigma_det,
               if (p$use_size_covar == 1L) p$beta_size_truth else NA_real_,
-              # The "truth" for mu_s (latent NB mean) is unobservable in
-              # general; we leave it NA. The empirical mean of the pool
-              # is the truth for E[s | s > 0].
-              NA_real_,
               p$mean_group_size,
               mean(lambda_groups),
               mean(lambda_animals))
@@ -434,19 +476,16 @@ for (sp_key in names(species_params)) {
   param_summary <- bind_cols(param_truths, tibble(
     median = c(median(exp(draws$log_sigma)),
                median(draws$beta_size),
-               median(draws$mu_s),
                median(mean_s_obs_draw),
                median(draws$lambda_s),
                median(D_animals_draw)),
     q025   = c(quantile(exp(draws$log_sigma), 0.025),
                quantile(draws$beta_size, 0.025),
-               quantile(draws$mu_s, 0.025),
                quantile(mean_s_obs_draw, 0.025),
                quantile(draws$lambda_s, 0.025),
                quantile(D_animals_draw, 0.025)),
     q975   = c(quantile(exp(draws$log_sigma), 0.975),
                quantile(draws$beta_size, 0.975),
-               quantile(draws$mu_s, 0.975),
                quantile(mean_s_obs_draw, 0.975),
                quantile(draws$lambda_s, 0.975),
                quantile(D_animals_draw, 0.975))
@@ -525,18 +564,33 @@ for (sp_key in names(species_params)) {
           axis.ticks.x = element_blank(),
           strip.text  = element_text(size = 9))
 
-  # (D) Prior vs posterior density of D = lambda * mu_s
+  # (D) Prior vs posterior density of D = lambda * E[s|s>0]
   truth_D <- mean(lambda_animals)
 
-  # Sample from prior numerically: log_lambda_s ~ N, mu_s ~ Gamma
+  # Sample from prior numerically. Group-size sub-model determines how
+  # we draw the implied mean group size from its priors:
+  #   NB  -> mu_s ~ Gamma; observed-conditional mean = mu_s/(1-P(s=0)).
+  #          For weak phi prior we approximate E[s|s>0] ~= mu_s here
+  #          (truncation correction is small once mu_s is well above
+  #          zero, which the gamma prior enforces).
+  #   LN  -> mu_log_s ~ Normal, sigma_log_s ~ Gamma;
+  #          E[s] = exp(mu_log + sigma_log^2/2).
   n_prior_draws <- 5000L
   lambda_prior  <- exp(rnorm(n_prior_draws,
                              p$log_lambda_s_prior_mean,
                              p$log_lambda_s_prior_sd))
-  mu_s_prior    <- rgamma(n_prior_draws,
-                          shape = p$mu_s_prior_shape,
-                          rate  = p$mu_s_prior_rate)
-  D_prior_draws <- lambda_prior * mu_s_prior
+  if (p$model_group_dist == 0L) {
+    mean_s_prior <- rgamma(n_prior_draws,
+                           shape = p$mu_s_prior_shape,
+                           rate  = p$mu_s_prior_rate)
+  } else {
+    mu_log_p     <- rnorm(n_prior_draws, p$mu_log_prior_mean,
+                                          p$mu_log_prior_sd)
+    sigma_log_p  <- rgamma(n_prior_draws, shape = p$sigma_log_prior_shape,
+                                          rate  = p$sigma_log_prior_rate)
+    mean_s_prior <- exp(mu_log_p + 0.5 * sigma_log_p^2)
+  }
+  D_prior_draws <- lambda_prior * mean_s_prior
 
   # Restrict the plot range to a sensible window so we can see both
   # densities. Use the joint quantile range.
