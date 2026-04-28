@@ -114,9 +114,9 @@ make_panel <- function(species_label, sights_data, size_range, size_trans = "ide
                        labels = function(x) sprintf("%g°W", abs(x))) +
     scale_y_continuous(breaks = seq(38, 49, 2),
                        labels = function(y) sprintf("%g°N", y)) +
-    labs(title    = species_label,
-         subtitle = sprintf("n = %d sightings; group size %d - %d",
-                            nrow(sights_data),
+    labs(title    = sprintf("%s (n = %d sightings)",
+                            species_label, nrow(sights_data)),
+         subtitle = sprintf("group size %d - %d",
                             min(sights_data$group_size),
                             max(sights_data$group_size)),
          x = NULL, y = NULL) +
