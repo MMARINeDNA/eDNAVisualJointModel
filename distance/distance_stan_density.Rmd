@@ -1,0 +1,154 @@
+---
+title: "Distance in Stan: group size and density."
+author: "Len Thomas"
+date: "2026-04-28"
+format:
+  html:
+    number-sections: true
+    code-fold: true
+  pdf: 
+    number-sections: true
+    echo: false
+    geometry:
+      - bottom=3cm
+      - top=3cm
+      - left=2cm
+      - right=2cm
+execute: 
+  cache: true
+---
+
+# Introduction
+
+```{r}
+#| code-summary: "Code: load libraries and define some constants"
+#| message: false
+#| warning: false
+
+#Load some libraries
+#library(inlabru) 
+library(dsm)
+library(ggplot2)
+library(sf)
+library(knitr)
+library(kableExtra)
+
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores() - 1)
+
+library(Distance)
+library(truncnorm)
+
+set.seed(3024)
+```
+
+Thomas (2026) presented Stan code to fit a half-normal detection function to line transect distance sampling data.  Here we extend that code to include group size as a covariate in the detection model and to estimate density using a model-based approach.
+
+We base test runs on the GoMx spotted dolphin data also used by Thomas (2026).
+
+```{r}
+#| code-summary: "Code: Load mexdolphinlot group size distribution"
+
+#Load distdata, segdata, obsdata, preddata
+data(mexdolphins)
+
+#distdata
+#Convert distances from m to km
+distdata$distance <- distdata$distance / 1000
+#Create a centred size covariate for potential use
+distdata$s_size <- distdata$size - mean(distdata$size)
+
+#segdata
+#Add count of detections per segment into segdata
+segdata$n <- sapply(segdata$Sample.Label, 
+                    function(s) sum(obsdata$Sample.Label == s))
+#Convert effort from m to km
+segdata$l <- segdata$Effort / 1000
+```
+
+@fig-group-size shows the distribution of group sizes in the GoMx spotted dolphin data.  I should also probably re-show the detection distances and a map of spatial locations, but for now I move on to fitting code.
+
+```{r}
+#| code-summary: "Code: Plot group size distribution"
+#| label: fig-group-size
+#| fig-cap: "Histogram of group size for the GoMx spotted dolphin data."
+
+#Make a histogram of group size
+ggplot(distdata, aes(x = size)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  labs(x = "Group Size", y = "Frequency") +
+  theme_minimal()
+```
+
+# Stan model
+
+```{r}
+#| code-summary: "Code: Stan run params"
+stan_file <- "distance_hn_dens.stan"
+n_iter <- 3000
+n_chains <- 6
+```
+
+The Stan code is in the file "`r stan_file`".  The model estimates the scale parameter of the half-normal detection function, the mean and shape parameters of the group size distribution (assumed negative binomial with no spatial structure), and the density of groups (assumed Poisson with no spatial structure) and individuals in the survey area.
+
+Below is the run output, using `r n_chains` chains with `r n_iter` iterations each.
+
+```{r}
+#| code-summary: "Code: Stan setup"
+#Specify data, parameters to return and initialization function for sigma
+
+w <- 8
+stan_data <- list(n = nrow(distdata), 
+              x = distdata$distance, 
+              w = w, 
+              s = as.integer(distdata$size),
+              log_sigma_prior_mean = log(w / 2),
+              log_sigma_prior_sd = 0.5,
+              n_seg = nrow(segdata),
+              seg_count = segdata$n,
+              seg_l = segdata$l)
+#stan_pars <- c("sigma", "p", "mu_s", "phi_s")
+#Initialization function for sigma
+create_stan_init_f <- function(w){
+  stan_init_f <- function(){
+    list(sigma = runif(1, w/100, w * 2),
+         mu_s = runif(1, 1, 100),
+         phi_s = runif(1, 0.1, 1),
+         lambda_s = runif(1, 0, max(mean(segdata$n/(segdata$l * 2 * w)))))
+  }
+  return(stan_init_f)  
+}
+```
+```{r}
+#| code-summary: "Code: Fit sim data with Stan"
+#| messages: false
+#| output: false
+
+#Compile the model
+stan_cds_mod <- stan_model(file = stan_file)
+#Run it
+stan_cds_fit <- sampling(stan_cds_mod,
+                         data = stan_data, 
+                         init = create_stan_init_f(w),
+                         #pars = stan_pars, 
+                         iter = n_iter, thin = 1, chains = n_chains)
+#samples <- extract(stan_cds_fit)
+```
+
+```{r}
+#| code-summary: "Code: Summarize results"
+print(stan_cds_fit)
+```
+
+# Discussion
+
+Some potential next steps:
+
+- lots of model checking needed; evaluation of priors
+- add spatial structure to the group size distribution and density models
+- add covariates to density model and to detection function model
+- extend detection function model to additional key function (hazard rate) or potentially a mixture model (or half-normals) for more flexibility
+- change the current segment-based model for encounters to one on a continuous field (like, say, INLA does), which will then allow group-level covariates on the detection function
+
+
