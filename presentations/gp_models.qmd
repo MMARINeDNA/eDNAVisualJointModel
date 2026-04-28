@@ -1,0 +1,378 @@
+---
+title: "Gaussian Processes for Spatial Modelling"
+subtitle: "A practical introduction"
+author: "MMARINeDNA / eDNAVisualJointModel"
+date: today
+format:
+  revealjs:
+    embed-resources: true
+    theme: simple
+    slide-number: true
+    progress: true
+    history: false
+    chalkboard: false
+    fig-align: center
+    fig-cap-location: bottom
+    code-fold: true
+    code-line-numbers: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo      = FALSE,
+  message   = FALSE,
+  warning   = FALSE,
+  fig.align = "center",
+  dpi       = 110
+)
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(MASS)
+  library(patchwork)
+  library(viridis)
+  library(tibble)
+  library(dplyr)
+  library(tidyr)
+})
+theme_set(theme_minimal(base_size = 14))
+set.seed(42)
+```
+
+## What is a Gaussian process?
+
+A **Gaussian process** is a probability distribution over *functions*.
+
+::: {.fragment}
+Formally, a stochastic process $\{f(\mathbf{x}) : \mathbf{x} \in \mathcal{X}\}$ is a Gaussian process if **every finite collection** of its values has a joint multivariate normal distribution:
+
+$$
+\bigl(\,f(\mathbf{x}_1),\, \ldots,\, f(\mathbf{x}_N)\,\bigr) \;\sim\; \mathcal{MVN}\!\bigl(\,\mathbf{m},\, \mathbf{K}\,\bigr).
+$$
+:::
+
+::: {.fragment}
+A GP is fully specified by its **mean** $m(\mathbf{x}) = \mathbb{E}[f(\mathbf{x})]$ and **covariance** $k(\mathbf{x}, \mathbf{x}') = \mathrm{Cov}(f(\mathbf{x}), f(\mathbf{x}'))$. We write $f \sim \mathcal{GP}(m, k)$.
+:::
+
+## Sample paths from a 1-D GP prior
+
+```{r}
+#| fig-width: 9
+#| fig-height: 4
+
+# SE kernel
+se_kernel <- function(x1, x2, sigma = 1, ell = 1) {
+  sigma^2 * exp(-0.5 * outer(x1, x2, "-")^2 / ell^2)
+}
+
+x_grid <- seq(0, 10, length.out = 200)
+n_samples <- 4
+
+draw_samples <- function(ell, sigma = 1) {
+  K <- se_kernel(x_grid, x_grid, sigma = sigma, ell = ell) +
+       diag(1e-8, length(x_grid))
+  L <- chol(K)
+  samples <- t(L) %*% matrix(rnorm(length(x_grid) * n_samples),
+                             nrow = length(x_grid))
+  as_tibble(samples, .name_repair = ~paste0("draw", seq_along(.))) |>
+    mutate(x = x_grid) |>
+    pivot_longer(-x, names_to = "draw", values_to = "f")
+}
+
+ell_values <- c(0.3, 1, 3)
+plot_data <- bind_rows(lapply(ell_values, function(ell) {
+  draw_samples(ell) |> mutate(ell = sprintf("ℓ = %.1f", ell))
+})) |> mutate(ell = factor(ell, levels = sprintf("ℓ = %.1f", ell_values)))
+
+ggplot(plot_data, aes(x = x, y = f, colour = draw)) +
+  geom_line(linewidth = 0.8) +
+  facet_wrap(~ ell) +
+  scale_colour_viridis_d(option = "D", end = 0.85, guide = "none") +
+  labs(title = "Sample functions from GP(0, k_SE) at three length-scales",
+       x = "x", y = "f(x)") +
+  theme(strip.text = element_text(size = 13, face = "bold"),
+        plot.title = element_text(size = 13))
+```
+
+::: {.fragment}
+The kernel's **length-scale** $\ell$ controls how *wiggly* sample paths are. Each panel shows four draws from the same GP prior.
+:::
+
+## The covariance function
+
+The kernel $k(\mathbf{x}, \mathbf{x}')$ encodes **how strongly two points covary** as a function of input distance.
+
+The **squared-exponential (RBF) kernel** — workhorse for smooth functions:
+
+$$
+k_{\mathrm{SE}}(\mathbf{x}, \mathbf{x}') \;=\; \sigma^2 \exp\!\Bigl(\,-\,\tfrac{\|\mathbf{x} - \mathbf{x}'\|^2}{2\ell^2}\,\Bigr).
+$$
+
+Two hyperparameters: **$\sigma$** = amplitude (marginal SD), **$\ell$** = length-scale.
+
+```{r}
+#| fig-width: 9
+#| fig-height: 2.8
+
+x1 <- 0
+xs <- seq(-5, 5, length.out = 200)
+kdf <- bind_rows(
+  tibble(d = xs, k = se_kernel(x1, xs, sigma = 1, ell = 0.3)[1, ],
+         ell_lab = "ℓ = 0.3"),
+  tibble(d = xs, k = se_kernel(x1, xs, sigma = 1, ell = 1.0)[1, ],
+         ell_lab = "ℓ = 1.0"),
+  tibble(d = xs, k = se_kernel(x1, xs, sigma = 1, ell = 3.0)[1, ],
+         ell_lab = "ℓ = 3.0")
+) |> mutate(ell_lab = factor(ell_lab,
+                             levels = c("ℓ = 0.3", "ℓ = 1.0", "ℓ = 3.0")))
+
+ggplot(kdf, aes(x = d, y = k, colour = ell_lab)) +
+  geom_line(linewidth = 1.0) +
+  scale_colour_viridis_d(option = "D", end = 0.8, name = NULL) +
+  labs(x = "x − x'", y = "k(x, x')") +
+  theme(legend.position = "top")
+```
+
+Short $\ell$ → covariance drops off sharply → wiggly samples. Long $\ell$ → broad correlation → smooth samples. Other common kernels: Matérn, periodic, rational quadratic.
+
+# Gaussian processes for spatial fields {.center}
+
+## The spatial setup
+
+We have a **latent field** $f(\mathbf{x})$ defined over geographic coordinates, and observations at sampling locations $\mathbf{x}_i = (X_i, Y_i, \ldots)$:
+
+::: {.fragment}
+$$
+\log \lambda(\mathbf{x}) \;=\; \mu \;+\; f(\mathbf{x}),\qquad f \sim \mathcal{GP}(0, k),
+$$
+
+where $\lambda(\mathbf{x})$ is the quantity of ecological interest — animal density, eDNA concentration, plant cover, ... .
+:::
+
+::: {.fragment}
+Observations are conditional on the latent field via some likelihood:
+
+$$
+y_i \mid f(\mathbf{x}_i) \;\sim\; p\bigl(\,y_i \mid \mu + f(\mathbf{x}_i)\,\bigr).
+$$
+:::
+
+::: {.fragment}
+Examples we use in this project:
+
+- qPCR Ct values → Normal hurdle on $\mathrm{Ct}$
+- Metabarcoding read counts → ZI-Beta-Binomial on reads vs. total
+- Distance-sampling counts → Poisson on segment counts
+:::
+
+## Anisotropic kernels for spatial data
+
+Real spatial fields rarely have the same length-scale in every direction. The **anisotropic SE kernel** assigns one $\ell_d$ per dimension:
+
+$$
+k(\mathbf{x}, \mathbf{x}') \;=\; \sigma^2 \exp\!\Biggl(\,-\,\frac{1}{2}\sum_{d=1}^{D} \frac{(x_d - x'_d)^2}{\ell_d^2}\,\Biggr).
+$$
+
+```{r}
+#| fig-width: 9
+#| fig-height: 3.4
+#| fig-cap: "Single sample from a 2-D GP prior. Same random seed; different length-scales."
+
+draw_2d_field <- function(lx, ly, n_grid = 50) {
+  grid <- expand.grid(x = seq(0, 10, length.out = n_grid),
+                      y = seq(0, 10, length.out = n_grid))
+  d2 <- outer(grid$x, grid$x, "-")^2 / lx^2 +
+        outer(grid$y, grid$y, "-")^2 / ly^2
+  K <- exp(-0.5 * d2) + diag(1e-8, nrow(d2))
+  L <- chol(K)
+  f <- as.numeric(t(L) %*% rnorm(nrow(grid)))
+  grid |> mutate(f = f)
+}
+
+set.seed(7)
+df_iso <- draw_2d_field(2, 2) |> mutate(panel = "Isotropic: ℓ_x = ℓ_y = 2")
+set.seed(7)
+df_aniso <- draw_2d_field(0.5, 4) |> mutate(panel = "Anisotropic: ℓ_x = 0.5, ℓ_y = 4")
+df_2d <- bind_rows(df_iso, df_aniso) |>
+  mutate(panel = factor(panel, levels = c("Isotropic: ℓ_x = ℓ_y = 2",
+                                          "Anisotropic: ℓ_x = 0.5, ℓ_y = 4")))
+
+ggplot(df_2d, aes(x = x, y = y, fill = f)) +
+  geom_raster() +
+  facet_wrap(~ panel) +
+  scale_fill_viridis_c(option = "viridis", name = "f(x, y)") +
+  coord_equal(expand = FALSE) +
+  labs(x = "x", y = "y") +
+  theme(strip.text = element_text(size = 12, face = "bold"))
+```
+
+Typical marine values: $\ell_X \sim 50$ km (cross-shore, short), $\ell_Y \sim 300$ km (along-shore, long), $\ell_{Z_{\mathrm{bathy}}} \sim 150$ m (depth, short).
+
+# Fitting a Gaussian process {.center}
+
+## GP regression — the exact form, and the catch
+
+For $\mathbf{y} = f(\mathbf{X}) + \boldsymbol{\varepsilon}$, $\varepsilon_i \sim \mathcal{N}(0, \sigma_n^2)$, with prior $f \sim \mathcal{GP}(0, k)$, the predictive posterior at new points is **multivariate normal in closed form**:
+
+$$
+\boldsymbol{\mu}_* = \mathbf{K}_{*,X}\,(\mathbf{K}_{X,X} + \sigma_n^2 \mathbf{I})^{-1}\,\mathbf{y},
+\quad
+\mathbf{\Sigma}_* = \mathbf{K}_{*,*} - \mathbf{K}_{*,X}\,(\mathbf{K}_{X,X} + \sigma_n^2 \mathbf{I})^{-1}\,\mathbf{K}_{X,*}.
+$$
+
+::: {.fragment}
+Kernel hyperparameters $(\sigma, \ell, \sigma_n)$ are learned by maximising the marginal likelihood, or in a Bayesian setting by sampling with priors.
+:::
+
+::: {.fragment}
+**The catch.** Both formulas require **inverting an $N \times N$ matrix** — Cholesky is $\mathcal{O}(N^3)$ in time, $\mathcal{O}(N^2)$ in memory. In HMC settings, that's *every leapfrog step*.
+:::
+
+::: {.fragment}
+For ecological surveys with $N \sim 10^3{-}10^4$ points in 2-D / 3-D space, the exact GP is impractical. **Approximation methods**: inducing-point / sparse GPs, Vecchia / nearest-neighbour, SPDE (INLA's approach), and **spectral / HSGP** — what we'll cover next.
+:::
+
+# Hilbert-space approximate GPs {.center}
+
+## HSGP: the idea and the payoff
+
+::: {.fragment}
+Solin & Särkkä (2020) showed that any **stationary** kernel can be approximated as
+
+$$
+k(\mathbf{x}, \mathbf{x}') \;\approx\; \sum_{j=1}^{M} S\!\bigl(\sqrt{\lambda_j}\bigr) \;\phi_j(\mathbf{x})\,\phi_j(\mathbf{x}'),
+$$
+
+with $S$ = spectral density of the kernel and $(\phi_j, \lambda_j)$ the eigenfunctions / eigenvalues of the **Laplacian** on a bounded domain $\Omega \supset \mathrm{supp}(\mathbf{X})$.
+:::
+
+::: {.fragment}
+Equivalently, the GP itself becomes a finite **basis-function expansion**:
+
+$$
+f(\mathbf{x}) \;\approx\; \sum_{j=1}^{M} \sqrt{S(\sqrt{\lambda_j})}\;\phi_j(\mathbf{x})\,z_j, \qquad z_j \sim \mathcal{N}(0, 1).
+$$
+
+$M$ standard-normal coefficients and a fixed basis evaluated at the data.
+:::
+
+::: {.fragment}
+**Why this is a win:**
+
+- $\mathcal{O}(NM)$ per likelihood evaluation — linear in $N$, no $N \times N$ Cholesky.
+- Basis matrix $\boldsymbol{\Phi}_{N \times M}$ built once and reused.
+- HMC-friendly: $\sigma$, $\ell$, $z_j$ all live in standard Stan machinery.
+- Latent $f$ can feed any non-Gaussian likelihood (Bernoulli, Poisson, ZI-Beta-Binomial, hurdle Ct, ...) without changing the basis structure.
+:::
+
+## HSGP in 1-D — the recipe
+
+On a bounded domain $[-L, L]$ with Dirichlet boundary conditions:
+
+::: {.fragment}
+$$
+\phi_j(x) \;=\; \frac{1}{\sqrt{L}} \sin\!\Bigl(\frac{j\,\pi\,(x + L)}{2L}\Bigr),
+\qquad
+\sqrt{\lambda_j} \;=\; \frac{j \pi}{2 L}.
+$$
+:::
+
+::: {.fragment}
+For the squared-exponential kernel ($\sigma$, $\ell$):
+$$
+S(\omega) \;=\; \sigma^2\,\sqrt{2\pi}\,\ell\;\exp\!\bigl(-\,\tfrac{1}{2}\,\ell^2\,\omega^2\bigr).
+$$
+:::
+
+```{r}
+#| fig-width: 9
+#| fig-height: 2.6
+#| fig-cap: "First six 1-D HSGP basis functions on [-L, L] with L = 1.5."
+
+L <- 1.5
+x_grid <- seq(-1, 1, length.out = 300)
+phi_1d <- function(L, j, x) (1/sqrt(L)) * sin(j * pi * (x + L) / (2 * L))
+
+phi_df <- bind_rows(lapply(1:6, function(j) {
+  tibble(x = x_grid, phi = phi_1d(L, j, x_grid),
+         j = factor(j, levels = 1:6))
+}))
+
+ggplot(phi_df, aes(x = x, y = phi, colour = j)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_viridis_d(option = "D", end = 0.85, name = "j") +
+  labs(x = "x (normalised)", y = expression(phi[j](x))) +
+  theme(plot.title = element_text(size = 13))
+```
+
+## Multi-dimensional HSGP
+
+In $D$ dimensions, the basis is a **product** of 1-D eigenfunctions, indexed by a tuple $(j_1, \ldots, j_D)$:
+
+::: {.fragment}
+$$
+\phi_{(j_1, \ldots, j_D)}(\mathbf{x}) \;=\; \prod_{d=1}^{D} \phi^{(d)}_{j_d}(x_d).
+$$
+:::
+
+::: {.fragment}
+For an **anisotropic SE kernel** $k(\mathbf{x}, \mathbf{x}') = \sigma^2 \prod_d \exp\!\bigl(-(x_d - x'_d)^2 / (2\ell_d^2)\bigr)$, the spectral density factors per dimension:
+
+$$
+S(\boldsymbol{\omega}) \;=\; \sigma^2 (2\pi)^{D/2} \prod_{d=1}^{D} \ell_d \,\exp\!\Bigl(-\tfrac{1}{2}\,\ell_d^2\,\omega_d^2\Bigr).
+$$
+:::
+
+::: {.fragment}
+Implementation: pre-compute the basis $\boldsymbol{\Phi}_{N \times M}$, with $M = m_1 \cdot m_2 \cdots m_D$ basis functions. The latent field at the data is then $\mathbf{f} = \boldsymbol{\Phi}\,(\mathbf{w} \odot \mathbf{z})$ where $\mathbf{w}$ are the kernel-dependent weights and $\mathbf{z} \sim \mathcal{N}(0, \mathbf{I}_M)$.
+:::
+
+## How to choose $L$ and $M$
+
+Riutort-Mayol et al. (2023) give practical rules of thumb:
+
+::: {.fragment}
+**Boundary factor $c = L / S$**, where $S$ is the data half-range. Take $c \geq 1.5$ so all data sit inside the basis support. Smaller $c$ → eigenfunctions don't represent the kernel.
+:::
+
+::: {.fragment}
+**Number of basis functions $m$ per dimension**:
+$$
+m \;\geq\; 1.75 \cdot \frac{c}{\rho_\ell}, \qquad \rho_\ell = \frac{\ell}{S}.
+$$
+
+Below this threshold, the basis can't represent the SE kernel's spectral content at length-scale $\ell$.
+:::
+
+::: {.fragment}
+**Trade-off**: more basis functions → better approximation but higher cost. Practical defaults: $c = 1.5$, $m \in [10, 40]$ per dimension, depending on the length-scale relative to the domain.
+:::
+
+## Summary
+
+::: {.incremental}
+- A GP is a distribution over functions, fully specified by $m(\mathbf{x})$ and $k(\mathbf{x}, \mathbf{x}')$.
+- For spatial fields, the kernel encodes spatial smoothness through length-scales $\ell_d$ — anisotropic when geographic dimensions differ in scale (cross-shore vs along-shore vs depth).
+- Exact GP regression is $\mathcal{O}(N^3)$; impractical for $N \gtrsim 10^3$ in HMC settings.
+- **HSGP** approximates the GP via a **truncated basis-function expansion** using Laplace eigenfunctions and the kernel's spectral density.
+- Cost drops to $\mathcal{O}(NM)$, with $M \ll N^2$. Plays nicely with HMC and non-Gaussian likelihoods.
+- Two dials per dimension: boundary $c \geq 1.5$, basis count $m \geq 1.75c/\rho_\ell$.
+:::
+
+## Key references
+
+::: {.smaller}
+
+- **Williams, C.K.I. & Rasmussen, C.E. (2006).** *Gaussian Processes for Machine Learning.* MIT Press. The standard reference; full treatment of GP regression, kernels, and inference.
+
+- **Diggle, P.J. & Ribeiro, P.J. Jr. (2007).** *Model-Based Geostatistics.* Springer. GP-style spatial modelling from the geostatistical perspective.
+
+- **Lindgren, F., Rue, H. & Lindström, J. (2011).** An explicit link between Gaussian fields and Gaussian Markov random fields: the SPDE approach. *JRSS-B* 73:423–498. Foundation for INLA's Matérn-via-SPDE framework.
+
+- **Solin, A. & Särkkä, S. (2020).** Hilbert space methods for reduced-rank Gaussian process regression. *Statistics and Computing* 30:419–446. The HSGP foundation paper.
+
+- **Riutort-Mayol, G., Bürkner, P.-C., Andersen, M.R., Solin, A. & Vehtari, A. (2023).** Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming. *Statistics and Computing* 33:17. Practical HSGP rules of thumb; the basis-count and boundary-factor formulas used above.
+
+- **Heaton, M.J. *et al.* (2019).** A case study competition among methods for analyzing large spatial data. *JABES* 24:398–425. Comparative review of approximate-GP methods.
+
+:::
