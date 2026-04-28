@@ -115,7 +115,7 @@ create_stan_init_f <- function(w){
     list(sigma = runif(1, w/100, w * 2),
          mu_s = runif(1, 1, 100),
          phi_s = runif(1, 0.1, 1),
-         lambda = runif(1, 0, max(mean(segdata$n/(segdata$l * 2 * w)))))
+         lambda_s = runif(1, 0, max(mean(segdata$n/(segdata$l * 2 * w)))))
   }
   return(stan_init_f)  
 }

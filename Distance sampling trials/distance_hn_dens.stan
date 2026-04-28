@@ -14,7 +14,7 @@ parameters {
   real log_sigma; //Log of half normal sigma parameter
   real<lower=0> mu_s; //Population mean group size
   real<lower=0> phi_s; //Overdispersion in neg bin group size distribution
-  real log_lambda; //Log of group density
+  real log_lambda_s; //Log of group density
 }
 
 transformed parameters {
@@ -22,7 +22,7 @@ transformed parameters {
   //Calculate effective strip width - can be done analytically in this case
   // as the detection function is a half normal with no adjustments
   real<lower=0> esw_hn = sigma * sqrt(pi() / 2) * erf(w / (sqrt(2) * sigma));
-  real<lower=0> lambda = exp(log_lambda); //Define lambda: group density
+  real<lower=0> lambda_s = exp(log_lambda_s); //Define lambda: group density
 }
 
 model {
@@ -31,7 +31,7 @@ model {
   mu_s ~ gamma(2, 0.02); //Weakly informative prior, apparently
   phi_s ~ gamma(1, 0.1); //Allows strong overdispersion
   //Value close to average seg_count/(2lw) - need to revisit to make general
-  log_lambda ~ normal(-8, 2); 
+  log_lambda_s ~ normal(-8, 2); 
 
   //Likelihood - vectorized
   //HN detection function
@@ -41,14 +41,14 @@ model {
   target += neg_binomial_2_lpmf(s | mu_s, phi_s)
             - n * log1m(neg_binomial_2_cdf(0 | mu_s, phi_s));
   //Poisson likelihood for encounter rate
-  target += poisson_lpmf(seg_count | lambda * seg_l * 2 * esw_hn);
+  target += poisson_lpmf(seg_count | lambda_s * seg_l * 2 * esw_hn);
 }
 
 generated quantities {
   //Average prob of detection between 0 and w
   real<lower=0, upper=1> p = esw_hn / w;
-  //Density of groups in ha
-  real<lower=0> D_s = lambda * 100;
+  //Density of groups per 1000 area units
+  real<lower=0> D_s = lambda_s * 1000;
   //Density of animals in ha
   real<lower=0> D = D_s * mu_s;
   
