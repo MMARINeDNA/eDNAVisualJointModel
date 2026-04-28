@@ -174,7 +174,7 @@ p_humpback <- make_panel_breaks("Humpback whale",
 # ---------------------------------------------------------------------------
 fig <- p_pwsd + p_humpback +
   plot_annotation(
-    title    = "Line-transect effort + cetacean sightings",
+    title    = "2018 line-transect effort + cetacean sightings",
     subtitle = "US West Coast: San Francisco to US/Canada border. Grey lines = effort segments; red points = sightings (sized by group size, independent scales per panel).",
     theme    = theme(plot.title    = element_text(face = "bold", size = 14),
                      plot.subtitle = element_text(size = 10, colour = "grey40"))
