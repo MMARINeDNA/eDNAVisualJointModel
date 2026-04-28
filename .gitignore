@@ -83,3 +83,6 @@ distance/*
 outputs/distance_*/*
 !outputs/distance_*/distance_v*_*.pdf
 !outputs/distance_*/distance_v*_recovery.csv
+!outputs/distance_*/distance_v*_vignette.qmd
+!outputs/distance_*/_vignette_figs/
+!outputs/distance_*/_vignette_figs/**
