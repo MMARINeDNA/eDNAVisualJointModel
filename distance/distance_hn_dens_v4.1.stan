@@ -48,11 +48,24 @@ data {
   // (mu_s ~ 50, phi_s small) S_max = 500-1000 is safe.
   int<lower=1> S_max;
 
-  // Group-size NB priors (now species-specific)
+  // Group-size distribution choice:
+  //   0 = zero-truncated NB(mu_s, phi_s)  (Option default; works for
+  //        moderately overdispersed counts, e.g. humpback)
+  //   1 = log-normal on s (Option A; better for heavy right tails like
+  //        PWSD where the empirical mean ~ 43, max ~ 450)
+  int<lower=0, upper=1> group_size_dist;
+
+  // Group-size NB priors (used when group_size_dist == 0)
   real<lower=0> mu_s_prior_shape;
   real<lower=0> mu_s_prior_rate;
   real<lower=0> phi_s_prior_shape;
   real<lower=0> phi_s_prior_rate;
+
+  // Group-size log-normal priors (used when group_size_dist == 1)
+  real mu_log_prior_mean;
+  real<lower=0> mu_log_prior_sd;
+  real<lower=0> sigma_log_prior_shape;
+  real<lower=0> sigma_log_prior_rate;
 
   // Group-density prior (now species-specific)
   real log_lambda_s_prior_mean;
@@ -71,8 +84,13 @@ transformed data {
 parameters {
   real log_sigma;             // log(sigma) at s = s_centre
   real beta_size;             // log_sigma slope on (s - s_centre)
+  // NB group-size params (used iff group_size_dist == 0; otherwise
+  // sampled but unused, just sitting at their prior)
   real<lower=0> mu_s;
   real<lower=0> phi_s;
+  // Log-normal group-size params (used iff group_size_dist == 1)
+  real           mu_log_s;
+  real<lower=0>  sigma_log_s;
   real log_lambda_s;
 }
 
@@ -102,30 +120,37 @@ transformed parameters {
                           * erf(w / (sqrt(2) * sigma_rep));
 
   // Jensen-corrected population ESW: numerical integration of
-  // ESW(sigma(s)) over the zero-truncated NB(mu_s, phi_s)
-  // distribution. With sigma(s) = exp(log_sigma + beta * (s - s_centre))
-  // convex in s, E[ESW(sigma(s))] > ESW(sigma(mu_s)) by Jensen, so
-  // using esw_rep above in the encounter rate Poisson under-estimates
-  // the true mean ESW and inflates the lambda_s posterior to compensate.
-  // esw_pop fixes that.
+  // ESW(sigma(s)) over the population group-size distribution. With
+  // sigma(s) = exp(log_sigma + beta * (s - s_centre)) convex in s,
+  // E[ESW(sigma(s))] > ESW(sigma(E[s])) by Jensen, so using esw_rep in
+  // the encounter-rate Poisson under-estimates the true mean ESW and
+  // inflates lambda_s. esw_pop fixes that. Sum runs over k = 1, ...,
+  // S_max with pmf P(k) under the chosen group-size distribution.
+  // For log-normal, we use the rounded-bin pmf
+  //   P(k) = Phi((log(k+0.5) - mu_log)/sigma_log)
+  //          - Phi((log(k-0.5) - mu_log)/sigma_log).
   real<lower=0> esw_pop;
   if (use_size_covar == 1) {
     real esw_sum = 0;
     real p_sum   = 0;
     for (k in 1:S_max) {
-      real pk      = exp(neg_binomial_2_lpmf(k | mu_s, phi_s));
+      real pk;
+      if (group_size_dist == 0) {
+        pk = exp(neg_binomial_2_lpmf(k | mu_s, phi_s));
+      } else {
+        real lo = log(k - 0.5);   // log(0.5) for k = 1
+        real hi = log(k + 0.5);
+        pk = Phi((hi - mu_log_s) / sigma_log_s)
+             - Phi((lo - mu_log_s) / sigma_log_s);
+      }
       real sigma_k = exp(log_sigma + beta_size * (k - s_centre));
       real esw_k   = sigma_k * sqrt(pi() / 2)
                      * erf(w / (sqrt(2) * sigma_k));
       esw_sum += pk * esw_k;
       p_sum   += pk;
     }
-    // Renormalise (pmf truncated at S_max; also drops the s = 0 mass
-    // implicitly since we start at k = 1).
     esw_pop = esw_sum / p_sum;
   } else {
-    // Without the covariate, sigma is constant in s -> integration
-    // collapses to ESW at sigma_0.
     esw_pop = esw_rep;
   }
 
@@ -133,11 +158,15 @@ transformed parameters {
 }
 
 model {
-  // Priors
+  // Priors. Both NB and log-normal group-size priors are always
+  // sampled; only the one matching `group_size_dist` enters the data
+  // likelihood. The other gets its prior but doesn't affect inference.
   log_sigma    ~ normal(log_sigma_prior_mean,    log_sigma_prior_sd);
   beta_size    ~ normal(beta_size_prior_mean,    beta_size_prior_sd);
   mu_s         ~ gamma(mu_s_prior_shape,         mu_s_prior_rate);
   phi_s        ~ gamma(phi_s_prior_shape,        phi_s_prior_rate);
+  mu_log_s     ~ normal(mu_log_prior_mean,       mu_log_prior_sd);
+  sigma_log_s  ~ gamma(sigma_log_prior_shape,    sigma_log_prior_rate);
   log_lambda_s ~ normal(log_lambda_s_prior_mean, log_lambda_s_prior_sd);
 
   // HN detection-function likelihood (per-observation)
@@ -145,21 +174,26 @@ model {
     target += -square(x[i]) / (2.0 * square(sigma_i[i])) - log(esw_i[i]);
   }
 
-  // Zero-truncated NB on group sizes, with size-biased detection
-  // correction. Without the correction term, observed sizes are
-  // treated as iid draws from the population NB, which is wrong:
-  // when detection probability depends on size (use_size_covar = 1),
-  // larger groups are over-represented in the detected sample, and
-  // fitting NB to the observed sample biases mu_s upward. The
-  // correction conditions on detection:
+  // Group-size likelihood, plus the size-biased detection correction.
+  // Without the correction term, observed sizes are treated as iid
+  // draws from the population, which is wrong: when detection
+  // probability depends on size (use_size_covar = 1), larger groups
+  // are over-represented in the detected sample. The correction
+  // conditions on detection:
   //   f(s | detected) propto f_pop(s) * p_det(s)
-  //   log f(s|det) = log NB(s|mu, phi) - log(1 - P(s=0))
-  //                 + log(p_det(s)) - log(E_pop[p_det])
-  //                = ... + log(esw_i) - log(esw_pop)
-  // The constant -log(w) cancels. When use_size_covar = 0, esw_i is
-  // the same for all i and the correction is 0.
-  target += neg_binomial_2_lpmf(s | mu_s, phi_s)
-            - n * log1m(neg_binomial_2_cdf(0 | mu_s, phi_s));
+  //   log f(s|det) = log f_pop(s) + log(p_det(s)) - log(E_pop[p_det])
+  //                = log f_pop(s) + log(esw_i) - log(esw_pop)
+  // (The -log(w) constants cancel.) When use_size_covar = 0, esw_i is
+  // constant and the correction term is identically 0.
+  if (group_size_dist == 0) {
+    // Zero-truncated NB
+    target += neg_binomial_2_lpmf(s | mu_s, phi_s)
+              - n * log1m(neg_binomial_2_cdf(0 | mu_s, phi_s));
+  } else {
+    // Log-normal on s (continuous-approximation Option A). Stan's
+    // lognormal_lpdf gives the density on the s scale directly.
+    target += lognormal_lpdf(s | mu_log_s, sigma_log_s);
+  }
   target += sum(log(esw_i)) - n * log(esw_pop);
 
   // Encounter rate Poisson per segment, using Jensen-corrected
