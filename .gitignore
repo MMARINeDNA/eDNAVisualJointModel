@@ -71,3 +71,15 @@ outputs/whale_edna_output_*/*
 # sources so any future artifact types also stay out.
 stan/*
 !stan/*.stan
+
+# Same pattern for distance/ (Distance sampling Stan models live here).
+distance/*
+!distance/*.stan
+!distance/*.Rmd
+!distance/*.R
+
+# Distance sampling outputs — fit RDS and recovery CSV are regenerable
+# from 00_distance_v*.R, but the diagnostic PDFs are tracked.
+outputs/distance_*/*
+!outputs/distance_*/distance_v*_*.pdf
+!outputs/distance_*/distance_v*_recovery.csv
