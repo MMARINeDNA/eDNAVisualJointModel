@@ -11,6 +11,7 @@ by the corresponding pipeline run.
 |---|---|---|
 | `v3_vignette.html` | `outputs/whale_edna_output_v3/v3_vignette.qmd` | v3 simulation + HSGP joint qPCR / metabarcoding fit. |
 | `v3.2_vignette.html` | `outputs/whale_edna_output_v3.2/v3.2_vignette.qmd` | v3.2 debugging case study. Eight PRs of iterative diagnosis on the v3 sampler pathology, walked through chronologically. Final fit + lessons learned. |
+| `distance_v4.1_vignette.html` | `outputs/distance_v4.1/distance_v4.1_vignette.qmd` | Line-transect distance sampling pipeline (PRs #34–#37). Spatial GP density → group-density surface → simulated sightings via half-normal detection function → non-spatial Stan distance fit. Stan model evolution across the four PRs, per-species PPC plots, parameter recovery. |
 
 The HTML files are **self-contained** (Quarto's `embed-resources:
 true`) — figures and styles are inlined, so you can drop them into a
