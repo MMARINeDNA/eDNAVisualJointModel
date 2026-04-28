@@ -42,6 +42,12 @@ data {
   real beta_size_prior_mean;
   real<lower=0> beta_size_prior_sd;
 
+  // Upper integration limit for the Jensen-corrected ESW (zero-truncated NB
+  // population-mean ESW). Should be large enough to cover the right tail of
+  // NB(mu_s, phi_s) under any plausible posterior values; e.g. for PWSD
+  // (mu_s ~ 50, phi_s small) S_max = 500-1000 is safe.
+  int<lower=1> S_max;
+
   // Group-size NB priors (now species-specific)
   real<lower=0> mu_s_prior_shape;
   real<lower=0> mu_s_prior_rate;
@@ -84,10 +90,9 @@ transformed parameters {
                * erf(w / (sqrt(2) * sigma_i[i]));
   }
 
-  // Representative sigma / ESW for the encounter-rate Poisson, at the
-  // POPULATION mean group size (= mu_s, the NB parameter). Approximate
-  // way to fold the size distribution into the encounter rate while
-  // still using a single ESW per segment.
+  // Representative sigma / ESW at the POPULATION MEAN group size
+  // (= mu_s, the NB parameter). Kept for reporting; not used in the
+  // encounter-rate likelihood.
   real<lower=0> sigma_rep;
   if (use_size_covar == 1)
     sigma_rep = exp(log_sigma + beta_size * (mu_s - s_centre));
@@ -95,6 +100,34 @@ transformed parameters {
     sigma_rep = exp(log_sigma);
   real<lower=0> esw_rep = sigma_rep * sqrt(pi() / 2)
                           * erf(w / (sqrt(2) * sigma_rep));
+
+  // Jensen-corrected population ESW: numerical integration of
+  // ESW(sigma(s)) over the zero-truncated NB(mu_s, phi_s)
+  // distribution. With sigma(s) = exp(log_sigma + beta * (s - s_centre))
+  // convex in s, E[ESW(sigma(s))] > ESW(sigma(mu_s)) by Jensen, so
+  // using esw_rep above in the encounter rate Poisson under-estimates
+  // the true mean ESW and inflates the lambda_s posterior to compensate.
+  // esw_pop fixes that.
+  real<lower=0> esw_pop;
+  if (use_size_covar == 1) {
+    real esw_sum = 0;
+    real p_sum   = 0;
+    for (k in 1:S_max) {
+      real pk      = exp(neg_binomial_2_lpmf(k | mu_s, phi_s));
+      real sigma_k = exp(log_sigma + beta_size * (k - s_centre));
+      real esw_k   = sigma_k * sqrt(pi() / 2)
+                     * erf(w / (sqrt(2) * sigma_k));
+      esw_sum += pk * esw_k;
+      p_sum   += pk;
+    }
+    // Renormalise (pmf truncated at S_max; also drops the s = 0 mass
+    // implicitly since we start at k = 1).
+    esw_pop = esw_sum / p_sum;
+  } else {
+    // Without the covariate, sigma is constant in s -> integration
+    // collapses to ESW at sigma_0.
+    esw_pop = esw_rep;
+  }
 
   real<lower=0> lambda_s = exp(log_lambda_s);
 }
@@ -112,17 +145,34 @@ model {
     target += -square(x[i]) / (2.0 * square(sigma_i[i])) - log(esw_i[i]);
   }
 
-  // Zero-truncated NB on group sizes
+  // Zero-truncated NB on group sizes, with size-biased detection
+  // correction. Without the correction term, observed sizes are
+  // treated as iid draws from the population NB, which is wrong:
+  // when detection probability depends on size (use_size_covar = 1),
+  // larger groups are over-represented in the detected sample, and
+  // fitting NB to the observed sample biases mu_s upward. The
+  // correction conditions on detection:
+  //   f(s | detected) propto f_pop(s) * p_det(s)
+  //   log f(s|det) = log NB(s|mu, phi) - log(1 - P(s=0))
+  //                 + log(p_det(s)) - log(E_pop[p_det])
+  //                = ... + log(esw_i) - log(esw_pop)
+  // The constant -log(w) cancels. When use_size_covar = 0, esw_i is
+  // the same for all i and the correction is 0.
   target += neg_binomial_2_lpmf(s | mu_s, phi_s)
             - n * log1m(neg_binomial_2_cdf(0 | mu_s, phi_s));
+  target += sum(log(esw_i)) - n * log(esw_pop);
 
-  // Encounter rate Poisson per segment, using representative ESW
-  target += poisson_lpmf(seg_count | lambda_s * seg_l * 2 * esw_rep);
+  // Encounter rate Poisson per segment, using Jensen-corrected
+  // population-mean ESW (averaged over zero-truncated NB).
+  target += poisson_lpmf(seg_count | lambda_s * seg_l * 2 * esw_pop);
 }
 
 generated quantities {
-  // Average detection probability in the strip at population mean size
-  real<lower=0, upper=1> p = esw_rep / w;
+  // Mean detection probability in the strip, averaged over the
+  // population group-size distribution (Jensen-corrected).
+  real<lower=0, upper=1> p = esw_pop / w;
+  // Same quantity at the population mean size (for comparison).
+  real<lower=0, upper=1> p_at_mu = esw_rep / w;
   // Group density (groups/km^2) and animal density (animals/km^2).
   // Note the original distance_hn_dens.stan reported D_s in groups per
   // 1000 area units; we report in animals/km^2 directly.
