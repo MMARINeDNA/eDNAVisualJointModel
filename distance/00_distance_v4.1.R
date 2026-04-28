@@ -12,20 +12,25 @@
 #   2. Converts the animal-density surface to a group-density surface:
 #         lambda_groups = lambda_animals / mean_group_size,
 #      with mean group sizes 2 (humpback) and 50 (PWSD).
-#   3. Lays down systematic parallel north-south transects, splits them
-#      into 10 km segments, and simulates group sightings from a
-#      half-normal detection function with truncation distance w.
-#   4. Assigns a constant group size (the species mean) to every
-#      detected group - a placeholder until we add a group-size model.
-#   5. Fits distance/distance_hn_dens.stan to the simulated
-#      observations (one fit per species).
+#   3. Lays down systematic parallel E-W transects, splits them into
+#      10-km segments, and simulates group sightings from a SPECIES-
+#      SPECIFIC half-normal detection function. PWSD's detection
+#      function additionally has a group-size covariate
+#         log(sigma_g) = log_sigma_0 + beta_size * (s_g - s_centre)
+#      so larger groups are more detectable. Humpback uses a single
+#      sigma (constant group size = 2 means no covariate signal).
+#   4. PWSD groups get sizes drawn from a zero-truncated NB(mu=50,
+#      size=5) so the group-size covariate is identifiable. Humpback
+#      groups all have size 2.
+#   5. Fits distance/distance_hn_dens_v4.1.stan to the simulated
+#      observations - one fit per species. The Stan model accepts
+#      species-specific priors on log_lambda_s (now passed as data,
+#      not hardcoded), per-species priors on the NB group-size
+#      parameters, and a use_size_covar flag for whether to include
+#      the detection covariate.
 #   6. Writes diagnostic plots and a parameter-recovery table to
-#      outputs/distance_v4.1/.
-#
-# The simulated data are drawn from a SPATIAL field but fit by a
-# NON-SPATIAL distance-sampling model (lambda_s as a single scalar).
-# So the recovery target for lambda_s is the spatial mean of the
-# species' group-density surface, not any local value.
+#      outputs/distance_v4.1/. Plots include a prior-vs-posterior
+#      density overlay for animal density D = lambda_s * mu_s.
 #
 # Run from the project root:
 #   Rscript distance/00_distance_v4.1.R
@@ -49,10 +54,8 @@ dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 # 0. Helpers
 # -----------------------------------------------------------------------------
 
-# Standard error function in terms of the normal CDF (avoids extra package).
 erf <- function(x) 2 * pnorm(x * sqrt(2)) - 1
 
-# Anisotropic squared-exponential covariance with diagonal jitter.
 aniso_cov <- function(coords, sigma, lx, ly, lz, jitter = 1e-6) {
   d2 <- outer(coords[, 1], coords[, 1], function(a, b) ((a - b) / lx)^2) +
         outer(coords[, 2], coords[, 2], function(a, b) ((a - b) / ly)^2) +
@@ -60,20 +63,24 @@ aniso_cov <- function(coords, sigma, lx, ly, lz, jitter = 1e-6) {
   sigma * sigma * exp(-0.5 * d2) + diag(jitter, nrow(d2))
 }
 
-# Anisotropic SE cross-covariance, for kriging onto a separate grid.
-aniso_cross_cov <- function(c1, c2, sigma, lx, ly, lz) {
-  d2 <- outer(c1[, 1], c2[, 1], function(a, b) ((a - b) / lx)^2) +
-        outer(c1[, 2], c2[, 2], function(a, b) ((a - b) / ly)^2) +
-        outer(c1[, 3], c2[, 3], function(a, b) ((a - b) / lz)^2)
-  sigma * sigma * exp(-0.5 * d2)
+# Zero-truncated negative binomial draw with mean mu and shape size.
+rnbinom_zt <- function(n, mu, size) {
+  out <- integer(n)
+  for (i in seq_len(n)) {
+    repeat {
+      r <- rnbinom(1, mu = mu, size = size)
+      if (r > 0L) { out[i] <- r; break }
+    }
+  }
+  out
 }
 
 # -----------------------------------------------------------------------------
 # 1. Domain (matches v4.1)
 # -----------------------------------------------------------------------------
 
-X_km_max     <- 500          # E-W extent (km)
-Y_km_max     <- 1270         # N-S extent (km)
+X_km_max     <- 500
+Y_km_max     <- 1270
 rotation_deg <- 25
 rot          <- rotation_deg * pi / 180
 
@@ -90,10 +97,27 @@ bathy_mean_fn <- function(X_km, Y_km) {
 }
 
 # -----------------------------------------------------------------------------
-# 2. Species (humpback + PWSD)
+# 2. Species (humpback + PWSD), each with its own detection function and
+#    its own log_lambda_s / mu_s priors.
 # -----------------------------------------------------------------------------
+#
+# Detection-function notes:
+#   * Humpback: large surface-active baleen whale - readily detected at
+#     several km. sigma_det = 2.5 km. No group-size covariate
+#     (use_size_covar = 0). All groups size 2.
+#   * PWSD: smaller delphinid, but very gregarious. sigma at the
+#     reference group size of 50 = 1.5 km. beta_size = 0.01 per
+#     individual on log(sigma), so a group of 100 has sigma ~ 2.5 km
+#     (1.5 * exp(0.01*50)) and a group of 25 has sigma ~ 1.16 km.
+#     Group sizes drawn from zero-truncated NB(mu=50, size=5)
+#     (sd ~ 24, range ~5-150).
+#
+# log_lambda_s prior centring: chosen to be moderately informative around
+# a rough "what we'd guess from the data before fitting" value, with
+# enough sd that the data dominates the posterior.
 
 species_params <- list(
+
   humpback = list(
     common_name      = "Humpback whale",
     sigma            = 1.0,
@@ -101,8 +125,28 @@ species_params <- list(
     ly               = 300,       # km
     lz               = 100,       # m
     mu               = log(0.004),# log animals/km^2
-    mean_group_size  = 2L
+    mean_group_size  = 2L,
+    group_size_dist  = "constant",
+
+    # Detection function
+    sigma_det        = 2.5,       # km, at s = s_centre
+    use_size_covar   = 0L,
+    beta_size_truth  = 0.0,       # ignored under use_size_covar = 0
+    s_centre         = 2,         # match constant group size
+
+    # Stan priors (now data, per-species)
+    log_sigma_prior_mean    = log(2.5),
+    log_sigma_prior_sd      = 0.6,
+    beta_size_prior_mean    = 0.0,
+    beta_size_prior_sd      = 0.05,           # tight near 0 since not used
+    mu_s_prior_shape        = 4,              # gamma mean = 2, mode 1.5
+    mu_s_prior_rate         = 2,
+    phi_s_prior_shape       = 1,
+    phi_s_prior_rate        = 0.1,
+    log_lambda_s_prior_mean = log(0.005),     # log groups/km^2 ~ -5.3
+    log_lambda_s_prior_sd   = 1.5
   ),
+
   pwsd = list(
     common_name      = "Pacific white-sided dolphin",
     sigma            = 1.3,
@@ -110,37 +154,40 @@ species_params <- list(
     ly               = 300,
     lz               = 300,
     mu               = log(0.032),
-    mean_group_size  = 50L
+    mean_group_size  = 50L,
+    group_size_dist  = "nb",
+    group_size_nb    = list(mu = 50, size = 5),  # zero-truncated
+
+    # Detection function (with group-size covariate)
+    sigma_det        = 1.5,       # km, at s = s_centre = 50
+    use_size_covar   = 1L,
+    beta_size_truth  = 0.01,      # per-individual log(sigma) increment
+    s_centre         = 50,
+
+    # Stan priors
+    log_sigma_prior_mean    = log(1.5),
+    log_sigma_prior_sd      = 0.6,
+    beta_size_prior_mean    = 0.0,
+    beta_size_prior_sd      = 0.05,           # mildly informative on |beta|
+    mu_s_prior_shape        = 4,              # gamma mean = 50, mode 37.5
+    mu_s_prior_rate         = 0.08,
+    phi_s_prior_shape       = 1,
+    phi_s_prior_rate        = 0.1,
+    log_lambda_s_prior_mean = log(0.001),     # log groups/km^2 ~ -6.9
+    log_lambda_s_prior_sd   = 1.5
   )
 )
 
-# -----------------------------------------------------------------------------
-# 3. Detection function (shared across species)
-# -----------------------------------------------------------------------------
-
-sigma_det <- 2.0    # half-normal scale (km)
-w         <- 5.0    # truncation distance (km)
-esw       <- sigma_det * sqrt(pi / 2) * erf(w / (sigma_det * sqrt(2)))
-p_avg     <- esw / w
-cat(sprintf("Detection function: HN(sigma=%.2f km), truncation w=%.2f km\n",
-            sigma_det, w))
-cat(sprintf("  effective strip half-width ESW = %.3f km\n", esw))
-cat(sprintf("  mean detection prob in strip   = %.3f\n", p_avg))
+w <- 5.0   # truncation distance, km, shared across species
 
 # -----------------------------------------------------------------------------
-# 4. Survey design: systematic parallel E-W transects, 10 km segments
-#
-# Transects run E-W (variable X, fixed Y). With Y_km_max = 1270 km and
-# n_transects, transect spacing in Y is Y_km_max / n_transects, offset
-# from each edge by half-spacing. Each transect spans X from 0 to
-# X_km_max = 500 km, split into 10-km segments.
+# 3. Survey design: 25 systematic E-W transects, 10 km segments
 # -----------------------------------------------------------------------------
 
-n_transects        <- 25                         # bumped to keep coverage
-seg_length         <- 10                         # km
+n_transects        <- 25
+seg_length         <- 10
 n_seg_per_transect <- floor(X_km_max / seg_length)
 
-# Transect Y-positions, offset by half-spacing from each edge
 transect_Y <- seq(Y_km_max / (2 * n_transects),
                   Y_km_max - Y_km_max / (2 * n_transects),
                   length.out = n_transects)
@@ -160,16 +207,17 @@ segments <- expand.grid(
 n_seg_total <- nrow(segments)
 total_effort_km <- sum(segments$seg_l)
 
-cat(sprintf("\nSurvey: %d transects x %d segments = %d segments\n",
+cat(sprintf("Survey: %d transects x %d segments = %d segments\n",
             n_transects, n_seg_per_transect, n_seg_total))
 cat(sprintf("  total effort = %.0f km, surveyed area = %.0f km^2\n",
             total_effort_km, total_effort_km * 2 * w))
+cat(sprintf("  truncation distance w = %.2f km\n\n", w))
 
 # -----------------------------------------------------------------------------
-# 5. Per-species simulation + fit
+# 4. Per-species simulation + fit
 # -----------------------------------------------------------------------------
 
-stan_file <- "distance/distance_hn_dens.stan"
+stan_file <- "distance/distance_hn_dens_v4.1.stan"
 mod <- cmdstan_model(stan_file, cpp_options = list(stan_threads = TRUE))
 
 results <- list()
@@ -180,37 +228,55 @@ for (sp_key in names(species_params)) {
   cat(sprintf("=== %s\n", p$common_name))
   cat(sprintf("======================================================\n"))
 
-  # ------------- 5a. Draw GP at segment midpoints -----------------------------
+  # ------------- 4a. Draw GP at segment midpoints -----------------------------
   coords <- as.matrix(segments[, c("X_mid", "Y_mid", "Z_bathy")])
   K      <- aniso_cov(coords, p$sigma, p$lx, p$ly, p$lz)
   f_seg  <- as.vector(MASS::mvrnorm(1, mu = rep(0, n_seg_total), Sigma = K))
 
-  lambda_animals <- exp(p$mu + f_seg)                          # animals/km^2
-  lambda_groups  <- lambda_animals / p$mean_group_size         # groups/km^2
+  lambda_animals <- exp(p$mu + f_seg)
+  lambda_groups  <- lambda_animals / p$mean_group_size
 
   cat(sprintf("\n  spatial truth (mean across %d segments):\n", n_seg_total))
   cat(sprintf("    lambda_animals = %.4f animals/km^2\n", mean(lambda_animals)))
   cat(sprintf("    lambda_groups  = %.4f groups/km^2\n",  mean(lambda_groups)))
+  cat(sprintf("    detection: sigma_det = %.2f km, use_size_covar = %d\n",
+              p$sigma_det, p$use_size_covar))
+  if (p$use_size_covar == 1L) {
+    cat(sprintf("    beta_size_truth = %.4f, s_centre = %g\n",
+                p$beta_size_truth, p$s_centre))
+  }
 
-  # ------------- 5b. Simulate group sightings ---------------------------------
+  # ------------- 4b. Simulate group sightings ---------------------------------
 
-  # Number of groups in each segment's strip (Poisson)
   expected_groups   <- lambda_groups * 2 * w * seg_length
   n_groups_in_strip <- rpois(n_seg_total, expected_groups)
 
-  # For each group: uniform distance in [0, w], thin by HN detection
   detect_rows <- vector("list", n_seg_total)
   for (i in seq_len(n_seg_total)) {
     n_strip <- n_groups_in_strip[i]
     if (n_strip == 0L) next
     x_true <- runif(n_strip, 0, w)
-    p_det  <- exp(-x_true^2 / (2 * sigma_det^2))
-    keep   <- runif(n_strip) < p_det
+    # Group sizes for this segment's groups
+    if (p$group_size_dist == "constant") {
+      s_strip <- rep(p$mean_group_size, n_strip)
+    } else if (p$group_size_dist == "nb") {
+      s_strip <- rnbinom_zt(n_strip,
+                            mu   = p$group_size_nb$mu,
+                            size = p$group_size_nb$size)
+    }
+    # Per-group sigma under the species' detection function
+    if (p$use_size_covar == 1L) {
+      sigma_g <- p$sigma_det * exp(p$beta_size_truth * (s_strip - p$s_centre))
+    } else {
+      sigma_g <- rep(p$sigma_det, n_strip)
+    }
+    p_det <- exp(-x_true^2 / (2 * sigma_g^2))
+    keep  <- runif(n_strip) < p_det
     if (any(keep)) {
       detect_rows[[i]] <- data.frame(
         seg_id   = segments$seg_id[i],
         distance = x_true[keep],
-        size     = p$mean_group_size
+        size     = s_strip[keep]
       )
     }
   }
@@ -221,13 +287,13 @@ for (sp_key in names(species_params)) {
 
   seg_count <- tabulate(obs$seg_id, nbins = n_seg_total)
 
-  cat(sprintf("\n  groups in strip (truth) : %d\n", sum(n_groups_in_strip)))
+  cat(sprintf("\n  groups in strip (truth): %d\n", sum(n_groups_in_strip)))
   cat(sprintf("  groups detected         : %d (%.1f%% of strip)\n",
               nrow(obs), 100 * nrow(obs) / max(sum(n_groups_in_strip), 1L)))
+  cat(sprintf("  observed group sizes    : min=%d, mean=%.1f, max=%d\n",
+              min(obs$size), mean(obs$size), max(obs$size)))
   cat(sprintf("  segments with >= 1 detection: %d / %d\n",
               sum(seg_count > 0), n_seg_total))
-
-  # ------------- 5c. Stan data ------------------------------------------------
 
   if (nrow(obs) < 10L) {
     warning(sprintf("Too few detections (%d) for %s - skipping fit.",
@@ -235,32 +301,49 @@ for (sp_key in names(species_params)) {
     next
   }
 
+  # ------------- 4c. Stan data ------------------------------------------------
+
   stan_data <- list(
-    n                    = nrow(obs),
-    x                    = obs$distance,
-    s                    = as.integer(obs$size),
-    w                    = w,
-    log_sigma_prior_mean = log(w / 2),
-    log_sigma_prior_sd   = 0.5,
-    n_seg                = n_seg_total,
-    seg_count            = as.integer(seg_count),
-    seg_l                = rep(seg_length, n_seg_total)
+    n                       = nrow(obs),
+    x                       = obs$distance,
+    s                       = as.integer(obs$size),
+    w                       = w,
+    log_sigma_prior_mean    = p$log_sigma_prior_mean,
+    log_sigma_prior_sd      = p$log_sigma_prior_sd,
+    use_size_covar          = p$use_size_covar,
+    s_centre                = p$s_centre,
+    beta_size_prior_mean    = p$beta_size_prior_mean,
+    beta_size_prior_sd      = p$beta_size_prior_sd,
+    mu_s_prior_shape        = p$mu_s_prior_shape,
+    mu_s_prior_rate         = p$mu_s_prior_rate,
+    phi_s_prior_shape       = p$phi_s_prior_shape,
+    phi_s_prior_rate        = p$phi_s_prior_rate,
+    log_lambda_s_prior_mean = p$log_lambda_s_prior_mean,
+    log_lambda_s_prior_sd   = p$log_lambda_s_prior_sd,
+    n_seg                   = n_seg_total,
+    seg_count               = as.integer(seg_count),
+    seg_l                   = rep(seg_length, n_seg_total)
   )
 
-  # ------------- 5d. Stan fit -------------------------------------------------
+  # ------------- 4d. Stan fit -------------------------------------------------
 
   init_fn <- function() {
     lam_init <- max(mean(stan_data$seg_count /
                          (stan_data$seg_l * 2 * w)), 1e-6)
     list(
-      log_sigma    = log(runif(1, w / 100, w * 2)),
-      mu_s         = runif(1, 1, 100),
-      phi_s        = runif(1, 0.1, 1),
-      log_lambda_s = log(runif(1, lam_init * 0.1, lam_init * 1.9 + 1e-6))
+      log_sigma    = p$log_sigma_prior_mean + rnorm(1, 0, 0.3),
+      beta_size    = rnorm(1, 0, 0.01),
+      mu_s         = max(p$mu_s_prior_shape / p$mu_s_prior_rate
+                         + rnorm(1, 0, 0.5 * p$mu_s_prior_shape / p$mu_s_prior_rate),
+                         0.5),
+      phi_s        = runif(1, 0.5, 2),
+      log_lambda_s = log(runif(1,
+                               max(lam_init * 0.1, 1e-6),
+                               lam_init * 1.9 + 1e-6))
     )
   }
 
-  cat("\n  Fitting distance_hn_dens.stan...\n")
+  cat("\n  Fitting distance_hn_dens_v4.1.stan...\n")
   fit <- mod$sample(
     data              = stan_data,
     chains            = 4,
@@ -273,40 +356,54 @@ for (sp_key in names(species_params)) {
     refresh           = 500,
     show_messages     = FALSE
   )
+  invisible(fit$cmdstan_diagnose())
 
-  diag <- fit$cmdstan_diagnose()
-
-  # ------------- 5e. Extract draws + summarise --------------------------------
+  # ------------- 4e. Extract draws + summarise --------------------------------
 
   draws <- fit$draws(format = "df")
   D_animals_draw <- draws$lambda_s * draws$mu_s
 
-  param_summary <- tibble(
-    param      = c("sigma (km)", "mu_s (mean group size)",
-                   "lambda_s (groups/km^2)", "D (animals/km^2)"),
-    truth      = c(sigma_det, p$mean_group_size,
-                   mean(lambda_groups), mean(lambda_animals)),
-    median     = c(median(draws$sigma), median(draws$mu_s),
-                   median(draws$lambda_s), median(D_animals_draw)),
-    q025       = c(quantile(draws$sigma, 0.025), quantile(draws$mu_s, 0.025),
-                   quantile(draws$lambda_s, 0.025),
-                   quantile(D_animals_draw, 0.025)),
-    q975       = c(quantile(draws$sigma, 0.975), quantile(draws$mu_s, 0.975),
-                   quantile(draws$lambda_s, 0.975),
-                   quantile(D_animals_draw, 0.975))
+  param_truths <- tibble(
+    param = c("sigma (km)",
+              "beta_size",
+              "mu_s (mean group size)",
+              "lambda_s (groups/km^2)",
+              "D (animals/km^2)"),
+    truth = c(p$sigma_det,
+              if (p$use_size_covar == 1L) p$beta_size_truth else NA_real_,
+              p$mean_group_size,
+              mean(lambda_groups),
+              mean(lambda_animals))
   )
 
+  param_summary <- bind_cols(param_truths, tibble(
+    median = c(median(exp(draws$log_sigma)),
+               median(draws$beta_size),
+               median(draws$mu_s),
+               median(draws$lambda_s),
+               median(D_animals_draw)),
+    q025   = c(quantile(exp(draws$log_sigma), 0.025),
+               quantile(draws$beta_size, 0.025),
+               quantile(draws$mu_s, 0.025),
+               quantile(draws$lambda_s, 0.025),
+               quantile(D_animals_draw, 0.025)),
+    q975   = c(quantile(exp(draws$log_sigma), 0.975),
+               quantile(draws$beta_size, 0.975),
+               quantile(draws$mu_s, 0.975),
+               quantile(draws$lambda_s, 0.975),
+               quantile(D_animals_draw, 0.975))
+  ))
   cat("\n  Parameter recovery (truth = spatial mean for lambda / D):\n")
   print(knitr::kable(param_summary, digits = 4, format = "simple"))
 
-  # ------------- 5f. Plots ----------------------------------------------------
+  # ------------- 4f. Plots ----------------------------------------------------
 
   sp_colour <- if (sp_key == "humpback") "#3B528B" else "#5DC863"
 
   # (A) Density surface scatter at segment midpoints
-  p_density <- ggplot(segments |> mutate(lambda_animals = lambda_animals,
-                                         lambda_groups  = lambda_groups),
-                      aes(X_mid, Y_mid, colour = lambda_animals)) +
+  p_density <- ggplot(
+      segments |> dplyr::mutate(lambda_animals = lambda_animals),
+      aes(X_mid, Y_mid, colour = lambda_animals)) +
     geom_point(size = 1.0, alpha = 0.85) +
     scale_colour_viridis_c(name = expression(lambda ~ "(animals/km"^2 * ")"),
                            trans = "log10") +
@@ -318,31 +415,42 @@ for (sp_key in names(species_params)) {
     theme_bw(base_size = 10) +
     theme(plot.title = element_text(face = "bold", size = 11))
 
-  # (B) Detection-distance histogram + fitted HN
-  sigma_post <- median(draws$sigma)
-  esw_post   <- sigma_post * sqrt(pi / 2) * erf(w / (sigma_post * sqrt(2)))
+  # (B) Detection-distance histogram + posterior median HN
+  log_sigma_post <- median(draws$log_sigma)
+  beta_post      <- median(draws$beta_size)
+  if (p$use_size_covar == 1L) {
+    sigma_post_at_mu <- exp(log_sigma_post +
+                            beta_post * (median(draws$mu_s) - p$s_centre))
+  } else {
+    sigma_post_at_mu <- exp(log_sigma_post)
+  }
+  esw_post <- sigma_post_at_mu * sqrt(pi/2) *
+              erf(w / (sigma_post_at_mu * sqrt(2)))
+  esw_truth <- p$sigma_det * sqrt(pi/2) * erf(w / (p$sigma_det * sqrt(2)))
 
   p_hist <- ggplot(obs, aes(x = distance)) +
     geom_histogram(aes(y = after_stat(density)), bins = 20,
                    fill = "lightblue", colour = "white") +
     stat_function(fun = function(x) {
-      exp(-x^2 / (2 * sigma_post^2)) / esw_post
+      exp(-x^2 / (2 * sigma_post_at_mu^2)) / esw_post
     }, colour = "red", linewidth = 1) +
     stat_function(fun = function(x) {
-      exp(-x^2 / (2 * sigma_det^2)) / esw
+      exp(-x^2 / (2 * p$sigma_det^2)) / esw_truth
     }, colour = "darkgrey", linetype = "dashed", linewidth = 0.8) +
-    labs(title    = sprintf("%s: detection function recovery", p$common_name),
-         subtitle = sprintf("Red = posterior median HN (sigma=%.2f); grey dashed = truth (sigma=%.2f)",
-                            sigma_post, sigma_det),
+    labs(title    = sprintf("%s: detection function recovery",
+                            p$common_name),
+         subtitle = sprintf("Red = posterior median HN at mean group size (sigma=%.2f); grey dashed = truth (sigma=%.2f)",
+                            sigma_post_at_mu, p$sigma_det),
          x = "Detection distance (km)", y = "Density") +
     theme_bw(base_size = 10) +
     theme(plot.title = element_text(face = "bold", size = 11))
 
-  # (C) Posterior intervals vs truth, log-transformed where useful
-  param_summary_long <- param_summary |>
-    dplyr::mutate(param = factor(param, levels = param))
+  # (C) Parameter recovery scatter
+  param_plot_df <- param_summary |> dplyr::filter(!is.na(truth))
+  param_plot_df$param <- factor(param_plot_df$param,
+                                 levels = param_plot_df$param)
 
-  p_recovery <- ggplot(param_summary_long,
+  p_recovery <- ggplot(param_plot_df,
                        aes(x = param,
                            y = median,
                            ymin = q025, ymax = q975)) +
@@ -359,35 +467,69 @@ for (sp_key in names(species_params)) {
           axis.ticks.x = element_blank(),
           strip.text  = element_text(size = 9))
 
-  # (D) Posterior of D (animals/km^2) overlay
+  # (D) Prior vs posterior density of D = lambda * mu_s
   truth_D <- mean(lambda_animals)
-  p_D <- ggplot(tibble(D = D_animals_draw), aes(x = D)) +
-    geom_density(fill = sp_colour, colour = NA, alpha = 0.4) +
-    geom_density(colour = sp_colour, linewidth = 0.9) +
+
+  # Sample from prior numerically: log_lambda_s ~ N, mu_s ~ Gamma
+  n_prior_draws <- 5000L
+  lambda_prior  <- exp(rnorm(n_prior_draws,
+                             p$log_lambda_s_prior_mean,
+                             p$log_lambda_s_prior_sd))
+  mu_s_prior    <- rgamma(n_prior_draws,
+                          shape = p$mu_s_prior_shape,
+                          rate  = p$mu_s_prior_rate)
+  D_prior_draws <- lambda_prior * mu_s_prior
+
+  # Restrict the plot range to a sensible window so we can see both
+  # densities. Use the joint quantile range.
+  D_combined <- c(D_prior_draws, D_animals_draw)
+  D_lo  <- max(quantile(D_combined, 0.005), 0)
+  D_hi  <- max(quantile(D_combined, 0.995),
+               1.5 * max(truth_D, median(D_animals_draw)))
+
+  prior_post_df <- bind_rows(
+    tibble(D = D_prior_draws, dist = "prior"),
+    tibble(D = D_animals_draw, dist = "posterior")
+  ) |>
+    dplyr::filter(D >= D_lo, D <= D_hi)
+
+  p_prior_post <- ggplot(prior_post_df, aes(x = D, fill = dist, colour = dist)) +
+    geom_density(alpha = 0.32, linewidth = 0.8) +
     geom_vline(xintercept = truth_D, colour = "red",
                linetype = "dashed", linewidth = 0.7) +
-    labs(title    = sprintf("%s: posterior of D (animals/km^2)",
+    scale_fill_manual  (values = c(prior = "grey60",     posterior = sp_colour)) +
+    scale_colour_manual(values = c(prior = "grey40",     posterior = sp_colour)) +
+    coord_cartesian(xlim = c(D_lo, D_hi)) +
+    labs(title    = sprintf("%s: prior vs posterior density of D (animals/km^2)",
                             p$common_name),
-         subtitle = sprintf("Red dashed = simulated truth (spatial mean lambda) = %.4f",
+         subtitle = sprintf("Red dashed = simulated truth = %.4f. Prior on D induced by Normal(log_lambda_s) x Gamma(mu_s).",
                             truth_D),
          x = expression(D ~ "(animals/km"^2 * ")"),
-         y = "posterior density") +
+         y = "density",
+         fill = NULL, colour = NULL) +
     theme_bw(base_size = 10) +
-    theme(plot.title = element_text(face = "bold", size = 11))
+    theme(plot.title    = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 9, colour = "grey40"),
+          legend.position = "top")
 
-  combined <- (p_density / (p_hist | p_D)) /
+  combined <- (p_density / (p_hist | p_prior_post)) /
               p_recovery +
               plot_layout(heights = c(2, 1.4, 1)) +
               plot_annotation(
                 title    = sprintf("Distance sampling pipeline (v4.1) -- %s",
                                    p$common_name),
-                subtitle = sprintf("HN(sigma=%.2f km), w=%.2f km. %d transects x %d segments x 10 km. %d detections.",
-                                   sigma_det, w, n_transects, n_seg_per_transect, nrow(obs)),
-                theme = theme(plot.title    = element_text(face = "bold", size = 13),
-                              plot.subtitle = element_text(size = 10, colour = "grey40"))
+                subtitle = sprintf("HN(sigma=%.2f km, use_size_covar=%d), w=%.2f km. %d transects x %d segments x 10 km. %d detections.",
+                                   p$sigma_det, p$use_size_covar, w,
+                                   n_transects, n_seg_per_transect,
+                                   nrow(obs)),
+                theme = theme(plot.title    = element_text(face = "bold",
+                                                           size = 13),
+                              plot.subtitle = element_text(size = 10,
+                                                           colour = "grey40"))
               )
 
-  out_pdf <- file.path(OUTPUT_DIR, sprintf("distance_v4.1_%s.pdf", sp_key))
+  out_pdf <- file.path(OUTPUT_DIR,
+                       sprintf("distance_v4.1_%s.pdf", sp_key))
   grDevices::cairo_pdf(out_pdf, width = 11, height = 11)
   print(combined)
   invisible(dev.off())
@@ -397,7 +539,6 @@ for (sp_key in names(species_params)) {
   saveRDS(list(
     sp_key            = sp_key,
     sp_params         = p,
-    sigma_det         = sigma_det,
     w                 = w,
     transect_Y        = transect_Y,
     seg_length        = seg_length,
@@ -413,14 +554,16 @@ for (sp_key in names(species_params)) {
     param_summary     = param_summary
   ), file.path(OUTPUT_DIR, sprintf("distance_v4.1_%s.rds", sp_key)))
 
-  results[[sp_key]] <- param_summary |> dplyr::mutate(species = p$common_name)
+  results[[sp_key]] <- param_summary |>
+    dplyr::mutate(species = p$common_name) |>
+    dplyr::filter(!is.na(truth) | param == "beta_size")
 }
 
 # -----------------------------------------------------------------------------
-# 6. Combined summary
+# 5. Combined summary
 # -----------------------------------------------------------------------------
 
-if (length(results) > 0) {
+if (length(results) > 0L) {
   cat("\n\n======================================================\n")
   cat("=== Combined recovery table\n")
   cat("======================================================\n\n")
