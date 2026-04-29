@@ -128,9 +128,7 @@ For non-Gaussian likelihoods (like our qPCR / MB / LT models), it gets worse: th
 
 ## Approximation strategies
 
-The literature on approximate GP methods is rich. The big families:
-
-- **Inducing-point / sparse GPs** (Snelson & Ghahramani 2006; Titsias 2009). Replace the full $N$-point GP with an $M$-point GP at "inducing locations" with $M \ll N$. Cost drops to $\mathcal{O}(NM^2)$. The inducing-point variational framework (SVGP) is dominant in ML applications. Works well in 2-D / 3-D for ecological problems.
+The two big families that we cover here:
 
 - **Basis-function expansions**. Replace $f(\mathbf{x})$ with a finite sum $\sum_{j=1}^M w_j(\theta)\,\phi_j(\mathbf{x})\,z_j$ where the $\phi_j$ are pre-chosen basis functions and the $z_j$ (or coefficients $\beta_j$) are learned. The basis can be:
     - **Fixed-rank kriging** (Cressie & Johannesson 2008) — explicit basis (e.g., bisquare or wavelet) at a chosen low rank; closed-form moment-matching to a chosen kernel.
@@ -138,11 +136,9 @@ The literature on approximate GP methods is rich. The big families:
     - **Random Fourier features** (Rahimi & Recht 2007) — basis is a Monte Carlo set of sinusoids drawn from the kernel's spectral density.
     - **Hilbert-space approximate GP (HSGP)** — basis is the Laplacian eigenfunctions on a bounded box, with weights $w_j(\theta) = \sqrt{S_\theta(\sqrt{\lambda_j})}$ from the spectral density. This is the method this project uses; see the next section.
 
-  Inducing-point methods are themselves a basis-function approach (the basis is the kernel at inducing locations). The reason to break them out separately is that the literature treats them differently — inducing-point methods *learn* their basis locations, while the other basis methods listed here use a *pre-chosen* basis that doesn't depend on the data.
-
-- **Vecchia / nearest-neighbour GP** (Datta *et al.* 2016, NNGP). Approximate the joint density $p(f(\mathbf{x}_1), \ldots, f(\mathbf{x}_N))$ by a product of conditionals on nearest neighbours. Naturally sparse. Works well at very high $N$; trickier in HMC than in Gibbs.
-
 - **SPDE / Matérn** (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA's spatial framework. Very efficient, but tied to Matérn and tied to the INLA inference machinery (not native to Stan).
+
+(Other approaches that exist but we don't cover: inducing-point / sparse GPs, which can be viewed as a basis-function method that learns its basis locations; and Vecchia / nearest-neighbour GP, which sparsifies the joint density via conditionals on nearby points.)
 
 This project uses **HSGP** because:
 

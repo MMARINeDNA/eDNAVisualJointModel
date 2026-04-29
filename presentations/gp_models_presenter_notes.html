@@ -3241,20 +3241,18 @@ k(\mathbf{x}, \mathbf{x}&#39;) = \sigma^2 \exp\!\left(-\frac{1}{2}\sum_{d=1}^D \
 </section>
 <section id="approximation-strategies" class="level2">
 <h2 class="anchored" data-anchor-id="approximation-strategies">Approximation strategies</h2>
-<p>The literature on approximate GP methods is rich. The big families:</p>
+<p>The two big families that we cover here:</p>
 <ul>
-<li><p><strong>Inducing-point / sparse GPs</strong> (Snelson &amp; Ghahramani 2006; Titsias 2009). Replace the full <span class="math inline">N</span>-point GP with an <span class="math inline">M</span>-point GP at “inducing locations” with <span class="math inline">M \ll N</span>. Cost drops to <span class="math inline">\mathcal{O}(NM^2)</span>. The inducing-point variational framework (SVGP) is dominant in ML applications. Works well in 2-D / 3-D for ecological problems.</p></li>
-<li><p><strong>Basis-function expansions</strong>. Replace <span class="math inline">f(\mathbf{x})</span> with a finite sum <span class="math inline">\sum_{j=1}^M w_j(\theta)\,\phi_j(\mathbf{x})\,z_j</span> where the <span class="math inline">\phi_j</span> are pre-chosen basis functions and the <span class="math inline">z_j</span> (or coefficients <span class="math inline">\beta_j</span>) are learned. The basis can be:</p>
+<li><strong>Basis-function expansions</strong>. Replace <span class="math inline">f(\mathbf{x})</span> with a finite sum <span class="math inline">\sum_{j=1}^M w_j(\theta)\,\phi_j(\mathbf{x})\,z_j</span> where the <span class="math inline">\phi_j</span> are pre-chosen basis functions and the <span class="math inline">z_j</span> (or coefficients <span class="math inline">\beta_j</span>) are learned. The basis can be:
 <ul>
 <li><strong>Fixed-rank kriging</strong> (Cressie &amp; Johannesson 2008) — explicit basis (e.g., bisquare or wavelet) at a chosen low rank; closed-form moment-matching to a chosen kernel.</li>
 <li><strong>Predictive process</strong> (Banerjee <em>et al.</em> 2008) — basis is the kernel evaluated at “knots”, giving an interpolation approximation.</li>
 <li><strong>Random Fourier features</strong> (Rahimi &amp; Recht 2007) — basis is a Monte Carlo set of sinusoids drawn from the kernel’s spectral density.</li>
 <li><strong>Hilbert-space approximate GP (HSGP)</strong> — basis is the Laplacian eigenfunctions on a bounded box, with weights <span class="math inline">w_j(\theta) = \sqrt{S_\theta(\sqrt{\lambda_j})}</span> from the spectral density. This is the method this project uses; see the next section.</li>
+</ul></li>
+<li><strong>SPDE / Matérn</strong> (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA’s spatial framework. Very efficient, but tied to Matérn and tied to the INLA inference machinery (not native to Stan).</li>
 </ul>
-<p>Inducing-point methods are themselves a basis-function approach (the basis is the kernel at inducing locations). The reason to break them out separately is that the literature treats them differently — inducing-point methods <em>learn</em> their basis locations, while the other basis methods listed here use a <em>pre-chosen</em> basis that doesn’t depend on the data.</p></li>
-<li><p><strong>Vecchia / nearest-neighbour GP</strong> (Datta <em>et al.</em> 2016, NNGP). Approximate the joint density <span class="math inline">p(f(\mathbf{x}_1), \ldots, f(\mathbf{x}_N))</span> by a product of conditionals on nearest neighbours. Naturally sparse. Works well at very high <span class="math inline">N</span>; trickier in HMC than in Gibbs.</p></li>
-<li><p><strong>SPDE / Matérn</strong> (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA’s spatial framework. Very efficient, but tied to Matérn and tied to the INLA inference machinery (not native to Stan).</p></li>
-</ul>
+<p>(Other approaches that exist but we don’t cover: inducing-point / sparse GPs, which can be viewed as a basis-function method that learns its basis locations; and Vecchia / nearest-neighbour GP, which sparsifies the joint density via conditionals on nearby points.)</p>
 <p>This project uses <strong>HSGP</strong> because:</p>
 <ul>
 <li>Stan-native: no special inference machinery beyond what HMC already does.</li>
