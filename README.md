@@ -98,8 +98,8 @@ and a small set of **data figures** summarising the real survey data.
 │   └── distance_v4.1_notebook.html         Distance-sampling pipeline (PRs #34–#37)
 │
 ├── presentations/                      Quarto / RevealJS slide decks
-│   ├── gp_models.qmd                       Source for the GP intro deck
-│   └── gp_models.html                      Self-contained rendered output
+│   ├── gp_models.{qmd,html}                GP intro deck
+│   └── project_goals.{qmd,html}            Project goals + state-space model overview
 │
 ├── figures/                            Real-data summary maps (PNG)
 │
@@ -434,8 +434,9 @@ code.
 | File | Covers |
 |---|---|
 | `gp_models.html` | Practical introduction to Gaussian processes for spatial modelling: what a GP is, GPs as priors over spatial fields, how to fit a GP, and the HSGP approximation (Riutort-Mayol et al. 2023) that this project actually uses. |
+| `project_goals.html` | Project goals + conceptual diagram of the joint state-space model (single latent density surface → eDNA + line-transect observation submodels). Brief slides on the GP, qPCR/metabarcoding, and LT components, plus the per-species LT + eDNA data figures for humpback and PWSD. |
 
-Render with `quarto render presentations/gp_models.qmd --to revealjs`;
+Render with `quarto render presentations/<deck>.qmd --to revealjs`;
 the rendered HTML is tracked in the repo so the slides are easy to
 share without a Quarto install.
 
