@@ -21,7 +21,7 @@ The slides themselves are intentionally sparse so they read well in a room. The 
 
 ## What is a Gaussian process?
 
-The defining property of a GP is that **every finite collection of values is jointly multivariate normal**. Pick any $N$ input locations $\mathbf{x}_1, \ldots, \mathbf{x}_N$; the joint distribution of $f(\mathbf{x}_1), \ldots, f(\mathbf{x}_N)$ under a GP prior is $\mathcal{MVN}(\mathbf{m}, \mathbf{K})$ with mean vector $m_i = m(\mathbf{x}_i)$ and covariance matrix $K_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$.
+The defining property of a GP is that **every finite collection of values is jointly multivariate normal**. Pick any $N$ input locations $\mathbf{x}_1, \ldots, \mathbf{x}_N$; the joint distribution of $f(\mathbf{x}_1), \ldots, f(\mathbf{x}_N)$ under a GP prior is $\mathcal{N}(\mathbf{m}, \mathbf{K})$ (multivariate, with dimension implied by the vector arguments) where $m_i = m(\mathbf{x}_i)$ and $K_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$.
 
 The mean function $m(\mathbf{x})$ encodes the prior expectation of $f$ at every input. In ecological applications it is almost always set to zero — any deterministic structure is moved into a separate term ($\mu$ or a covariate effect) and the GP carries the residual spatial variation. The covariance function $k(\mathbf{x}, \mathbf{x}')$ is where the modelling choices live: it encodes how strongly two outputs covary as a function of their input distance, and through that, what kinds of functions the prior thinks are plausible.
 
