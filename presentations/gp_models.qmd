@@ -46,7 +46,7 @@ A **GP is a probability distribution over functions**.
 Every finite collection of values is jointly multivariate normal:
 
 $$
-\bigl(f(\mathbf{x}_1),\, \ldots,\, f(\mathbf{x}_N)\bigr) \;\sim\; \mathcal{N}(\mathbf{m},\, \mathbf{K}).
+\bigl(f(\mathbf{x}_1),\, \ldots,\, f(\mathbf{x}_N)\bigr) \;\sim\; \mathrm{MVN}(\mathbf{m},\, \mathbf{K}).
 $$
 :::
 
