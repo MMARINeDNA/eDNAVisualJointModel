@@ -1,6 +1,5 @@
 ---
 title: "Gaussian Processes for Spatial Modelling"
-subtitle: "A practical introduction"
 author: "MMARINeDNA / eDNAVisualJointModel"
 date: today
 format:
@@ -41,10 +40,9 @@ set.seed(42)
 
 ## What is a Gaussian process?
 
-A **GP is a probability distribution over functions**.
+A stochastic process (a collection of random variables indexed by time or space), such that every finite collection of those random variables has a multivariate normal distribution. 
 
 ::: {.fragment}
-Every finite collection of values is jointly multivariate normal:
 
 $$
 \bigl(f(\mathbf{x}_1),\, \ldots,\, f(\mathbf{x}_N)\bigr) \;\sim\; \mathcal{MVN}(\mathbf{m},\, \mathbf{K}).
@@ -55,7 +53,11 @@ $$
 Fully specified by mean $m(\mathbf{x})$ and covariance $k(\mathbf{x}, \mathbf{x}')$. We write $f \sim \mathcal{GP}(m, k)$.
 :::
 
-## Sample paths from a 1-D GP prior
+## Example paths from a 1-D GP prior
+
+::: {.fragment}
+Length-scale $\ell$ controls **wiggliness**: small $\ell$ = wiggly, large $\ell$ = smooth.
+:::
 
 ```{r}
 #| fig-width: 9
@@ -97,9 +99,7 @@ ggplot(plot_data, aes(x = x, y = f, colour = draw)) +
         plot.title = element_text(size = 13))
 ```
 
-::: {.fragment}
-Length-scale $\ell$ controls **wiggliness**: small $\ell$ = wiggly, large $\ell$ = smooth.
-:::
+
 
 ## The squared-exponential kernel
 
@@ -210,7 +210,7 @@ $$
 $$
 
 ::: {.fragment}
-**The catch**: requires inverting $N \times N$. Cholesky is $\mathcal{O}(N^3)$ — and HMC does it *every leapfrog step*.
+**NOTE**: requires inverting $N \times N$. Cholesky is $\mathcal{O}(N^3)$ — and HMC does it *every leapfrog step*.
 :::
 
 ::: {.fragment}
@@ -222,26 +222,28 @@ For ecological surveys with $N \sim 10^3{-}10^4$, the exact GP is impractical.
 The three approaches we've explored:
 
 ::: {.incremental}
-- **Splines as basis functions** — replace $f(\mathbf{x})$ with a linear combination of pre-chosen spline bases (thin-plate, B-splines, P-splines). Wood (2003); Eilers & Marx (1996).
-- **SPDE / Matérn** — Lindgren–Rue–Lindström (2011); the foundation of R-INLA's spatial framework.
+- **Splines as basis functions** — replace $f(\mathbf{x})$ with a linear combination of pre-chosen spline bases (thin-plate, B-splines, P-splines). 
+- **SPDE / Matérn** — the foundation of R-INLA's spatial framework.
 - **Spectral / Hilbert-space GP (HSGP)** — Solin & Särkkä (2020); Riutort-Mayol *et al.* (2023). A basis-function method using Laplacian eigenfunctions, with weights from the kernel's spectral density.
 :::
 
 ::: {.fragment}
-This project uses **HSGP** — see next section.
+This project uses **HSGP** 
 :::
 
 # Hilbert-space approximate GPs {.center}
 
 ## HSGP: the idea
 
-Solin & Särkkä (2020): any **stationary** kernel is approximated by
+Solin & Särkkä (2020): any **stationary** kernel is approx:
 
 $$
 k(\mathbf{x}, \mathbf{x}') \;\approx\; \sum_{j=1}^{M} S\!\bigl(\sqrt{\lambda_j}\bigr)\,\phi_j(\mathbf{x})\,\phi_j(\mathbf{x}'),
 $$
 
 with $\phi_j, \lambda_j$ = Laplacian eigenfunctions / eigenvalues on a bounded domain.
+
+## HSGP: the idea
 
 ::: {.fragment}
 Equivalently, a finite **basis-function expansion**:
@@ -251,7 +253,7 @@ f(\mathbf{x}) \;\approx\; \sum_{j=1}^{M} \sqrt{S(\sqrt{\lambda_j})}\;\phi_j(\mat
 $$
 :::
 
-## HSGP: the payoff
+## The value of HSGPs
 
 ::: {.incremental}
 - $\mathcal{O}(NM)$ per likelihood — linear in $N$.
@@ -260,7 +262,7 @@ $$
 - Latent $f$ feeds **any** non-Gaussian likelihood without changing the basis.
 :::
 
-## HSGP in 1-D — the recipe
+## HSGPs in 1-D 
 
 On $[-L, L]$ with Dirichlet boundaries:
 
@@ -289,7 +291,7 @@ ggplot(phi_df, aes(x = x, y = phi, colour = j)) +
        y = expression(phi[j](x)))
 ```
 
-## Multi-D HSGP — tensor products
+## Multi-Dimensional HSGPs with tensor products
 
 Basis is a **product** of 1-D eigenfunctions:
 
@@ -333,7 +335,7 @@ Practical defaults: $c = 1.5$, $m \in [10, 40]$ per dim.
 
 ::: {.incremental}
 - A GP is a distribution over functions, fully specified by $m$ and $k$.
-- Length-scales $\ell_d$ encode spatial smoothness — anisotropic for coastal data.
+- Length-scales $\ell_d$ encode spatial smoothness
 - Exact GPs are $\mathcal{O}(N^3)$; impractical at our $N$.
 - **HSGP** swaps the GP for a truncated basis expansion: $\mathcal{O}(NM)$.
 - Two dials per dim: $c \geq 1.5$, $m \geq 1.75c/\rho_\ell$.
@@ -343,7 +345,6 @@ Practical defaults: $c = 1.5$, $m \in [10, 40]$ per dim.
 
 ::: {.smaller}
 - Williams & Rasmussen (2006). *Gaussian Processes for Machine Learning.* MIT Press.
-- Diggle & Ribeiro (2007). *Model-Based Geostatistics.* Springer.
 - Lindgren, Rue & Lindström (2011). *JRSS-B* 73:423–498.
 - Solin & Särkkä (2020). *Stat. Comp.* 30:419–446.
 - Riutort-Mayol *et al.* (2023). *Stat. Comp.* 33:17.
