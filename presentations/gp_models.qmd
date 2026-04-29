@@ -219,11 +219,12 @@ For ecological surveys with $N \sim 10^3{-}10^4$, the exact GP is impractical.
 
 ## Approximation strategies
 
+The three approaches we've explored:
+
 ::: {.incremental}
-- **Inducing points / sparse GPs** (Snelson & Ghahramani; Titsias).
-- **Vecchia / nearest-neighbour** (Datta *et al.* 2016).
-- **SPDE / Matérn** (Lindgren–Rue–Lindström — INLA).
-- **Spectral / Hilbert-space (HSGP)** — Solin & Särkkä; Riutort-Mayol *et al.*
+- **Splines as basis functions** — replace $f(\mathbf{x})$ with a linear combination of pre-chosen spline bases (thin-plate, B-splines, P-splines). Wood (2003); Eilers & Marx (1996).
+- **SPDE / Matérn** — Lindgren–Rue–Lindström (2011); the foundation of R-INLA's spatial framework.
+- **Spectral / Hilbert-space GP (HSGP)** — Solin & Särkkä (2020); Riutort-Mayol *et al.* (2023). A basis-function method using Laplacian eigenfunctions, with weights from the kernel's spectral density.
 :::
 
 ::: {.fragment}

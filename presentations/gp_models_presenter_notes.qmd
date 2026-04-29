@@ -128,15 +128,17 @@ For non-Gaussian likelihoods (like our qPCR / MB / LT models), it gets worse: th
 
 ## Approximation strategies
 
-The literature on approximate GP methods is rich. The four big families:
+Three approaches we've explored for this project:
 
-- **Inducing-point / sparse GPs** (Snelson & Ghahramani 2006; Titsias 2009). Replace the full $N$-point GP with an $M$-point GP at "inducing locations" with $M \ll N$. Cost drops to $\mathcal{O}(NM^2)$. The inducing-point variational framework (SVGP) is dominant in ML applications. Works well in 2-D / 3-D for ecological problems.
+- **Splines as basis functions.** Write $f(\mathbf{x}) = \sum_{j=1}^M \beta_j\,\phi_j(\mathbf{x})$ for a fixed spline basis $\{\phi_j\}$ and learn the coefficients $\beta_j$. Common choices:
+    - **Thin-plate regression splines** (Wood 2003) — the default in `mgcv`. Penalised on the integral of the squared second derivatives. Equivalent in expectation to a GP with a specific Matérn-like kernel.
+    - **B-splines / P-splines** (Eilers & Marx 1996) — local-support polynomial pieces with a roughness penalty. Cheap, easy, work well in 1-D and tensor-product extensions in 2-D.
 
-- **Vecchia / nearest-neighbour GP** (Datta *et al.* 2016, NNGP). Approximate the joint density $p(f(\mathbf{x}_1), \ldots, f(\mathbf{x}_N))$ by a product of conditionals on nearest neighbours. Naturally sparse. Works well at very high $N$; trickier in HMC than in Gibbs.
+    Splines are the most accessible entry point: GAMs in `mgcv` give you "almost a GP" in one line of R, with REML hyperparameter selection and confidence bands. The conceptual link is direct — a thin-plate regression spline penalty is the marginal log-likelihood of a particular GP. Practical limit is the curse of dimensionality on tensor-product bases (3-D fields with anisotropic length-scales get awkward), and integrating into a non-Gaussian likelihood (qPCR hurdle, ZI-Beta-Binomial) takes more bookkeeping than HMC-native methods.
 
-- **SPDE / Matérn** (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA's spatial framework. Very efficient, but tied to Matérn and tied to the INLA inference machinery (not native to Stan).
+- **SPDE / Matérn** (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA's spatial framework. Very efficient on large $N$, but tied to Matérn covariance and tied to the INLA inference machinery (not native to Stan, so HMC-native pipelines have to handle it through `inlabru` or roll their own).
 
-- **Spectral / Hilbert-space (HSGP)** (Solin & Särkkä 2020; Riutort-Mayol *et al.* 2023). Approximate any **stationary** kernel by a truncated basis-function expansion using Laplacian eigenfunctions. Cost $\mathcal{O}(NM)$. Plays beautifully with HMC: the basis is fixed, the basis coefficients are iid standard normals, and the kernel hyperparameters enter through smooth weight functions.
+- **Hilbert-space approximate GP (HSGP)** (Solin & Särkkä 2020; Riutort-Mayol *et al.* 2023). A basis-function expansion using Laplacian eigenfunctions on a bounded box, with the weights $w_j(\theta) = \sqrt{S_\theta(\sqrt{\lambda_j})}$ coming from the kernel's spectral density. This is the method we settled on; the next section explains the construction in detail.
 
 This project uses **HSGP** because:
 
