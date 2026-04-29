@@ -379,6 +379,8 @@ qpcr_copies <- rbinom(N_qpcr_long,
                       size = C_obs_si[qpcr_sample_idx, 1],   # hake only
                       prob = vol_aliquot / 100)
 
+qpcr_exp_copies <- C_obs_si[qpcr_sample_idx, 1] * (vol_aliquot / 100)
+
 mb_copies <- matrix(NA_integer_, N_mb_long, n_species)
 for (s in seq_len(n_species)) {
   mb_copies[, s] <- rbinom(N_mb_long,
@@ -393,15 +395,19 @@ qpcr_p <- list(
   kappa    = 0.85,
   alpha_ct = 38.0,
   beta_ct  = 1.44,
-  sigma_ct = 0.50
+  gamma_0  = 0.30,  
+  gamma_1  = -0.30,
+  sigma_0 = 0.23
 )
 
-p_det_hake   <- 1 - exp(-qpcr_p$kappa * qpcr_copies)
+p_det_hake   <- 1 - exp(-qpcr_p$kappa * qpcr_exp_copies)
 qpcr_detect  <- rbinom(N_qpcr_long, 1, p_det_hake)
+qpcr_p$sigma_ct     <- sqrt(qpcr_p$sigma_0^2 + 
+                       exp(2*(qpcr_p$gamma_0 + qpcr_p$gamma_1 * log(qpcr_exp_copies))))
 qpcr_ct      <- ifelse(
   qpcr_detect == 1L,
   qpcr_p$alpha_ct -
-    qpcr_p$beta_ct * log(pmax(qpcr_copies, 1)) +
+    qpcr_p$beta_ct * log(pmax(qpcr_exp_copies, 1)) +
     rnorm(N_qpcr_long, 0, qpcr_p$sigma_ct),
   NA_real_
 )

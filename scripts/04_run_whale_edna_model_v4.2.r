@@ -23,11 +23,11 @@ set.seed(42)
 # -----------------------------------------------------------------------------
 # 0. Configuration
 # -----------------------------------------------------------------------------
-N_CHAINS      <- 1
-N_WARMUP      <- 50
-N_SAMPLE      <- 1
+N_CHAINS      <- 3
+N_WARMUP      <- 200
+N_SAMPLE      <- 100
 ADAPT_DELTA   <- 0.80
-MAX_TREEDEPTH <- 13
+MAX_TREEDEPTH <- 12
 
 OUTPUT_DIR <- "outputs/whale_edna_output_v4.2"
 dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -77,9 +77,9 @@ stanMod = stan(file = "stan/whale_edna_hsgp_v4.2.stan",
                warmup = N_WARMUP, iter = N_WARMUP + N_SAMPLE, 
                init = init_fn2(N_CHAINS),
                control = list(max_treedepth=MAX_TREEDEPTH,
-                              adapt_init_buffer = 75),
+                              adapt_init_buffer = 75,
                #                stepsize=0.01,
-               #                adapt_delta=0.8,
+                               adapt_delta=0.8),
                #                metric="diag_e"),
                #refresh = 100,
                sample_file="tmpY.csv",
@@ -120,7 +120,7 @@ init_fn <- function() {
                         nrow = S, ncol = 3, byrow = TRUE),
     z_beta     = matrix(0.0, nrow = S, ncol = M_total),
     beta0_phi  = 2.0,
-    gamma0_phi = 5.0,
+    gamma0_phi = 2.0,
     gamma1_phi = 1.0
   )
 }

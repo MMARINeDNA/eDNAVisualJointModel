@@ -6,13 +6,10 @@
 #
 #   outputs/whale_edna_output_v4.2/stan_data.rds
 #
-# Changes from v4.2 (applying v3.2 lessons):
+# Changes from v4.1 
 
-
-
-
-#   * HSGP_M sized to Riutort-Mayol's faithful-representation rule for
-#     the simulated truth: M = (14, 8, 32) covering lx=50 km, ly=300 km,
+#   * HSGP_M sized to Ole's desires as opposed toRiutort-Mayol's faithful-representation rule for
+#     the simulated truth: M = (10, 6, 16) covering lx=50 km, ly=300 km,
 #     lz=150 m on the corrected coordinate scale.
 #   * coord_centre / coord_scale derived from the sim's actual domain
 #     extents (250 km, 635 km, 1750 m half-ranges) so all normalised
@@ -23,9 +20,8 @@
 #     sd 0.71. Replaces the half_normal that trapped gp_sigma at 0.
 #   * log_vol_filtered passed as data and added to the eDNA log-mean
 #     (was missing from v3 / v4).
-#   * kappa, sigma_ct passed as fixed data. sigma_ct deliberately
-#     inflated (~0.7) to absorb discrete-count noise.
-#   * prior_kappa_*, prior_sigma_ct_* dropped.
+#   * all qPCR parameters passed as data and perfectly match the 
+#     simulated values.
 # =============================================================================
 
 library(tidyverse)
@@ -39,7 +35,8 @@ set.seed(42)
 # faithful-representation rule m >= 1.75 * c / rho_l for the simulated
 # truth. With c = 1.5, half-ranges (250, 635, 1750), and named
 # (lx, ly, lz) = (50, 300, 150) the rule wants m >= (13, 6, 31).
-HSGP_M <- c(14L, 8L, 32L)    # M_total = 3584
+#HSGP_M <- c(14L, 8L, 32L)    # M_total = 3584
+HSGP_M <- c(10L, 6L, 16L)    # M_total = 3584
 HSGP_C <- c(1.5, 1.5, 1.5)   # boundary extension (>= 1.5 recommended)
 
 OUTPUT_DIR <- "outputs/whale_edna_output_v4.2"

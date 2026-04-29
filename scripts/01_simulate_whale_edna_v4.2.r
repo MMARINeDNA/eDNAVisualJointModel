@@ -77,7 +77,7 @@ n_stations    <- 500
 # animal/km^2 per litre filtered). Whales shed far more eDNA per animal
 # than hake, so conv_factor is much larger for the two whale species.
 # Ordered to match gp_params: hake, humpback, PWSD. Same values as v4.
-conv_factor <- c(hake = 10, humpback = 200, pwsd = 110,junk=10)
+conv_factor <- c(hake = 10, humpback = 200, pwsd = 110, junk=10)
 
 # Six sample depths per station - finer resolution of the water column
 # than v4's three. Samples with Z_sample > Z_bathy are dropped, so
