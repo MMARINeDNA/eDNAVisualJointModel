@@ -80,15 +80,18 @@ draw_samples <- function(ell, sigma = 1) {
 
 ell_values <- c(0.3, 1, 3)
 plot_data <- bind_rows(lapply(ell_values, function(ell) {
-  draw_samples(ell) |> mutate(ell = sprintf("ell = %.1f", ell))
-})) |> mutate(ell = factor(ell, levels = sprintf("ell = %.1f", ell_values)))
+  draw_samples(ell) |> mutate(ell_lab = sprintf("italic(l) == %.1f", ell))
+})) |> mutate(ell_lab = factor(ell_lab,
+                               levels = sprintf("italic(l) == %.1f", ell_values)))
 
 ggplot(plot_data, aes(x = x, y = f, colour = draw)) +
   geom_line(linewidth = 0.8) +
-  facet_wrap(~ ell) +
+  facet_wrap(~ ell_lab, labeller = label_parsed) +
   scale_colour_viridis_d(option = "D", end = 0.85, guide = "none") +
-  labs(title = "Sample functions from GP(0, k_SE) at three length-scales",
-       x = "x", y = "f(x)") +
+  labs(title = expression("Sample functions from " *
+                          GP(0, k[SE]) *
+                          " at three length-scales"),
+       x = expression(x), y = expression(f(x))) +
   theme(strip.text = element_text(size = 13, face = "bold"),
         plot.title = element_text(size = 13))
 ```
@@ -111,20 +114,22 @@ Two hyperparameters: $\sigma$ = amplitude, $\ell$ = length-scale.
 
 x1 <- 0
 xs <- seq(-5, 5, length.out = 200)
+ell_levels <- c("italic(l) == 0.3", "italic(l) == 1.0", "italic(l) == 3.0")
 kdf <- bind_rows(
   tibble(d = xs, k = se_kernel(x1, xs, sigma = 1, ell = 0.3)[1, ],
-         ell_lab = "ell = 0.3"),
+         ell_lab = ell_levels[1]),
   tibble(d = xs, k = se_kernel(x1, xs, sigma = 1, ell = 1.0)[1, ],
-         ell_lab = "ell = 1.0"),
+         ell_lab = ell_levels[2]),
   tibble(d = xs, k = se_kernel(x1, xs, sigma = 1, ell = 3.0)[1, ],
-         ell_lab = "ell = 3.0")
-) |> mutate(ell_lab = factor(ell_lab,
-                             levels = c("ell = 0.3", "ell = 1.0", "ell = 3.0")))
+         ell_lab = ell_levels[3])
+) |> mutate(ell_lab = factor(ell_lab, levels = ell_levels))
 
 ggplot(kdf, aes(x = d, y = k, colour = ell_lab)) +
   geom_line(linewidth = 1.0) +
-  scale_colour_viridis_d(option = "D", end = 0.8, name = NULL) +
-  labs(x = "x − x'", y = "k(x, x')") +
+  scale_colour_viridis_d(option = "D", end = 0.8, name = NULL,
+                         labels = function(x) parse(text = x)) +
+  labs(x = expression(x - {x*minute}),
+       y = expression(k(x, {x*minute}))) +
   theme(legend.position = "top")
 ```
 
@@ -173,22 +178,24 @@ draw_2d_field <- function(lx, ly, n_grid = 50) {
   grid |> mutate(f = f)
 }
 
+# Use parsable plotmath for facet labels. '*' = juxtaposition, '~~' =
+# thin space, ':'/';' are quoted literal punctuation.
+panel_levels <- c("Isotropic*\":\"~~italic(l)[x] == 2*\";\"~~italic(l)[y] == 2",
+                  "Anisotropic*\":\"~~italic(l)[x] == 0.5*\";\"~~italic(l)[y] == 4")
 set.seed(7)
-df_iso <- draw_2d_field(2, 2) |> mutate(panel = "Isotropic: ell_x = ell_y = 2")
+df_iso <- draw_2d_field(2, 2)   |> mutate(panel = panel_levels[1])
 set.seed(7)
-df_aniso <- draw_2d_field(0.5, 4) |> mutate(panel = "Anisotropic: ell_x = 0.5, ell_y = 4")
+df_aniso <- draw_2d_field(0.5, 4) |> mutate(panel = panel_levels[2])
 df_2d <- bind_rows(df_iso, df_aniso) |>
-  mutate(panel = factor(panel,
-                        levels = c("Isotropic: ell_x = ell_y = 2",
-                                   "Anisotropic: ell_x = 0.5, ell_y = 4")))
+  mutate(panel = factor(panel, levels = panel_levels))
 
 ggplot(df_2d, aes(x = x, y = y, fill = f)) +
   geom_raster() +
-  facet_wrap(~ panel) +
-  scale_fill_viridis_c(option = "viridis", name = "f(x, y)") +
+  facet_wrap(~ panel, labeller = label_parsed) +
+  scale_fill_viridis_c(option = "viridis", name = expression(f(x, y))) +
   coord_equal(expand = FALSE) +
-  labs(x = "x", y = "y") +
-  theme(strip.text = element_text(size = 12, face = "bold"))
+  labs(x = expression(x), y = expression(y)) +
+  theme(strip.text = element_text(size = 11, face = "bold"))
 ```
 
 # Fitting a Gaussian process {.center}
@@ -274,8 +281,10 @@ phi_df <- bind_rows(lapply(1:6, function(j) {
 
 ggplot(phi_df, aes(x = x, y = phi, colour = j)) +
   geom_line(linewidth = 0.8) +
-  scale_colour_viridis_d(option = "D", end = 0.85, name = "j") +
-  labs(x = "x (normalised)", y = "phi_j(x)")
+  scale_colour_viridis_d(option = "D", end = 0.85,
+                         name = expression(j)) +
+  labs(x = expression("x (normalised)"),
+       y = expression(phi[j](x)))
 ```
 
 ## Multi-D HSGP — tensor products
