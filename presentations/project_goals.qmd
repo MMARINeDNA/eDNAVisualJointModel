@@ -15,6 +15,7 @@ format:
     fig-cap-location: bottom
     code-fold: true
     code-line-numbers: false
+    html-math-method: katex
 ---
 
 ```{r setup, include=FALSE}
