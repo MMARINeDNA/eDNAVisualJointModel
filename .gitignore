@@ -21,12 +21,12 @@
 # RStudio files
 .Rproj.user/
 
-# produced vignettes — note: this project DOES track its rendered HTML
-# vignettes (they're the canonical write-up format and share well via
+# produced notebooks — note: this project DOES track its rendered HTML
+# notebooks (they're the canonical write-up format and share well via
 # email / browsers). Keep the .pdf rule because the R-package toolchain
 # generates throwaway pdfs there.
-# vignettes/*.html         # intentionally not ignored
-vignettes/*.pdf
+# notebooks/*.html         # intentionally not ignored
+notebooks/*.pdf
 
 # OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
 .httr-oauth
@@ -62,9 +62,9 @@ outputs/*.rds
 # simulated_edna_fields_v*.pdf plot files are tracked.
 outputs/whale_edna_output_*/*
 !outputs/whale_edna_output_*/simulated_edna_fields_v*.pdf
-!outputs/whale_edna_output_*/v*_vignette.qmd
-!outputs/whale_edna_output_*/_vignette_figs/
-!outputs/whale_edna_output_*/_vignette_figs/**
+!outputs/whale_edna_output_*/v*_notebook.qmd
+!outputs/whale_edna_output_*/_notebook_figs/
+!outputs/whale_edna_output_*/_notebook_figs/**
 
 # Stan compile artifacts — cmdstanr writes a compiled binary and a
 # generated .hpp header next to each .stan source. Whitelist only the
@@ -83,9 +83,9 @@ distance/*
 outputs/distance_*/*
 !outputs/distance_*/distance_v*_*.pdf
 !outputs/distance_*/distance_v*_recovery.csv
-!outputs/distance_*/distance_v*_vignette.qmd
-!outputs/distance_*/_vignette_figs/
-!outputs/distance_*/_vignette_figs/**
+!outputs/distance_*/distance_v*_notebook.qmd
+!outputs/distance_*/_notebook_figs/
+!outputs/distance_*/_notebook_figs/**
 
 # Big eDNA dataset — too large to track in git (30 MB). The smaller
 # qPCR file (Data/hake_qPCR_MURI_df.csv) stays tracked.
