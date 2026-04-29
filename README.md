@@ -8,7 +8,7 @@ simulated data in Stan.
 
 The repo also contains a parallel **distance-sampling** pipeline (the
 visual-survey side of the joint model, fit standalone for development
-and PPC), self-contained **vignettes** that walk through each model
+and PPC), self-contained **notebooks** that walk through each model
 version, a **GP presentation** suitable for sharing with collaborators,
 and a small set of **data figures** summarising the real survey data.
 
@@ -82,7 +82,7 @@ and a small set of **data figures** summarising the real survey data.
 │   │       stan_data.rds                     stan_data list from step 03 (gitignored)
 │   │       whale_edna_fit.rds                CmdStanR fit object from step 04 (gitignored)
 │   │       *.png, *.csv, session_info.txt   diagnostics from step 05
-│   │       v{N}_vignette.qmd                 source for the per-version write-up
+│   │       v{N}_notebook.qmd                 source for the per-version write-up
 │   └── distance_v{N}/                  Distance-sampling per-version output (see below)
 │
 ├── distance/                           Line-transect distance-sampling pipeline
@@ -91,11 +91,11 @@ and a small set of **data figures** summarising the real survey data.
 │   ├── humpback_grpsz.RData                Empirical group-size data used by sim
 │   └── pwsd_grpsz.RData
 │
-├── vignettes/                          Self-contained HTML model write-ups
+├── notebooks/                          Self-contained HTML model write-ups
 │   ├── README.md                           Index + regeneration instructions
-│   ├── v3_vignette.html                    v3 HSGP joint qPCR / MB fit
-│   ├── v3.2_vignette.html                  v3.2 debugging case study
-│   └── distance_v4.1_vignette.html         Distance-sampling pipeline (PRs #34–#37)
+│   ├── v3_notebook.html                    v3 HSGP joint qPCR / MB fit
+│   ├── v3.2_notebook.html                  v3.2 debugging case study
+│   └── distance_v4.1_notebook.html         Distance-sampling pipeline (PRs #34–#37)
 │
 ├── presentations/                      Quarto / RevealJS slide decks
 │   ├── gp_models.qmd                       Source for the GP intro deck
@@ -402,11 +402,11 @@ Rscript distance/00_distance_v4.1.R
 ```
 
 The full development arc (PRs #34–#37) is documented in
-`vignettes/distance_v4.1_vignette.html`.
+`notebooks/distance_v4.1_notebook.html`.
 
-## Vignettes
+## Notebooks
 
-`vignettes/` collects self-contained HTML write-ups, one per model
+`notebooks/` collects self-contained HTML write-ups, one per model
 version, that explain the simulation, the statistical model (with
 equations), and the diagnostic + posterior-predictive output. The
 HTML files are inlined (Quarto's `embed-resources: true`) so they can
@@ -415,13 +415,13 @@ bringing additional assets along.
 
 | File | Covers |
 |---|---|
-| `v3_vignette.html` | v3 simulation + HSGP joint qPCR / metabarcoding fit. |
-| `v3.2_vignette.html` | v3.2 debugging case study — eight PRs of iterative diagnosis on the v3 sampler pathology, walked through chronologically. |
-| `distance_v4.1_vignette.html` | Line-transect distance sampling pipeline (PRs #34–#37). Spatial GP density → group-density surface → simulated sightings via half-normal detection function → non-spatial Stan distance fit, with per-species PPC plots and parameter recovery. |
+| `v3_notebook.html` | v3 simulation + HSGP joint qPCR / metabarcoding fit. |
+| `v3.2_notebook.html` | v3.2 debugging case study — eight PRs of iterative diagnosis on the v3 sampler pathology, walked through chronologically. |
+| `distance_v4.1_notebook.html` | Line-transect distance sampling pipeline (PRs #34–#37). Spatial GP density → group-density surface → simulated sightings via half-normal detection function → non-spatial Stan distance fit, with per-species PPC plots and parameter recovery. |
 
-Each vignette's source `.qmd` lives next to its model artefacts in the
+Each notebook's source `.qmd` lives next to its model artefacts in the
 matching `outputs/whale_edna_output_v{N}/` (or `outputs/distance_v{N}/`)
-folder. See `vignettes/README.md` for regeneration instructions and
+folder. See `notebooks/README.md` for regeneration instructions and
 the `pdftoppm` recipe used to extract the per-version "simulated
 truth" page-by-page figures from the multi-page sim PDFs.
 
