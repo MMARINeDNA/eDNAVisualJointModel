@@ -28,20 +28,24 @@ knitr::opts_chunk$set(
 )
 ```
 
+## GitHub Repo
+
+<https://github.com/MMARINeDNA/eDNAVisualJointModel/>
+
 ## Why joint modelling?
 
 For the same species, in the same area, two complementary survey streams:
 
 ::: {.fragment}
-- **Line-transect** — visual sightings, well-calibrated, expensive and sparse.
+- **Line-transect** — visual sightings in 2018
 :::
 
 ::: {.fragment}
-- **eDNA** — qPCR + MARVER1 metabarcoding, cheap and dense, indirect.
+- **eDNA** — qPCR + MARVER1 metabarcoding in 2019
 :::
 
 ::: {.fragment}
-**Joint fit**: a single latent density surface drives both data streams.
+**Joint fit**: a single latent density surface drives both observation processes.
 :::
 
 ## State-space view of the joint model
@@ -103,17 +107,26 @@ $$
 
 ![](../figures/lt_edna_humpback.png){.r-stretch fig-alt="Line-transect (left) and MARVER1 eDNA (right) observations for humpback whale."}
 
-## Per-species data: Pacific white-sided dolphin
+## Per-species data: PWSD
 
 ![](../figures/lt_edna_pwsd.png){.r-stretch fig-alt="Line-transect (left) and MARVER1 eDNA (right) observations for Pacific white-sided dolphin."}
 
-## Where this gets us
+## Project Goals
 
 ::: {.incremental}
 - **Density estimates** with uncertainty from both observation streams.
 - **Calibration** of the eDNA → animals link from the LT side.
-- **Coverage** from eDNA where transects don't reach.
-- **Shared latent field** for principled extrapolation.
+- **Coverage** from eDNA where transects don't reach and vice versa.
+- **Shared latent field** for principled extrapolation and ecological inference.
+:::
+
+## Morning Objectives
+::: {.incremental}
+- Scope and goals of the M3 integrated spatial model (EKJ)
+- qPCR and metabarcoding observational submodel (AOS)
+- Visual line-transect observational submodel (LT)
+- Spatial process model and estimation (EKJ)
+- Simulation, progress and next steps (EKJ)
 :::
 
 ## References
@@ -121,7 +134,4 @@ $$
 ::: {.smaller}
 - Riutort-Mayol *et al.* (2023). *Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming.* Stat. Comp. 33:17.
 - Buckland *et al.* (2001, 2015). *Distance Sampling.*
-- Repo: <https://github.com/MMARINeDNA/eDNAVisualJointModel>
-- Companion notebooks: `notebooks/v3_notebook.html`, `notebooks/v3.2_notebook.html`, `notebooks/distance_v4.1_notebook.html`.
-- Companion presenter notes: `presentations/project_goals_presenter_notes.html`.
 :::
