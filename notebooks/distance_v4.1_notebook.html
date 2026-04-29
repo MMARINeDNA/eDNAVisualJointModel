@@ -3153,9 +3153,9 @@ window.Quarto = {
   <ul class="collapse">
   <li><a href="#pr-34-first-pipeline" id="toc-pr-34-first-pipeline" class="nav-link" data-scroll-target="#pr-34-first-pipeline"><span class="header-section-number">3.1</span> PR #34 — first pipeline</a></li>
   <li><a href="#sec-priors-data" id="toc-sec-priors-data" class="nav-link" data-scroll-target="#sec-priors-data"><span class="header-section-number">3.2</span> PR #35 — per-species detection function and data-supplied priors</a></li>
-  <li><a href="#pr-36-jensen-size-bias-corrections-real-group-sizes-new-seed" id="toc-pr-36-jensen-size-bias-corrections-real-group-sizes-new-seed" class="nav-link" data-scroll-target="#pr-36-jensen-size-bias-corrections-real-group-sizes-new-seed"><span class="header-section-number">3.3</span> PR #36 — Jensen + size-bias corrections + real group sizes + new seed</a>
+  <li><a href="#pr-36-population-corrected-esw-size-bias-corrections-real-group-sizes-new-seed" id="toc-pr-36-population-corrected-esw-size-bias-corrections-real-group-sizes-new-seed" class="nav-link" data-scroll-target="#pr-36-population-corrected-esw-size-bias-corrections-real-group-sizes-new-seed"><span class="header-section-number">3.3</span> PR #36 — Population-corrected ESW + size-bias corrections + real group sizes + new seed</a>
   <ul class="collapse">
-  <li><a href="#jensen-bias-fix-in-the-encounter-rate" id="toc-jensen-bias-fix-in-the-encounter-rate" class="nav-link" data-scroll-target="#jensen-bias-fix-in-the-encounter-rate"><span class="header-section-number">3.3.1</span> 3.3.1 Jensen bias fix in the encounter rate</a></li>
+  <li><a href="#population-corrected-esw-in-the-encounter-rate" id="toc-population-corrected-esw-in-the-encounter-rate" class="nav-link" data-scroll-target="#population-corrected-esw-in-the-encounter-rate"><span class="header-section-number">3.3.1</span> 3.3.1 Population-corrected ESW in the encounter rate</a></li>
   <li><a href="#size-bias-correction-on-the-group-size-likelihood" id="toc-size-bias-correction-on-the-group-size-likelihood" class="nav-link" data-scroll-target="#size-bias-correction-on-the-group-size-likelihood"><span class="header-section-number">3.3.2</span> 3.3.2 Size-bias correction on the group-size likelihood</a></li>
   <li><a href="#real-empirical-group-size-pools" id="toc-real-empirical-group-size-pools" class="nav-link" data-scroll-target="#real-empirical-group-size-pools"><span class="header-section-number">3.3.3</span> 3.3.3 Real empirical group-size pools</a></li>
   <li><a href="#new-seed" id="toc-new-seed" class="nav-link" data-scroll-target="#new-seed"><span class="header-section-number">3.3.4</span> 3.3.4 New seed</a></li>
@@ -3340,7 +3340,7 @@ p_{\text{det}}(x \mid s) = \exp\!\Bigl( -\tfrac{x^2}{2\,\sigma(s)^2} \Bigr),
 <p>Per segment, observed group counts follow Poisson: <span class="math display">\[
 \mathrm{seg\_count}_i \sim \mathrm{Poisson}(\,\lambda_s \cdot L_i \cdot 2 \cdot \overline{\mathrm{ESW}}_{\!\text{pop}}\,),
 \]</span></p>
-<p>where <code>λ_s</code> is the population group density (a single scalar — the model is non-spatial), <code>L_i</code> is the segment length, and <strong><code>ESW_pop</code> is the Jensen-corrected ESW averaged over the population group-size distribution</strong>: <span class="math display">\[
+<p>where <code>λ_s</code> is the population group density (a single scalar — the model is non-spatial), <code>L_i</code> is the segment length, and <strong><code>ESW_pop</code> is the population-corrected ESW averaged over the population group-size distribution</strong>: <span class="math display">\[
 \overline{\mathrm{ESW}}_{\!\text{pop}} = \frac{\sum_{k=1}^{S_{\max}} P(s = k)\,\mathrm{ESW}(\sigma(k))}{\sum_{k=1}^{S_{\max}} P(s = k)}.
 \]</span></p>
 <p>Here <code>P(s = k)</code> is the group-size pmf — zero-truncated NB if <code>group_size_dist = 0</code>, rounded-bin log-normal if <code>group_size_dist = 1</code>. The integration is done as a discrete sum to <code>S_max</code> (50 for humpback, 1000 for PWSD).</p>
@@ -3423,12 +3423,12 @@ f(s \mid \text{detected}) \propto f_{\text{pop}}(s) \cdot p_{\text{det}}(s),
 </ol>
 <p>After this PR, all parameters with non-NA truth covered the posterior 95% CI under the synthetic-group-size data.</p>
 </section>
-<section id="pr-36-jensen-size-bias-corrections-real-group-sizes-new-seed" class="level2" data-number="3.3">
-<h2 data-number="3.3" class="anchored" data-anchor-id="pr-36-jensen-size-bias-corrections-real-group-sizes-new-seed"><span class="header-section-number">3.3</span> PR #36 — Jensen + size-bias corrections + real group sizes + new seed</h2>
+<section id="pr-36-population-corrected-esw-size-bias-corrections-real-group-sizes-new-seed" class="level2" data-number="3.3">
+<h2 data-number="3.3" class="anchored" data-anchor-id="pr-36-population-corrected-esw-size-bias-corrections-real-group-sizes-new-seed"><span class="header-section-number">3.3</span> PR #36 — Population-corrected ESW + size-bias corrections + real group sizes + new seed</h2>
 <p><a href="https://github.com/MMARINeDNA/eDNAVisualJointModel/pull/36"><strong>PR #36</strong></a> was the largest single change. Three fixes plus a switch to real data:</p>
-<section id="jensen-bias-fix-in-the-encounter-rate" class="level3" data-number="3.3.1">
-<h3 data-number="3.3.1" class="anchored" data-anchor-id="jensen-bias-fix-in-the-encounter-rate"><span class="header-section-number">3.3.1</span> 3.3.1 Jensen bias fix in the encounter rate</h3>
-<p>The encounter-rate Poisson previously used <code>ESW(σ(μ_s))</code> — the population mean group size plugged into the detection function. But <code>σ(s) = exp(log σ + β · (s − s_centre))</code> is convex in <code>s</code>, so by Jensen <code>E[ESW(σ(s))] &gt; ESW(σ(E[s]))</code>. Using <code>ESW(σ(μ_s))</code> <em>under-estimates</em> the true mean ESW and inflates <code>λ_s</code> to compensate.</p>
+<section id="population-corrected-esw-in-the-encounter-rate" class="level3" data-number="3.3.1">
+<h3 data-number="3.3.1" class="anchored" data-anchor-id="population-corrected-esw-in-the-encounter-rate"><span class="header-section-number">3.3.1</span> 3.3.1 Population-corrected ESW in the encounter rate</h3>
+<p>The encounter-rate Poisson previously used <code>ESW(σ(μ_s))</code> — the population mean group size plugged into the detection function. But <code>σ(s) = exp(log σ + β · (s − s_centre))</code> is convex in <code>s</code>, so <code>E[ESW(σ(s))] &gt; ESW(σ(E[s]))</code>. Using <code>ESW(σ(μ_s))</code> <em>under-estimates</em> the true mean ESW and inflates <code>λ_s</code> to compensate.</p>
 <p>The fix is to numerically integrate <code>ESW(σ(s))</code> over the population group-size distribution:</p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode stan code-with-copy"><code class="sourceCode stan"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">real</span> esw_pop = <span class="dv">0</span>; <span class="dt">real</span> p_sum = <span class="dv">0</span>;</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (k <span class="cf">in</span> <span class="dv">1</span>:S_max) {</span>
@@ -3526,7 +3526,7 @@ f(s \mid \text{detected}) \propto f_{\text{pop}}(s) \cdot p_{\text{det}}(s),
 <li><code>esw_pop</code> integration uses the rounded-bin log-normal pmf when <code>group_size_dist == 1</code>: <span class="math display">\[
 P(s = k) \approx \Phi\!\Bigl(\tfrac{\log(k+0.5) - \mu_{\log}}{\sigma_{\log}}\Bigr) - \Phi\!\Bigl(\tfrac{\log(k-0.5) - \mu_{\log}}{\sigma_{\log}}\Bigr).
 \]</span></li>
-<li>Group-size data likelihood: <code>lognormal_lpdf(s | mu_log, sigma_log)</code> for PWSD; <code>neg_binomial_2_lpmf(...)</code> zero-truncated for humpback. Same Jensen + size-bias corrections.</li>
+<li>Group-size data likelihood: <code>lognormal_lpdf(s | mu_log, sigma_log)</code> for PWSD; <code>neg_binomial_2_lpmf(...)</code> zero-truncated for humpback. Same population-corrected ESW + size-bias corrections.</li>
 </ul>
 <p>R script changes:</p>
 <ul>
@@ -3678,7 +3678,7 @@ P(s = k) \approx \Phi\!\Bigl(\tfrac{\log(k+0.5) - \mu_{\log}}{\sigma_{\log}}\Big
 <h1 data-number="5"><span class="header-section-number">5</span> Lessons learned</h1>
 <p>The four PRs surfaced a sequence of biases that are typical for joint distance-sampling + size-covariate models. In rough order of impact:</p>
 <ol type="1">
-<li><strong>Use Jensen-corrected ESW for the encounter rate.</strong> When detection probability depends on group size and the size distribution has any meaningful spread, <code>ESW(σ(μ_s))</code> under-estimates <code>E[ESW(σ(s))]</code>. The numerical integration is one extra <code>for</code> loop in Stan; the fix takes maybe 30 minutes to write and tests cleanly.</li>
+<li><strong>Use population-corrected ESW for the encounter rate.</strong> When detection probability depends on group size and the size distribution has any meaningful spread, <code>ESW(σ(μ_s))</code> under-estimates <code>E[ESW(σ(s))]</code>. The numerical integration is one extra <code>for</code> loop in Stan; the fix takes maybe 30 minutes to write and tests cleanly.</li>
 <li><strong>Add the size-bias correction to the group-size likelihood.</strong> Without it, the model fits the <em>detected</em> sample’s NB / log-normal mean, which is biased upward by the same size-biased mechanism. The correction is <code>+ sum(log(ESW_i)) - n * log(ESW_pop)</code> — also one line.</li>
 <li><strong>Choose the group-size sub-model based on the empirical distribution’s tail.</strong> NB is fine for moderately overdispersed counts (sd/mean ≲ 2); log-normal handles heavy right tails (PWSD’s max is 10 sd above the mean). The literature on cetacean distance sampling has settled on log-normal for exactly this reason.</li>
 <li><strong>Per-species priors matter.</strong> <code>Gamma(2, 0.02)</code> on <code>μ_s</code> is mean 100 — wildly inappropriate when the species’ actual mean is 2. Method-of-moments seeds work well as defaults.</li>

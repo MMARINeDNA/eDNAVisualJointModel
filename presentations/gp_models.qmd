@@ -136,7 +136,7 @@ ggplot(kdf, aes(x = d, y = k, colour = ell_lab)) +
 
 # Gaussian processes for spatial fields {.center}
 
-## The spatial setup
+## The spatial setup {.smaller}
 
 We have a latent field $f(\mathbf{x})$ at coordinates $\mathbf{x}_i$:
 
@@ -201,7 +201,7 @@ ggplot(df_2d, aes(x = x, y = y, fill = f)) +
 
 # Fitting a Gaussian process {.center}
 
-## Exact GP regression
+## Exact GP regression {.smaller}
 
 Closed-form posterior at new points $\mathbf{x}_*$:
 
@@ -222,9 +222,9 @@ For ecological surveys with $N \sim 10^3{-}10^4$, the exact GP is impractical.
 The three approaches we've explored:
 
 ::: {.incremental}
-- **Splines as basis functions** — replace $f(\mathbf{x})$ with a linear combination of pre-chosen spline bases (thin-plate, B-splines, P-splines). Wood (2003); Eilers & Marx (1996).
-- **SPDE / Matérn** — Lindgren–Rue–Lindström (2011); the foundation of R-INLA's spatial framework.
-- **Spectral / Hilbert-space GP (HSGP)** — Solin & Särkkä (2020); Riutort-Mayol *et al.* (2023). A basis-function method using Laplacian eigenfunctions, with weights from the kernel's spectral density.
+- **Splines** as basis functions — thin-plate, B-splines, P-splines.
+- **SPDE / Matérn** — INLA's framework.
+- **HSGP** — basis from Laplacian eigenfunctions; weights from the kernel's spectral density.
 :::
 
 ::: {.fragment}
@@ -233,7 +233,7 @@ This project uses **HSGP** — see next section.
 
 # Hilbert-space approximate GPs {.center}
 
-## HSGP: the idea
+## HSGP: the idea {.smaller}
 
 Solin & Särkkä (2020): any **stationary** kernel is approximated by
 
@@ -289,7 +289,7 @@ ggplot(phi_df, aes(x = x, y = phi, colour = j)) +
        y = expression(phi[j](x)))
 ```
 
-## Multi-D HSGP — tensor products
+## Multi-D HSGP — tensor products {.smaller}
 
 Basis is a **product** of 1-D eigenfunctions:
 
@@ -309,7 +309,7 @@ $$
 Implementation: $\mathbf{f} = \boldsymbol{\Phi}\,(\mathbf{w} \odot \mathbf{z})$ where $\mathbf{w}$ are the spectral weights.
 :::
 
-## How to choose $L$ and $M$
+## How to choose $L$ and $M$ {.smaller}
 
 Riutort-Mayol *et al.* (2023):
 

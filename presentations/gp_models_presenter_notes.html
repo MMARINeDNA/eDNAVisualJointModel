@@ -3209,7 +3209,7 @@ y_i \mid f(\mathbf{x}_i) \sim p(y_i \mid \mu + f(\mathbf{x}_i)).
 <li><strong>Continuous-positive</strong>: Gamma / log-normal.</li>
 </ul>
 <p>The crucial point is that the GP is on <span class="math inline">\log \lambda</span>, not on <span class="math inline">y</span> directly. This is what lets the GP feed <em>any</em> non-Gaussian likelihood: Stan integrates out the GP machinery exactly, and the data observation step is just a univariate likelihood on a scalar <span class="math inline">\log \lambda(\mathbf{x}_i)</span>. The <span class="math inline">\log</span> link also keeps <span class="math inline">\lambda \geq 0</span> automatically — useful when <span class="math inline">\lambda</span> is a density.</p>
-<p>Because <span class="math inline">\mathbb{E}[\exp(\mu + f)] = \exp(\mu + \sigma^2/2)</span> by Jensen’s inequality, the prior expected <span class="math inline">\lambda</span> is biased upward from <span class="math inline">\exp(\mu)</span> unless you account for the GP’s marginal variance. In practice we just remember this when interpreting posterior <span class="math inline">\mu</span>.</p>
+<p>Because <span class="math inline">\mathbb{E}[\exp(\mu + f)] = \exp(\mu + \sigma^2/2)</span> (the standard log-normal mean correction), the prior expected <span class="math inline">\lambda</span> is biased upward from <span class="math inline">\exp(\mu)</span> unless you account for the GP’s marginal variance. In practice we just remember this when interpreting posterior <span class="math inline">\mu</span>.</p>
 </section>
 <section id="anisotropic-kernels-for-spatial-data" class="level2">
 <h2 class="anchored" data-anchor-id="anisotropic-kernels-for-spatial-data">Anisotropic kernels for spatial data</h2>

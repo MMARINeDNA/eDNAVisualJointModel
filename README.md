@@ -392,7 +392,7 @@ Per species (humpback whale, Pacific white-sided dolphin) one run does:
 4. Draw PWSD group sizes from a log-normal fit to the empirical
    `pwsd_grpsz.RData`; humpback group sizes are constant at 2.
 5. Fit `distance/distance_hn_dens_v4.1.stan` (one fit per species).
-   The model includes a Jensen-corrected ESW, the size-bias correction
+   The model includes a population-corrected ESW, the size-bias correction
    `+ Σ log(esw_i) − n · log(esw_pop)` in the group-size likelihood,
    and accepts species-specific priors on `log_lambda_s` as data.
 6. Write diagnostic plots, a parameter-recovery table, and
@@ -419,7 +419,7 @@ spatial structure of `stan/whale_edna_hsgp_v3.2.stan`:
 - HSGP basis `M = (14, 8, 32) = 3584` (same as v4.1), boundary `c = 1.5`,
   per-species `gp_l` priors centred on the named length-scales
   ((50, 300, 100) for humpback; (40, 300, 300) for PWSD).
-- Detection function, group-size sub-model, Jensen-corrected ESW, and
+- Detection function, group-size sub-model, population-corrected ESW, and
   size-bias correction are identical to v4.1.
 - Generated quantities adds spatial PPCs: per-segment `lambda_groups`,
   `f_seg` (spatial component), posterior-predictive segment counts, and

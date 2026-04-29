@@ -86,7 +86,7 @@ The likelihood $p$ is whatever fits the data:
 
 The crucial point is that the GP is on $\log \lambda$, not on $y$ directly. This is what lets the GP feed *any* non-Gaussian likelihood: Stan integrates out the GP machinery exactly, and the data observation step is just a univariate likelihood on a scalar $\log \lambda(\mathbf{x}_i)$. The $\log$ link also keeps $\lambda \geq 0$ automatically — useful when $\lambda$ is a density.
 
-Because $\mathbb{E}[\exp(\mu + f)] = \exp(\mu + \sigma^2/2)$ by Jensen's inequality, the prior expected $\lambda$ is biased upward from $\exp(\mu)$ unless you account for the GP's marginal variance. In practice we just remember this when interpreting posterior $\mu$.
+Because $\mathbb{E}[\exp(\mu + f)] = \exp(\mu + \sigma^2/2)$ (the standard log-normal mean correction), the prior expected $\lambda$ is biased upward from $\exp(\mu)$ unless you account for the GP's marginal variance. In practice we just remember this when interpreting posterior $\mu$.
 
 ## Anisotropic kernels for spatial data
 

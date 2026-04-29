@@ -96,7 +96,7 @@ A few wrinkles:
 
 1. **Group-size dependence in detection**. PWSD's $\sigma_s$ depends on group size — bigger groups are easier to spot. We model $\log \sigma_g = \log \sigma_0 + \beta_{\text{size}}(s_g - \bar{s})$. Humpback's group sizes are tightly distributed (mostly 1–2) so the covariate isn't identifiable for that species.
 
-2. **Jensen-corrected ESW**. Because $\sigma$ is convex in $s$, $\mathbb{E}[\mathrm{ESW}(\sigma(s))] > \mathrm{ESW}(\sigma(\mathbb{E}[s]))$. Using ESW at the mean group size as the encounter-rate constant under-estimates true mean ESW and inflates $\lambda_s$ posteriors. We numerically integrate ESW over the population group-size distribution.
+2. **population-corrected ESW**. Because $\sigma$ is convex in $s$, $\mathbb{E}[\mathrm{ESW}(\sigma(s))] > \mathrm{ESW}(\sigma(\mathbb{E}[s]))$. Using ESW at the mean group size as the encounter-rate constant under-estimates true mean ESW and inflates $\lambda_s$ posteriors. We numerically integrate ESW over the population group-size distribution.
 
 3. **Size-bias correction in the group-size sub-model**. When detection probability depends on size, observed groups are not iid draws from the population — larger groups are over-represented. The correction conditions on detection: $\log f(s \mid \text{detected}) = \log f_{\text{pop}}(s) + \log \mathrm{esw}_i - \log \mathrm{esw}_{\text{pop}}$.
 

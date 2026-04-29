@@ -138,7 +138,7 @@ $$
 \mathrm{seg\_count}_i \sim \mathrm{Poisson}(\,\lambda_s \cdot L_i \cdot 2 \cdot \overline{\mathrm{ESW}}_{\!\text{pop}}\,),
 $$
 
-where `λ_s` is the population group density (a single scalar — the model is non-spatial), `L_i` is the segment length, and **`ESW_pop` is the Jensen-corrected ESW averaged over the population group-size distribution**:
+where `λ_s` is the population group density (a single scalar — the model is non-spatial), `L_i` is the segment length, and **`ESW_pop` is the population-corrected ESW averaged over the population group-size distribution**:
 $$
 \overline{\mathrm{ESW}}_{\!\text{pop}} = \frac{\sum_{k=1}^{S_{\max}} P(s = k)\,\mathrm{ESW}(\sigma(k))}{\sum_{k=1}^{S_{\max}} P(s = k)}.
 $$
@@ -194,13 +194,13 @@ Recovery was *passable* (all CIs covered truth) but uninteresting because the gr
 
 After this PR, all parameters with non-NA truth covered the posterior 95% CI under the synthetic-group-size data.
 
-## PR #36 — Jensen + size-bias corrections + real group sizes + new seed
+## PR #36 — Population-corrected ESW + size-bias corrections + real group sizes + new seed
 
 [**PR #36**](https://github.com/MMARINeDNA/eDNAVisualJointModel/pull/36) was the largest single change. Three fixes plus a switch to real data:
 
-### 3.3.1 Jensen bias fix in the encounter rate
+### 3.3.1 Population-corrected ESW in the encounter rate
 
-The encounter-rate Poisson previously used `ESW(σ(μ_s))` — the population mean group size plugged into the detection function. But `σ(s) = exp(log σ + β · (s − s_centre))` is convex in `s`, so by Jensen `E[ESW(σ(s))] > ESW(σ(E[s]))`. Using `ESW(σ(μ_s))` *under-estimates* the true mean ESW and inflates `λ_s` to compensate.
+The encounter-rate Poisson previously used `ESW(σ(μ_s))` — the population mean group size plugged into the detection function. But `σ(s) = exp(log σ + β · (s − s_centre))` is convex in `s`, so `E[ESW(σ(s))] > ESW(σ(E[s]))`. Using `ESW(σ(μ_s))` *under-estimates* the true mean ESW and inflates `λ_s` to compensate.
 
 The fix is to numerically integrate `ESW(σ(s))` over the population group-size distribution:
 
@@ -261,7 +261,7 @@ Stan model changes:
   $$
   P(s = k) \approx \Phi\!\Bigl(\tfrac{\log(k+0.5) - \mu_{\log}}{\sigma_{\log}}\Bigr) - \Phi\!\Bigl(\tfrac{\log(k-0.5) - \mu_{\log}}{\sigma_{\log}}\Bigr).
   $$
-- Group-size data likelihood: `lognormal_lpdf(s | mu_log, sigma_log)` for PWSD; `neg_binomial_2_lpmf(...)` zero-truncated for humpback. Same Jensen + size-bias corrections.
+- Group-size data likelihood: `lognormal_lpdf(s | mu_log, sigma_log)` for PWSD; `neg_binomial_2_lpmf(...)` zero-truncated for humpback. Same population-corrected ESW + size-bias corrections.
 
 R script changes:
 
@@ -309,7 +309,7 @@ PWSD has fewer detections (104) than humpback (481) because mean group size is m
 
 The four PRs surfaced a sequence of biases that are typical for joint distance-sampling + size-covariate models. In rough order of impact:
 
-1. **Use Jensen-corrected ESW for the encounter rate.** When detection probability depends on group size and the size distribution has any meaningful spread, `ESW(σ(μ_s))` under-estimates `E[ESW(σ(s))]`. The numerical integration is one extra `for` loop in Stan; the fix takes maybe 30 minutes to write and tests cleanly.
+1. **Use population-corrected ESW for the encounter rate.** When detection probability depends on group size and the size distribution has any meaningful spread, `ESW(σ(μ_s))` under-estimates `E[ESW(σ(s))]`. The numerical integration is one extra `for` loop in Stan; the fix takes maybe 30 minutes to write and tests cleanly.
 2. **Add the size-bias correction to the group-size likelihood.** Without it, the model fits the *detected* sample's NB / log-normal mean, which is biased upward by the same size-biased mechanism. The correction is `+ sum(log(ESW_i)) - n * log(ESW_pop)` — also one line.
 3. **Choose the group-size sub-model based on the empirical distribution's tail.** NB is fine for moderately overdispersed counts (sd/mean ≲ 2); log-normal handles heavy right tails (PWSD's max is 10 sd above the mean). The literature on cetacean distance sampling has settled on log-normal for exactly this reason.
 4. **Per-species priors matter.** `Gamma(2, 0.02)` on `μ_s` is mean 100 — wildly inappropriate when the species' actual mean is 2. Method-of-moments seeds work well as defaults.
