@@ -1,6 +1,6 @@
 ---
 title: "eDNA visual–joint model: v3 simulation and fit"
-subtitle: "A vignette for the v3 pipeline"
+subtitle: "A notebook for the v3 pipeline"
 author: "MMARINeDNA / eDNAVisualJointModel"
 date: today
 format:
@@ -26,7 +26,7 @@ knitr::opts_chunk$set(
   warning = FALSE,
   fig.align = "center"
 )
-# All paths in this vignette are resolved relative to the .qmd's own
+# All paths in this notebook are resolved relative to the .qmd's own
 # directory (outputs/whale_edna_output_v3/). Figures live in
 # `_notebook_figs/` next to this file; the per-version pipeline
 # artefacts (sim rds, fit rds, diagnostic PNGs) live in this same
@@ -57,7 +57,7 @@ particular are converging:
    the latent biomass field as well as the per-bottle observation
    noise.
 
-This vignette walks through **v3** of the pipeline that combines:
+This notebook walks through **v3** of the pipeline that combines:
 
 - a realistic three-species simulator covering the US West Coast from
   San Francisco to the US/Canada border, with rotated bathymetry,

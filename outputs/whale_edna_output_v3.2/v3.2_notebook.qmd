@@ -26,7 +26,7 @@ knitr::opts_chunk$set(
   warning = FALSE,
   fig.align = "center"
 )
-# All paths in this vignette are resolved relative to the .qmd's own
+# All paths in this notebook are resolved relative to the .qmd's own
 # directory (outputs/whale_edna_output_v3.2/). Figures live in
 # `_notebook_figs/` next to this file; the per-version pipeline
 # artefacts (sim rds, fit rds, diagnostic PNGs) live in this same
@@ -51,7 +51,7 @@ The point was to isolate the HSGP machinery from the metabarcoding
 likelihood so we could find which pieces of the model were
 mis-configured and fix them one at a time.
 
-This vignette documents what we found, in the order we found it —
+This notebook documents what we found, in the order we found it —
 eight PRs of iterative diagnosis (PRs [#22](https://github.com/MMARINeDNA/eDNAVisualJointModel/pull/22),
 [#23](https://github.com/MMARINeDNA/eDNAVisualJointModel/pull/23),
 [#25](https://github.com/MMARINeDNA/eDNAVisualJointModel/pull/25),
@@ -255,7 +255,7 @@ if (file.exists(sampler_csv)) {
 
 # The debugging journey {#sec-debugging-journey}
 
-This is what the vignette is really about. Eight PRs, each fixing
+This is what the notebook is really about. Eight PRs, each fixing
 one bug surfaced by the diagnostics from the previous run.
 
 ## PR #22 — initial v3.2: hake only, surface only, qPCR only

@@ -26,9 +26,9 @@ knitr::opts_chunk$set(
   warning = FALSE,
   fig.align = "center"
 )
-# All paths in this vignette resolve relative to the .qmd's own
+# All paths in this notebook resolve relative to the .qmd's own
 # directory (outputs/distance_v4.1/). Diagnostic PDFs live in this
-# folder; the per-species single-page renders for the vignette are in
+# folder; the per-species single-page renders for the notebook are in
 # `_notebook_figs/`.
 ```
 
@@ -36,7 +36,7 @@ knitr::opts_chunk$set(
 
 eDNA gives us **species occurrence + concentration** at the bottle, but it doesn't directly count animals. Visual line-transect surveys give us **counts of detected groups + group sizes + perpendicular distances**, which through a detection-function model translate to **animal density**. Pairing the two observation processes — eDNA on the same survey effort that produces the visual data — is the long-term goal for the joint model.
 
-This vignette documents a **stand-alone test pipeline** for the line-transect side, building up from a one-line "fit Distance to simulated data" prototype to a model that:
+This notebook documents a **stand-alone test pipeline** for the line-transect side, building up from a one-line "fit Distance to simulated data" prototype to a model that:
 
 1. **simulates** a spatially structured underlying density field (matching the v4.1 GP),
 2. **divides** by species-specific group sizes to get a group-density field,
