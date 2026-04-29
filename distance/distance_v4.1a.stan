@@ -225,14 +225,25 @@ transformed parameters {
     }
   }
 
-  // Per-detection HN scale + ESW
+  // Per-detection HN scale + ESW. We clamp `log(sigma)` at 30 (≈ 1e13 km,
+  // far beyond any sensible truncation `w`) to keep the chain numerically
+  // safe when `beta_size` wanders during warmup. With S_max group sizes
+  // up to 1000 and s_centre ~ 43 (PWSD), even a moderately bad
+  // `beta_size` proposal of 0.7 produces `log_sigma + beta_size * (k-43) ~ 670`,
+  // which would overflow `exp` to Inf; in turn `esw_k = Inf * erf(small) = NaN`,
+  // and the `<lower=0>` constraint on `esw_pop` blows up every iteration.
+  // The `erf(w/(sigma*sqrt(2)))` machinery converges cleanly as
+  // sigma → ∞ (esw → w), so the clamp doesn't bias the answer in any
+  // posterior region; it just prevents numerical Inf during warmup.
   vector<lower=0>[n] sigma_i;
   vector<lower=0>[n] esw_i;
   for (i in 1:n) {
+    real log_sigma_i;
     if (use_size_covar == 1)
-      sigma_i[i] = exp(log_sigma + beta_size * s_c[i]);
+      log_sigma_i = log_sigma + beta_size * s_c[i];
     else
-      sigma_i[i] = exp(log_sigma);
+      log_sigma_i = log_sigma;
+    sigma_i[i] = exp(fmin(log_sigma_i, 30.0));
     esw_i[i] = sigma_i[i] * sqrt(pi() / 2)
                * erf(w / (sqrt(2) * sigma_i[i]));
   }
@@ -240,10 +251,14 @@ transformed parameters {
   // Representative sigma / ESW at population mean group size (reporting
   // only; not used in encounter-rate likelihood — that uses esw_pop)
   real<lower=0> sigma_rep;
-  if (use_size_covar == 1)
-    sigma_rep = exp(log_sigma + beta_size * (mu_s - s_centre));
-  else
-    sigma_rep = exp(log_sigma);
+  {
+    real log_sigma_rep;
+    if (use_size_covar == 1)
+      log_sigma_rep = log_sigma + beta_size * (mu_s - s_centre);
+    else
+      log_sigma_rep = log_sigma;
+    sigma_rep = exp(fmin(log_sigma_rep, 30.0));
+  }
   real<lower=0> esw_rep = sigma_rep * sqrt(pi() / 2)
                           * erf(w / (sqrt(2) * sigma_rep));
 
@@ -263,7 +278,7 @@ transformed parameters {
         pk = Phi((hi - mu_log_s) / sigma_log_s)
              - Phi((lo - mu_log_s) / sigma_log_s);
       }
-      real sigma_k = exp(log_sigma + beta_size * (k - s_centre));
+      real sigma_k = exp(fmin(log_sigma + beta_size * (k - s_centre), 30.0));
       real esw_k   = sigma_k * sqrt(pi() / 2)
                      * erf(w / (sqrt(2) * sigma_k));
       esw_sum += pk * esw_k;
