@@ -29,30 +29,28 @@ knitr::opts_chunk$set(
 
 ## Why joint modelling?
 
-For the same species, in the same area, we have **two complementary survey streams**:
+For the same species, in the same area, two complementary survey streams:
 
 ::: {.fragment}
-- **Line-transect (LT)** — visual sightings from ship-board observers along systematic transects. Decades of methodology, well-calibrated detection theory, but expensive and sparse.
+- **Line-transect** — visual sightings, well-calibrated, expensive and sparse.
 :::
 
 ::: {.fragment}
-- **Environmental DNA (eDNA)** — water samples assayed by species-specific qPCR + multi-species metabarcoding (MARVER1). Cheap, high coverage, but the link from "reads in a bottle" to "animals in the water" is indirect.
+- **eDNA** — qPCR + MARVER1 metabarcoding, cheap and dense, indirect.
 :::
 
 ::: {.fragment}
-The two methods see the same animals through different observation processes. **Fitting them jointly** lets each correct the other and produces a single defensible density estimate.
+**Joint fit**: a single latent density surface drives both data streams.
 :::
 
 ## State-space view of the joint model
 
-A **single latent density surface** generates *both* observation streams.
-
 ```{mermaid}
 %%| fig-align: center
 flowchart TB
-  L["<b>Latent density surface</b><br/>log λ<sub>s</sub>(x, y, z) = μ<sub>s</sub> + f<sub>s</sub>(x, y, z)<br/>f<sub>s</sub> ∼ GP(0, K)"]
-  L --> E["<b>eDNA observation model</b><br/>qPCR Ct values<br/>+ MARVER1 read counts"]
-  L --> V["<b>Visual observation model</b><br/>line-transect sightings<br/>+ group sizes"]
+  L["<b>Latent density surface</b><br/>log λ(x, y, z) = μ + f(x, y, z)<br/>f ~ GP(0, K)"]
+  L --> E["<b>eDNA observations</b><br/>qPCR Ct + MARVER1 reads"]
+  L --> V["<b>Visual observations</b><br/>line-transect sightings"]
 
   classDef latent fill:#fff5d6,stroke:#b08000,stroke-width:1.5px,color:#222;
   classDef obs    fill:#e0f0ff,stroke:#3a6ea5,stroke-width:1.5px,color:#222;
@@ -60,95 +58,69 @@ flowchart TB
   class E,V obs;
 ```
 
-The shared latent field is what ties the two data streams together. Posterior inference borrows strength across methods.
-
 ## Latent density: GP submodel
-
-For each species $s$, log-density at location $\mathbf{x} = (x, y, z)$ is
 
 $$
 \log \lambda_s(\mathbf{x}) \;=\; \mu_s \;+\; f_s(\mathbf{x}),
 \qquad
-f_s \sim \mathcal{GP}\!\bigl(0,\, K(\ell_x, \ell_y, \ell_z)\bigr).
+f_s \sim \mathcal{GP}\!\bigl(0,\, K(\ell_x, \ell_y, \ell_z)\bigr)
 $$
 
 ::: {.fragment}
-- 3-D anisotropic squared-exponential kernel — separate length-scales in cross-shore $x$, alongshore $y$, and depth $z$.
-- Fit via the **Hilbert-space GP approximation** [Riutort-Mayol et al. 2023] — replaces the dense $\mathcal{O}(N^3)$ GP with a basis expansion of size $M \ll N$.
-- All species share the same kernel structure but fit independent length-scales.
+- 3-D anisotropic squared-exponential kernel.
+- Fit via the **HSGP approximation** — basis expansion of size $M \ll N$.
+- Independent length-scales per species.
 :::
 
 ## eDNA observation submodel
 
-Each water sample $i$ has an expected per-litre target copy concentration
+Per-litre target copy concentration:
 
 $$
-\mathbb{E}[\text{copies}_{i,s}] \;=\; c_s \cdot \lambda_s(\mathbf{x}_i) \cdot \zeta(\mathbf{x}_i) \cdot v_i,
+\mathbb{E}[\text{copies}_{i,s}] \;=\; c_s \cdot \lambda_s(\mathbf{x}_i) \cdot \zeta(\mathbf{x}_i) \cdot v_i
 $$
-
-where $c_s$ is the species-specific shedding / recovery factor, $\zeta$ is the depth-of-sample multiplier, and $v_i$ is volume filtered.
 
 ::: {.fragment}
-- **qPCR**: hurdle on positive Ct values via a fitted standard curve (species-specific primers — only the target species).
-- **Metabarcoding (MARVER1)**: zero-inflated Beta-Binomial across the three target species, with a "junk" category for non-targets. $\phi$ parameterised on log total copies.
+- **qPCR**: hurdle on Ct values via standard curve.
+- **Metabarcoding**: zero-inflated Beta-Binomial across target species + junk.
 :::
 
 ## Line-transect observation submodel
 
-Each transect segment $j$ yields a Poisson number of *groups* with rate
+Per-segment encounter-rate Poisson:
 
 $$
-n_j \;\sim\; \text{Poisson}\!\bigl(\, 2 L_j \cdot \mathrm{ESW}_s \cdot \lambda_s^{(g)}(\mathbf{x}_j) \,\bigr),
+n_j \;\sim\; \text{Poisson}\!\bigl(2\, L_j\, \mathrm{ESW}_s\, \lambda_s^{(g)}(\mathbf{x}_j)\bigr)
 $$
-
-where $L_j$ is segment length, $\mathrm{ESW}_s = \int_0^\infty g_s(d)\,\mathrm{d}d$ is the effective strip half-width, and $\lambda_s^{(g)} = \lambda_s / \bar{m}_s$ is animal density divided by mean group size.
 
 ::: {.fragment}
-- $g_s(d)$ is a half-normal detection function; PWSD's $\sigma$ depends on group size (larger groups easier to spot).
-- **Jensen correction** on $\mathrm{ESW}$ + size-bias correction in the group-size sub-model so that observed groups are unbiased estimates of population-level group sizes.
-- Group sizes drawn from species-specific distributions (NB for humpback, log-normal for PWSD).
+- Half-normal detection $g_s(d)$; PWSD's $\sigma$ depends on group size.
+- Jensen-corrected ESW + size-bias correction.
 :::
 
 ## Per-species data: humpback whale
 
-![Line-transect (left) + MARVER1 eDNA (right) observations for humpback whale, 2018 CCES survey + MURI sampling.](../figures/lt_edna_humpback.png){width=100%}
-
-::: {.fragment}
-376 LT sightings (mostly group size 1–2) + 36 eDNA detections, both clustered nearshore. Strong spatial concordance.
-:::
+![](../figures/lt_edna_humpback.png){.r-stretch fig-alt="Line-transect (left) and MARVER1 eDNA (right) observations for humpback whale."}
 
 ## Per-species data: Pacific white-sided dolphin
 
-![Line-transect (left) + MARVER1 eDNA (right) observations for Pacific white-sided dolphin.](../figures/lt_edna_pwsd.png){width=100%}
-
-::: {.fragment}
-63 LT sightings (group size 2–452) + 60 eDNA detections, both concentrated offshore at the same latitudes. Tighter spatial structure than humpback because PWSD is more habitat-restricted.
-:::
+![](../figures/lt_edna_pwsd.png){.r-stretch fig-alt="Line-transect (left) and MARVER1 eDNA (right) observations for Pacific white-sided dolphin."}
 
 ## Where this gets us
 
-::: {.fragment}
-- **Density estimates** for each species that propagate uncertainty from both observation processes.
-:::
-
-::: {.fragment}
-- **Calibration** of the eDNA → animals link from the well-understood LT side, and conversely **smooth coverage** from eDNA filling in gaps the transects don't reach.
-:::
-
-::: {.fragment}
-- A **shared latent field** so when we extrapolate to unsampled cells we are using all available information, not the survey method that happened to visit nearest.
-:::
-
-::: {.fragment}
-**Status**: simulation pipelines (v1 → v4.1) and a stand-alone distance-sampling pipeline are in place; the joint Stan model is the next integration step.
+::: {.incremental}
+- **Density estimates** with uncertainty from both observation streams.
+- **Calibration** of the eDNA → animals link from the LT side.
+- **Coverage** from eDNA where transects don't reach.
+- **Shared latent field** for principled extrapolation.
 :::
 
 ## References
 
-Riutort-Mayol, G., Bürkner, P.-C., Andersen, M.R., Solin, A., & Vehtari, A. (2023). *Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming.* Statistics and Computing 33, 17.
-
-Buckland, S.T. et al. (2001, 2015). *Distance Sampling: methods and applications* / *Introduction to Distance Sampling.*
-
-Project repo: <https://github.com/MMARINeDNA/eDNAVisualJointModel>
-
-Companion notebooks: `notebooks/v3_notebook.html`, `notebooks/v3.2_notebook.html`, `notebooks/distance_v4.1_notebook.html`.
+::: {.smaller}
+- Riutort-Mayol *et al.* (2023). *Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming.* Stat. Comp. 33:17.
+- Buckland *et al.* (2001, 2015). *Distance Sampling.*
+- Repo: <https://github.com/MMARINeDNA/eDNAVisualJointModel>
+- Companion notebooks: `notebooks/v3_notebook.html`, `notebooks/v3.2_notebook.html`, `notebooks/distance_v4.1_notebook.html`.
+- Companion presenter notes: `presentations/project_goals_presenter_notes.html`.
+:::

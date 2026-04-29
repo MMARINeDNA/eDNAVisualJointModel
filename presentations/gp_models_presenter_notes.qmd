@@ -1,0 +1,303 @@
+---
+title: "Gaussian Processes for Spatial Modelling — presenter notes"
+subtitle: "Companion to presentations/gp_models.html"
+author: "MMARINeDNA / eDNAVisualJointModel"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    embed-resources: true
+    theme: cosmo
+    fig-align: center
+    grid:
+      body-width: 900px
+---
+
+These notes accompany the slide deck `presentations/gp_models.html`. Each section header below matches a slide title verbatim — use the table of contents on the left to jump to the slide you want background on.
+
+The slides themselves are intentionally sparse so they read well in a room. The detail lives here.
+
+## What is a Gaussian process?
+
+The defining property of a GP is that **every finite collection of values is jointly multivariate normal**. Pick any $N$ input locations $\mathbf{x}_1, \ldots, \mathbf{x}_N$; the joint distribution of $f(\mathbf{x}_1), \ldots, f(\mathbf{x}_N)$ under a GP prior is $\mathcal{MVN}(\mathbf{m}, \mathbf{K})$ with mean vector $m_i = m(\mathbf{x}_i)$ and covariance matrix $K_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$.
+
+The mean function $m(\mathbf{x})$ encodes the prior expectation of $f$ at every input. In ecological applications it is almost always set to zero — any deterministic structure is moved into a separate term ($\mu$ or a covariate effect) and the GP carries the residual spatial variation. The covariance function $k(\mathbf{x}, \mathbf{x}')$ is where the modelling choices live: it encodes how strongly two outputs covary as a function of their input distance, and through that, what kinds of functions the prior thinks are plausible.
+
+The conceptual distinction from finite parametric regression is that a GP doesn't commit to a parametric form for $f$ — it commits only to a *correlation structure* between values of $f$ at different inputs. The function itself is recovered from the data through the conditional MVN: you observe $f$ at $\mathbf{X}$, and the posterior at any new $\mathbf{x}_*$ is the conditional normal of an MVN. This is "non-parametric Bayesian regression" in its classic form.
+
+The original reference is Williams & Rasmussen's *Gaussian Processes for Machine Learning* (2006); for a spatial-statistics / geostatistics framing, Diggle & Ribeiro Jr.'s *Model-Based Geostatistics* (2007) covers the same ground from a different angle.
+
+## Sample paths from a 1-D GP prior
+
+The figure shows four random draws from the GP prior at three different length-scales. Same kernel ($k_{\text{SE}}$ with $\sigma = 1$), same range of $x$, just $\ell$ varies.
+
+- $\ell = 0.3$: the function is wiggly. Values 0.3 units apart are essentially uncorrelated, so each draw rapidly explores its full range.
+- $\ell = 1.0$: smoother. Values are correlated over a few units of $x$, so draws look like gentle waves.
+- $\ell = 3.0$: very smooth. Values are correlated across most of the displayed window, so each draw looks like a single broad arc.
+
+The point is that **$\ell$ is your knob for prior smoothness**. In a real fit you don't fix $\ell$ — you put a prior on it and learn it from the data. The figure shows what the prior is telling you about plausible functions, *before* any data.
+
+A subtle but important property: every draw, at every $\ell$, has the same marginal SD ($\sigma = 1$ in the figure). Length-scale changes the *correlation structure*, not the per-point variance. Increasing $\sigma$ separately from $\ell$ stretches all draws vertically without changing their wiggliness.
+
+## The squared-exponential kernel
+
+The squared-exponential (a.k.a. RBF, Gaussian) kernel is the workhorse for "smooth functions" applications:
+
+$$
+k_{\text{SE}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \exp\!\left(-\frac{\|\mathbf{x} - \mathbf{x}'\|^2}{2\ell^2}\right).
+$$
+
+Two hyperparameters:
+
+- $\sigma$ (amplitude / marginal SD) controls how far values can roam from $m(\mathbf{x})$.
+- $\ell$ (length-scale) controls correlation drop-off as a function of input distance.
+
+The kernel function itself, plotted against distance $\|\mathbf{x} - \mathbf{x}'\|$, is a Gaussian bump centred at zero. Short $\ell$ → narrow bump → only nearby points are correlated → wiggly samples. Long $\ell$ → wide bump → all points correlated → smooth samples.
+
+**SE caveat: it is $C^\infty$**. Sample paths are infinitely differentiable. For physical / ecological fields that aren't actually smooth at every scale (e.g. patchy distributions, hard boundaries), this can be too restrictive. The **Matérn family** $k_\nu$ with $\nu \in \{1/2, 3/2, 5/2\}$ gives sample paths with controlled differentiability (continuous, once-differentiable, twice-differentiable), and reduces to SE in the $\nu \to \infty$ limit. The R-INLA / SPDE framework defaults to Matérn for exactly this reason.
+
+In this project we use SE because it composes cleanly with the HSGP machinery (the spectral density factors per dimension) and the $C^\infty$ behaviour is fine for the smooth animal-density fields we're modelling. If we ever need rougher fields, swapping SE for Matérn-3/2 in HSGP is a one-line change to the spectral density.
+
+Other useful kernels: **periodic** ($k(d) = \sigma^2 \exp(-2\sin^2(\pi d/p)/\ell^2)$ for periodic data), **rational quadratic** (a continuous mixture of SE kernels at different length-scales), and **kernels built by addition / multiplication** of simpler ones.
+
+## The spatial setup
+
+The link function for ecological data is almost always a **log-Gaussian Cox process** style construction:
+
+$$
+\log \lambda(\mathbf{x}) = \mu + f(\mathbf{x}), \qquad f \sim \mathcal{GP}(0, k).
+$$
+
+We model $\log \lambda$ — the log of the rate / density / concentration of interest — as Gaussian, with overall mean $\mu$ and a zero-mean GP for spatial residuals. Then the data-generating process is conditional on this latent field:
+
+$$
+y_i \mid f(\mathbf{x}_i) \sim p(y_i \mid \mu + f(\mathbf{x}_i)).
+$$
+
+The likelihood $p$ is whatever fits the data:
+
+- **Counts**: Poisson($\lambda(\mathbf{x}) \cdot $ effort).
+- **Detections**: Bernoulli(1 − $\exp(-\kappa \lambda(\mathbf{x}))$) (the qPCR hurdle).
+- **Read counts**: Beta-Binomial / negative-binomial / multinomial.
+- **Continuous-positive**: Gamma / log-normal.
+
+The crucial point is that the GP is on $\log \lambda$, not on $y$ directly. This is what lets the GP feed *any* non-Gaussian likelihood: Stan integrates out the GP machinery exactly, and the data observation step is just a univariate likelihood on a scalar $\log \lambda(\mathbf{x}_i)$. The $\log$ link also keeps $\lambda \geq 0$ automatically — useful when $\lambda$ is a density.
+
+Because $\mathbb{E}[\exp(\mu + f)] = \exp(\mu + \sigma^2/2)$ by Jensen's inequality, the prior expected $\lambda$ is biased upward from $\exp(\mu)$ unless you account for the GP's marginal variance. In practice we just remember this when interpreting posterior $\mu$.
+
+## Anisotropic kernels for spatial data
+
+Real spatial fields rarely have the same length-scale in every direction. The US West Coast survey is a clear example: the shelf is ~50 km wide cross-shore, but the survey extends ~1300 km along-shore. A field that varies on a 50-km scale cross-shore varies on a 300-km scale along-shore — same units, different scales of variability.
+
+The **anisotropic SE kernel** assigns one length-scale per dimension:
+
+$$
+k(\mathbf{x}, \mathbf{x}') = \sigma^2 \exp\!\left(-\frac{1}{2}\sum_{d=1}^D \frac{(x_d - x'_d)^2}{\ell_d^2}\right) = \sigma^2 \prod_d \exp\!\left(-\frac{(x_d - x'_d)^2}{2\ell_d^2}\right).
+$$
+
+This is **separable** — the joint kernel is a product of per-dimension kernels. That separability is what makes the multi-dim HSGP construction work: the spectral density factors per dimension, so the basis matrix is a tensor product of 1-D bases.
+
+Typical marine values used in this project:
+
+- $\ell_X \sim 50$ km (cross-shore) — short, because shelf-slope structure varies fast.
+- $\ell_Y \sim 300$ km (along-shore) — long, because along-shore variation is gentler.
+- $\ell_Z \sim 100$–300 m (depth) — short, because the water column is highly stratified.
+
+The figure on the slide shows a single 2-D draw at two settings: isotropic ($\ell_x = \ell_y = 2$) gives a "blobby" field; anisotropic ($\ell_x = 0.5, \ell_y = 4$) gives elongated streaks. Real West Coast oceanography looks like the second one.
+
+If your axes aren't aligned with the principal directions of variability, you also need a rotation. We rotate the cross-shore axis by 25° to align with the actual shelf orientation; in normalised coordinates this just means using a rotated $X'$ in place of $X$ in the kernel.
+
+## Exact GP regression
+
+For Gaussian observation noise $\mathbf{y} = f(\mathbf{X}) + \boldsymbol{\varepsilon}$, $\varepsilon_i \sim \mathcal{N}(0, \sigma_n^2)$, with prior $f \sim \mathcal{GP}(0, k)$, the posterior $f(\mathbf{x}_*) \mid \mathbf{y}$ at new points $\mathbf{x}_*$ is multivariate normal *in closed form*:
+
+$$
+\boldsymbol{\mu}_* = \mathbf{K}_{*,X}\,(\mathbf{K}_{X,X} + \sigma_n^2 \mathbf{I})^{-1}\,\mathbf{y}, \qquad \mathbf{\Sigma}_* = \mathbf{K}_{*,*} - \mathbf{K}_{*,X}\,(\mathbf{K}_{X,X} + \sigma_n^2 \mathbf{I})^{-1}\,\mathbf{K}_{X,*}.
+$$
+
+Hyperparameters $(\sigma, \ell, \sigma_n)$ are learned by maximising the marginal likelihood (frequentist) or by sampling with priors (Bayesian).
+
+**The catch — $\mathcal{O}(N^3)$ scaling.** Both the predictive mean and the marginal likelihood require inverting $(\mathbf{K}_{X,X} + \sigma_n^2 \mathbf{I})$, which is $N \times N$. Cholesky factorisation is $\mathcal{O}(N^3)$ in time, $\mathcal{O}(N^2)$ in memory.
+
+In an MCMC setting (HMC / NUTS), every leapfrog step needs the marginal-likelihood gradient — so every step does the Cholesky. For ecological surveys with $N \sim 10^3$–$10^4$ points in 2-D / 3-D space, exact GP regression is unworkable. We need an approximation that is **fast enough for HMC**.
+
+For non-Gaussian likelihoods (like our qPCR / MB / LT models), it gets worse: the marginal likelihood doesn't have a closed form, and you need either Laplace approximation or expectation propagation on top of the GP — both standard tools (e.g. the GP-EP / GP-Laplace machinery in INLA / GPstuff), but neither HMC-friendly the way HSGP is.
+
+## Approximation strategies
+
+The literature on approximate GP methods is rich. The four big families:
+
+- **Inducing-point / sparse GPs** (Snelson & Ghahramani 2006; Titsias 2009). Replace the full $N$-point GP with an $M$-point GP at "inducing locations" with $M \ll N$. Cost drops to $\mathcal{O}(NM^2)$. The inducing-point variational framework (SVGP) is dominant in ML applications. Works well in 2-D / 3-D for ecological problems.
+
+- **Vecchia / nearest-neighbour GP** (Datta *et al.* 2016, NNGP). Approximate the joint density $p(f(\mathbf{x}_1), \ldots, f(\mathbf{x}_N))$ by a product of conditionals on nearest neighbours. Naturally sparse. Works well at very high $N$; trickier in HMC than in Gibbs.
+
+- **SPDE / Matérn** (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA's spatial framework. Very efficient, but tied to Matérn and tied to the INLA inference machinery (not native to Stan).
+
+- **Spectral / Hilbert-space (HSGP)** (Solin & Särkkä 2020; Riutort-Mayol *et al.* 2023). Approximate any **stationary** kernel by a truncated basis-function expansion using Laplacian eigenfunctions. Cost $\mathcal{O}(NM)$. Plays beautifully with HMC: the basis is fixed, the basis coefficients are iid standard normals, and the kernel hyperparameters enter through smooth weight functions.
+
+This project uses **HSGP** because:
+
+- Stan-native: no special inference machinery beyond what HMC already does.
+- Non-Gaussian likelihoods drop in: the latent field is just a linear combination, and you put it inside any likelihood.
+- Anisotropic SE kernels factor per dimension, which makes 3-D HSGP a tensor product of 1-D bases.
+- The Riutort-Mayol *et al.* (2023) paper provides explicit rules of thumb for choosing the boundary factor $c$ and the per-dimension basis count $m$.
+
+## HSGP: the idea
+
+Solin & Särkkä (2020) showed that for any **stationary kernel** $k(\mathbf{x}, \mathbf{x}') = k(\mathbf{x} - \mathbf{x}')$, there's a basis-function approximation
+
+$$
+k(\mathbf{x}, \mathbf{x}') \approx \sum_{j=1}^M S(\sqrt{\lambda_j})\,\phi_j(\mathbf{x})\,\phi_j(\mathbf{x}'),
+$$
+
+where $S$ is the kernel's spectral density and $(\phi_j, \lambda_j)$ are the eigenfunctions / eigenvalues of the Laplacian operator on a bounded domain $\Omega \supset \mathrm{supp}(\mathbf{X})$. The approximation is exact in the limit $M \to \infty$ and as $\Omega$ grows; for a finite $M$ on a finite $\Omega$ there's a controllable approximation error.
+
+The deep idea is **Mercer's theorem / the spectral representation**: any stationary positive-definite kernel can be written as an infinite sum of products of orthonormal basis functions weighted by the kernel's spectral density. HSGP truncates that sum at the largest $M$ terms (those associated with the smallest Laplacian eigenvalues, i.e. the slowest-varying basis functions).
+
+Equivalently — and this is the actually-useful framing — the GP itself becomes a finite basis-function expansion:
+
+$$
+f(\mathbf{x}) \approx \sum_{j=1}^M \sqrt{S(\sqrt{\lambda_j})}\,\phi_j(\mathbf{x})\,z_j, \qquad z_j \sim \mathcal{N}(0, 1).
+$$
+
+This is the form Stan sees. The kernel hyperparameters enter only through the weights $\sqrt{S(\sqrt{\lambda_j})}$; the basis functions $\phi_j$ depend only on the domain geometry. Pre-compute $\boldsymbol{\Phi}_{N \times M}$ once (expensive but one-time), and per HMC iteration, the latent field at the data is a single matrix-vector product $\mathbf{f} = \boldsymbol{\Phi}\,(\mathbf{w} \odot \mathbf{z})$.
+
+## HSGP: the payoff
+
+Why HSGP wins for ecological joint modelling:
+
+1. **Linear cost in $N$.** Per-iteration work is $\mathcal{O}(NM)$ — a single matrix-vector product. No Cholesky, no $N \times N$ matrix anywhere in the inner loop. For our $N \sim 2500$, $M \sim 3500$, that's about 9 million flops per iteration — a few milliseconds.
+
+2. **Reuses the basis.** The basis $\boldsymbol{\Phi}$ depends only on $(\Omega, M)$, not on the kernel hyperparameters. Build it in `transformed data` and share across all chains, all iterations.
+
+3. **HMC-friendly geometry.** All the parameters that the sampler actually moves are well-conditioned: $\sigma$ and $\ell$ enter the weights smoothly, and the $z_j$ are standard normal. No latent-variable / inducing-location pathology.
+
+4. **Likelihood-agnostic.** Once you have a scalar $f(\mathbf{x}_i)$ at every observation, you plug it into any likelihood. The same HSGP block serves qPCR Ct hurdles, ZI-Beta-Binomial reads, and Poisson encounter rates without modification.
+
+5. **Anisotropy is free.** For an anisotropic SE kernel, the spectral density factors across dimensions. The multi-dim basis is just a tensor product of 1-D bases, so the implementation is per-dim arithmetic plus one `prod()` per coefficient.
+
+The cost: the approximation is only good for **stationary** kernels and on a **bounded** domain. If your true field has very long-range correlation that the bounded domain can't capture, HSGP undersmooths near the boundaries. Fix: pad the domain so $L \geq 1.5 \cdot S$ (the data half-range) — the next slide on tuning $L$ and $M$.
+
+## HSGP in 1-D — the recipe
+
+On a bounded domain $[-L, L]$ with Dirichlet boundary conditions ($\phi_j = 0$ at $\pm L$), the Laplacian eigenfunctions and eigenvalues are
+
+$$
+\phi_j(x) = \frac{1}{\sqrt{L}} \sin\!\left(\frac{j\pi(x + L)}{2L}\right), \qquad \sqrt{\lambda_j} = \frac{j\pi}{2L}, \qquad j = 1, 2, 3, \ldots
+$$
+
+The first six $\phi_j$ are plotted in the figure on the slide: a half-sine, a full sine, sine-and-a-half, etc. Each is orthonormal on $[-L, L]$ and zero at the boundary.
+
+For the SE kernel with amplitude $\sigma$ and length-scale $\ell$, the spectral density is
+
+$$
+S(\omega) = \sigma^2 \sqrt{2\pi}\,\ell\,\exp\!\left(-\tfrac{1}{2}\ell^2 \omega^2\right).
+$$
+
+So the HSGP approximation is
+
+$$
+f(x) \approx \sum_{j=1}^M \underbrace{\sqrt{\sigma^2 \sqrt{2\pi}\,\ell\,\exp(-\tfrac{1}{2}\ell^2 (j\pi/2L)^2)}}_{w_j(\sigma,\,\ell)} \cdot \underbrace{\frac{1}{\sqrt{L}}\sin(j\pi(x+L)/2L)}_{\phi_j(x)} \cdot z_j.
+$$
+
+The weight $w_j(\sigma, \ell)$ is the only place where the kernel hyperparameters enter. The basis $\phi_j$ depends only on $L$ and the eigenvalue index $j$.
+
+In code: pre-compute the $N \times M$ basis matrix `PHI[i, j] = phi_j(x_i)` once. Per HMC iteration, compute the length-$M$ weight vector `wt[j] = w_j(sigma, ell)` and form `f = PHI @ (wt * z)`. The cost per iteration is one matrix-vector product. Done.
+
+**Frequency interpretation.** The $j$-th basis function has frequency $j\pi/(2L)$. The weight $w_j$ assigns mass according to the kernel's spectral density at that frequency. SE kernels have spectral density that decays Gaussian-fast in $\omega$, so high-$j$ terms get small weights — basis functions beyond some threshold contribute essentially nothing, and we can truncate at $M$. The Riutort-Mayol *et al.* threshold for "where to truncate" is the topic of the "How to choose $L$ and $M$" slide.
+
+## Multi-D HSGP — tensor products
+
+In $D$ dimensions, the Laplacian eigenfunctions are **products** of 1-D eigenfunctions, indexed by a tuple $(j_1, \ldots, j_D)$:
+
+$$
+\phi_{(j_1, \ldots, j_D)}(\mathbf{x}) = \prod_{d=1}^D \phi^{(d)}_{j_d}(x_d), \qquad \sqrt{\lambda_{(j_1, \ldots, j_D)}} = \sqrt{\sum_d \left(\frac{j_d \pi}{2 L_d}\right)^2}.
+$$
+
+For an **anisotropic SE kernel**, the spectral density factors per dimension:
+
+$$
+S(\boldsymbol{\omega}) = \sigma^2 (2\pi)^{D/2} \prod_d \ell_d \exp\!\left(-\tfrac{1}{2}\ell_d^2 \omega_d^2\right).
+$$
+
+So the per-coefficient weight is a product of per-dim weights: $w_{(j_1,\ldots,j_D)} = \prod_d w^{(d)}_{j_d}(\sigma^{1/D}, \ell_d)$ — splitting the amplitude $\sigma$ across dimensions so the product restores $\sigma$ as the marginal kernel SD.
+
+**Implementation** (verbatim from `stan/whale_edna_hsgp_v3.2.stan`):
+
+- `PHI` is $N \times M$ where $M = m_1 \cdot m_2 \cdots m_D$. Each column is a tensor product of 1-D eigenfunctions.
+- `wt` is length-$M$, the spectral weights as a product of per-dim 1-D weights.
+- $\mathbf{f} = \boldsymbol{\Phi}\,(\mathbf{w} \odot \mathbf{z})$ — same one-line cost as 1-D, just larger $M$.
+
+For our 3-D anisotropic SE on the West Coast domain we use $m = (14, 8, 32)$ for a total of $M = 3584$ basis functions. The "$32$" in the depth dimension is large because the depth length-scale is short relative to the depth half-range (1750 m), so we need many high-frequency basis functions to represent the kernel faithfully.
+
+**Curse of dimensionality, handled.** The naive HSGP approach scales the basis count as $M = \prod_d m_d$, which gets large fast. In ecological problems we're usually in 2-D or 3-D — which is fine — but the trick to keeping $M$ manageable is to pick each $m_d$ no larger than the Riutort-Mayol rule needs for the corresponding length-scale.
+
+## How to choose $L$ and $M$
+
+Riutort-Mayol *et al.* (2023) give two practical rules of thumb.
+
+**Rule 1: boundary factor**
+
+$$
+c = \frac{L}{S} \geq 1.5
+$$
+
+where $S$ is the data half-range in the dimension. Smaller $c$ → eigenfunctions don't span the relevant region of input space, and the kernel approximation breaks down at the boundary. A factor of 1.5 leaves enough padding that boundary-effect bias is negligible.
+
+In code, you usually normalise the data to $[-1, 1]$ in each dimension, and then set $L = c$ uniformly. The original-unit half-range $S$ is absorbed into the kernel's length-scale: a length-scale of 50 km in a domain with $S = 250$ km becomes $\ell = 50/250 = 0.2$ in normalised coordinates.
+
+**Rule 2: basis count per dimension**
+
+$$
+m \geq 1.75\,\frac{c}{\rho_\ell}, \qquad \rho_\ell = \frac{\ell}{S}.
+$$
+
+Below this threshold, the basis can't represent the SE kernel's spectral content at length-scale $\ell$ — the highest-frequency basis function included has frequency lower than where the spectral density still has significant mass. Above the threshold, you're paying for basis functions that contribute essentially zero.
+
+Worked example for our v4.1 humpback fit: cross-shore domain has $S = 250$ km, length-scale $\ell = 50$ km, so $\rho_\ell = 0.2$. With $c = 1.5$, the rule wants $m \geq 1.75 \cdot 1.5 / 0.2 = 13.1$, so we use $m = 14$. Along-shore: $S = 635$ km, $\ell = 300$ km, $\rho_\ell = 0.47$, rule wants $m \geq 5.6$, we use $m = 8$. Depth: $S = 1750$ m, $\ell = 150$ m, $\rho_\ell = 0.086$, rule wants $m \geq 30.5$, we use $m = 32$. Product $M = 14 \cdot 8 \cdot 32 = 3584$.
+
+**Trade-offs**:
+
+- Larger $m$: better approximation, slower per-iteration, more memory for the basis matrix.
+- Smaller $\ell$ (relative to $S$): need larger $m$. The rule scales as $1/\rho_\ell$, so depth is the most expensive dimension here.
+- Padding $c$ larger than 1.5: marginally better approximation near the boundary, marginally larger $m$ needed per the rule.
+
+**Common defaults**: $c = 1.5$, $m \in [10, 40]$ per dimension. At our problem size this lives well inside what cmdstanr can handle in HMC.
+
+## Summary
+
+The deck slides give a five-line summary; here are the full takeaways, with cross-references to the project pipeline.
+
+- **A GP is a distribution over functions**, fully specified by its mean function $m$ and covariance function $k$. We write $f \sim \mathcal{GP}(m, k)$. In ecological applications, $m \equiv 0$ and the kernel does the heavy lifting.
+
+- **For spatial fields, the kernel encodes spatial smoothness through length-scales $\ell_d$**. We use one length-scale per dimension (anisotropic) because real spatial fields don't vary on the same scale in every direction. In our coastal-Pacific application, $\ell_X \sim 50$ km, $\ell_Y \sim 300$ km, $\ell_Z \sim 150$ m.
+
+- **Exact GP regression is $\mathcal{O}(N^3)$** in time, $\mathcal{O}(N^2)$ in memory. In HMC, this happens *every leapfrog step*. Exact GPs are infeasible for our $N \sim 2500$ stations.
+
+- **HSGP** replaces the full GP with a truncated basis-function expansion using Laplacian eigenfunctions on a bounded domain $\Omega$. Cost drops to $\mathcal{O}(NM)$ with $M$ chosen large enough to capture the kernel's spectral content but small enough to be tractable.
+
+- HSGP's two design dials are the **boundary factor $c \geq 1.5$** and the **per-dimension basis count $m \geq 1.75\,c\,/\,\rho_\ell$**. Following Riutort-Mayol *et al.* (2023) we use $c = 1.5$ and $m$ chosen per the rule, giving $M = (14, 8, 32) = 3584$ basis functions for our 3-D problem.
+
+- **HSGP composes cleanly with non-Gaussian likelihoods**: the basis machinery is fixed, and any scalar $f(\mathbf{x}_i)$ feeds directly into qPCR Ct hurdles, ZI-Beta-Binomial reads, or Poisson encounter rates without changes.
+
+The Stan implementation lives in `stan/whale_edna_hsgp_v{N}.stan` (eDNA pipeline) and `distance/distance_v4.1a.stan` (the spatial distance-sampling variant currently in development).
+
+## Key references
+
+The references on the deck are deliberately compact. Here they are with a sentence of context for each.
+
+- **Williams, C.K.I. & Rasmussen, C.E. (2006).** *Gaussian Processes for Machine Learning.* MIT Press. — The standard reference. Full coverage of GP regression, kernel zoo, and inference. Free PDF online via Rasmussen's website.
+
+- **Diggle, P.J. & Ribeiro, P.J. Jr. (2007).** *Model-Based Geostatistics.* Springer. — Same material from a geostatistics angle. Useful complement when you're thinking about kriging / variograms / spatial epidemiology applications.
+
+- **Lindgren, F., Rue, H. & Lindström, J. (2011).** *An explicit link between Gaussian fields and Gaussian Markov random fields: the SPDE approach.* JRSS-B 73, 423–498. — Foundation for the SPDE / INLA framework. The Matérn-via-SPDE construction is a different approximation route from HSGP and deserves a look if you ever need very-high-$N$ spatial inference (or if you need a specific Matérn smoothness).
+
+- **Solin, A. & Särkkä, S. (2020).** *Hilbert space methods for reduced-rank Gaussian process regression.* Statistics and Computing 30, 419–446. — The HSGP foundation paper. Establishes the spectral approximation and proves convergence.
+
+- **Riutort-Mayol, G., Bürkner, P.-C., Andersen, M.R., Solin, A. & Vehtari, A. (2023).** *Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming.* Statistics and Computing 33, 17. — The practical follow-up: rules of thumb for $L$ and $M$, the boundary-factor / basis-count formulas used throughout this project.
+
+- **Heaton, M.J. *et al.* (2019).** *A case study competition among methods for analyzing large spatial data.* JABES 24, 398–425. — Comparative review of approximate-GP methods. Useful for getting a sense of which approximation suits which problem size and noise structure.
+
+For the Stan-native HSGP implementation pattern, see `stan/whale_edna_hsgp_v3.2.stan` (the cleanest example in the repo) and the v3.2 notebook (`notebooks/v3.2_notebook.html`).

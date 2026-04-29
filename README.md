@@ -99,9 +99,11 @@ and a small set of **data figures** summarising the real survey data.
 │   ├── v3.2_notebook.html                  v3.2 debugging case study
 │   └── distance_v4.1_notebook.html         Distance-sampling pipeline (PRs #34–#37)
 │
-├── presentations/                      Quarto / RevealJS slide decks
-│   ├── gp_models.{qmd,html}                GP intro deck
-│   └── project_goals.{qmd,html}            Project goals + state-space model overview
+├── presentations/                      Quarto slide decks (RevealJS) + presenter notes (HTML)
+│   ├── gp_models.{qmd,html}                              GP intro deck
+│   ├── gp_models_presenter_notes.{qmd,html}              ...with detailed companion notes
+│   ├── project_goals.{qmd,html}                          Project goals + state-space overview
+│   └── project_goals_presenter_notes.{qmd,html}          ...with detailed companion notes
 │
 ├── figures/                            Real-data summary maps (PNG)
 │
@@ -468,9 +470,15 @@ code.
 | `gp_models.html` | Practical introduction to Gaussian processes for spatial modelling: what a GP is, GPs as priors over spatial fields, how to fit a GP, and the HSGP approximation (Riutort-Mayol et al. 2023) that this project actually uses. |
 | `project_goals.html` | Project goals + conceptual diagram of the joint state-space model (single latent density surface → eDNA + line-transect observation submodels). Brief slides on the GP, qPCR/metabarcoding, and LT components, plus the per-species LT + eDNA data figures for humpback and PWSD. |
 
-Render with `quarto render presentations/<deck>.qmd --to revealjs`;
-the rendered HTML is tracked in the repo so the slides are easy to
-share without a Quarto install.
+Each deck has a **companion presenter-notes HTML document** at
+`<deck>_presenter_notes.html`. Same section headers as the slides, but
+in plain HTML (not RevealJS) with the longer-form prose, equations, and
+references that don't fit on the slides. Use the deck in a room and
+the notes for self-study or while preparing the talk.
+
+Render either with `quarto render presentations/<file>.qmd`; the
+rendered HTML for both formats is tracked in the repo so they're easy
+to share without a Quarto install.
 
 ## Data figures
 

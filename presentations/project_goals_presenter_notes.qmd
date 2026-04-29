@@ -1,0 +1,156 @@
+---
+title: "Joint visual + eDNA modelling — presenter notes"
+subtitle: "Companion to presentations/project_goals.html"
+author: "MMARINeDNA / eDNAVisualJointModel"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    embed-resources: true
+    theme: cosmo
+    fig-align: center
+    grid:
+      body-width: 900px
+---
+
+These notes accompany the slide deck `presentations/project_goals.html`. Each section header below matches a slide title verbatim — use the table of contents on the left to jump to the slide you want background on.
+
+The slides themselves are intentionally sparse so they read well in a room. The detail lives here.
+
+## Why joint modelling?
+
+Two complementary survey methods for marine megafauna — visual line-transect (LT) surveys and environmental DNA (eDNA) — see the same animals through different observation processes.
+
+**Line-transect surveys** are the workhorse of marine mammal abundance estimation. Observers on a survey vessel scan the sea surface as the ship runs systematic transects, recording the perpendicular distance to each detected group along with group size. Decades of methodology development means the detection process is well-understood: for a given detection function $g(d)$, the effective strip half-width $\mathrm{ESW} = \int_0^w g(d)\,\mathrm{d}d$ tells you exactly how to convert detected groups into estimated density. The catch is that LT surveys are expensive — ship time, observer-days, weather windows — so coverage is sparse. We see *some* of the population at *some* of the locations.
+
+**eDNA** is the reverse. Water samples are cheap to collect (often as a byproduct of an existing oceanographic survey), and assays are cheap to run at scale. A water bottle filtered through a fine membrane traps DNA shed from any organism that was nearby; species-specific qPCR gives a hard count of target-species copies, while metabarcoding (here, the MARVER1 marker) returns relative read counts across hundreds of species. The catch is that the link from "reads in a bottle" to "animals in the water" is indirect: it depends on shedding rates, decay rates, water-column mixing, primer efficiency, and on the random chance that the focal species was upstream of the sampler at the right moment.
+
+The opportunity in joint modelling is that the same animals generate both data streams. If we can fit a model where a single latent density surface drives both the LT encounter rate and the eDNA copy concentration, then:
+
+- The LT side **calibrates** the eDNA → density link, because LT density estimates are anchored in well-understood detection theory.
+- The eDNA side **fills in coverage** where LT didn't go, because eDNA samples are denser.
+- Posterior uncertainty on density estimates **propagates** uncertainty from both observation processes, instead of being a worst-of-two-worlds combination.
+
+## State-space view of the joint model
+
+The diagram is a sketch of the data-generating process. A **latent species density surface** sits in the middle, and **two observation models** branch off it:
+
+$$
+\log \lambda_s(\mathbf{x}) = \mu_s + f_s(\mathbf{x}), \qquad f_s \sim \mathcal{GP}(0, K).
+$$
+
+This is the "state" in *state-space*. Everything else — qPCR Ct values, MARVER1 read counts, line-transect sightings — is conditional on this latent surface plus its own observation noise.
+
+The state-space framing matters because it cleanly separates **what we want to know** (animal density, $\lambda_s(\mathbf{x})$) from **how we measured it** (the two observation submodels). When the joint model is fit, the latent field is learned from *both* data streams simultaneously, with each stream contributing to the parts of parameter space where it has signal. This is the conceptual difference between joint modelling and "fit eDNA by itself, fit LT by itself, then average the answers" — the latter throws away the information that the two methods shared a common truth.
+
+## Latent density: GP submodel
+
+We model $f_s$ as a 3-D anisotropic Gaussian process with squared-exponential covariance:
+
+$$
+K(\mathbf{x}, \mathbf{x}') = \sigma^2 \exp\!\left(-\tfrac{1}{2}\sum_{d=1}^{3} \frac{(x_d - x'_d)^2}{\ell_d^2}\right).
+$$
+
+The three dimensions are $(X, Y, Z)$ where $X$ is cross-shore distance, $Y$ is along-shore, and $Z$ is bathymetric depth. Each species gets its own $(\sigma, \ell_x, \ell_y, \ell_z)$. Anisotropy is essential here: the US West Coast shelf is ~50 km wide (cross-shore) but the survey extends ~1300 km north-south, so cross-shore variability is much higher-frequency than along-shore variability. Imposing $\ell_x = \ell_y$ would be a bad model.
+
+Fitting a full GP at our $N$ (~2000 samples) would mean inverting an $N \times N$ matrix on every HMC leapfrog step — $\mathcal{O}(N^3)$ work, ~$N^2$ memory. The exact GP is impractical. Instead we use the **Hilbert-space Gaussian process (HSGP)** approximation of Riutort-Mayol *et al.* (2023): replace $f$ with a basis-function expansion $f(\mathbf{x}) \approx \sum_{j=1}^M \sqrt{S(\sqrt{\lambda_j})}\,\phi_j(\mathbf{x})\,z_j$, where $\phi_j$ are Laplacian eigenfunctions on a bounded box and $z_j \sim \mathcal{N}(0, 1)$. Cost drops to $\mathcal{O}(NM)$, which for our $M \approx 3500$ basis functions is comfortably feasible in Stan.
+
+The companion deck `presentations/gp_models.html` covers the GP / HSGP machinery in full.
+
+## eDNA observation submodel
+
+For each water sample $i$ at coordinate $\mathbf{x}_i$, with volume filtered $v_i$ and depth-of-sample multiplier $\zeta(\mathbf{x}_i)$ (a fixed water-column response function), the expected per-litre target copy concentration is
+
+$$
+\mathbb{E}[\text{copies}_{i,s}] = c_s \cdot \lambda_s(\mathbf{x}_i) \cdot \zeta(\mathbf{x}_i) \cdot v_i.
+$$
+
+The species-specific shedding/recovery factor $c_s$ (`conv_factor` in code) is a single multiplicative scalar that encapsulates everything between "how much DNA does one animal of species $s$ shed per unit time, near a sampler" and "how much of that DNA do we end up amplifying". It's a number we'd love to identify from data, and the joint fit gives us a shot at it because the LT side anchors $\lambda_s$.
+
+**qPCR** (only for hake — the only target with species-specific primers) follows a hurdle observation model: a Bernoulli detection event followed by a normal Ct value (conditional on detection) coming off a fitted standard curve. The Ct value at observed positives carries information about the *log* concentration, so qPCR is informative on the spatial structure of $\log \lambda$ at the locations where it detected.
+
+**Metabarcoding** (MARVER1 marker, all three target species + non-target "junk") is observed as integer read counts per replicate. We model it as a zero-inflated Beta-Binomial across the three target species, with the over-dispersion $\phi$ parameterised on log total copies. The "junk" category absorbs reads that don't match any of the three targets — in real MARVER1 data this is the bulk of the reads.
+
+The eDNA log-mean used inside the model is
+
+$$
+\log \lambda_{\text{eDNA},i,s} = \log \lambda_s(\mathbf{x}_i) + \log \zeta(\mathbf{x}_i) + \log c_s + \log v_i,
+$$
+
+where the `log_vol_filtered` term was a v3.2 fix — it had been silently dropped in earlier versions, which was forcing the posterior `mu_sp` upward by ~0.7–0.9 to compensate.
+
+## Line-transect observation submodel
+
+For each transect segment $j$ of length $L_j$ at coordinate $\mathbf{x}_j$, the expected number of *detected* groups under a half-normal detection function $g_s(d) = \exp(-d^2/2\sigma_s^2)$ (within truncation $w$) is
+
+$$
+\mathbb{E}[n_j] = 2\,L_j \cdot \mathrm{ESW}_s \cdot \lambda_s^{(g)}(\mathbf{x}_j),
+$$
+
+where $\mathrm{ESW}_s = \int_0^w g_s(d)\,\mathrm{d}d = \sigma_s\sqrt{\pi/2}\cdot \mathrm{erf}(w/\sigma_s\sqrt{2})$ and $\lambda_s^{(g)} = \lambda_s / \bar{m}_s$ is animal density divided by mean group size. Counts are Poisson around this expectation.
+
+A few wrinkles:
+
+1. **Group-size dependence in detection**. PWSD's $\sigma_s$ depends on group size — bigger groups are easier to spot. We model $\log \sigma_g = \log \sigma_0 + \beta_{\text{size}}(s_g - \bar{s})$. Humpback's group sizes are tightly distributed (mostly 1–2) so the covariate isn't identifiable for that species.
+
+2. **Jensen-corrected ESW**. Because $\sigma$ is convex in $s$, $\mathbb{E}[\mathrm{ESW}(\sigma(s))] > \mathrm{ESW}(\sigma(\mathbb{E}[s]))$. Using ESW at the mean group size as the encounter-rate constant under-estimates true mean ESW and inflates $\lambda_s$ posteriors. We numerically integrate ESW over the population group-size distribution.
+
+3. **Size-bias correction in the group-size sub-model**. When detection probability depends on size, observed groups are not iid draws from the population — larger groups are over-represented. The correction conditions on detection: $\log f(s \mid \text{detected}) = \log f_{\text{pop}}(s) + \log \mathrm{esw}_i - \log \mathrm{esw}_{\text{pop}}$.
+
+4. **Group-size sub-model**. Humpback uses zero-truncated NB; PWSD's empirical group sizes are heavily right-skewed (mean ~43, max ~450) and NB can't fit that shape, so we use log-normal.
+
+The full distance-sampling pipeline lives in `distance/00_distance_v4.1.R` and `distance/distance_hn_dens_v4.1.stan`. A spatial HSGP variant (`distance/distance_v4.1a.stan`) is currently in development. The notebook `notebooks/distance_v4.1_notebook.html` walks through the full development arc (PRs #34–#37).
+
+## Per-species data: humpback whale
+
+The figure shows the 2018 CCES line-transect data + the MURI MARVER1 metabarcoding samples for humpback whale, on a US West Coast map (San Francisco northward).
+
+- **Left panel (LT)**: 376 sightings, group sizes 1–8 with the linear point-size scale. Effort segments are shown as grey lines. Sightings are clustered nearshore — humpbacks are mostly seen on the shelf along the central / northern California and Oregon / Washington coast. The southern part of the survey area has very few humpback sightings.
+
+- **Right panel (eDNA)**: 36 detections out of 551 sampled MARVER1 locations. Crosses are sampling locations; red circles sized by total target reads. Detections track the same nearshore corridor as the LT sightings.
+
+The visual concordance is striking: the two methods, with completely different observation processes, locate humpbacks in the same band. That's the visual case for joint modelling — both data streams are responding to the same underlying animal distribution.
+
+For the joint fit, we'd expect humpback's HSGP latent field to be informed mainly by the LT side (376 sightings is a lot of signal), with the eDNA side providing complementary coverage in the offshore band where there's eDNA sampling but no LT sightings. The conv_factor $c_s$ for humpback is what we most want to learn from the joint fit.
+
+## Per-species data: Pacific white-sided dolphin
+
+For PWSD the picture is different.
+
+- **Left panel (LT)**: only 63 sightings, but with the full range of group sizes 2–452 (sqrt-scaled point size). Detections are concentrated *offshore*, in the offshore-slope region — nothing nearshore.
+
+- **Right panel (eDNA)**: 60 detections out of 551 locations. Same offshore concentration, similar latitudinal band.
+
+Compared to humpback, PWSD has **fewer LT sightings but proportionally more eDNA detections**. The two data streams are roughly equally informative on PWSD's spatial distribution. PWSD's habitat is also tighter than humpback's — they're a slope species, not generalist — so the spatial GP is recovering structure rather than estimating a flat field.
+
+The joint fit's goal for PWSD is to pin down density at locations where neither method alone has enough signal, plus to learn $c_{\text{PWSD}}$ which is genuinely identifiable here because both methods agree on where PWSD is.
+
+## Where this gets us
+
+What does a successful joint fit deliver?
+
+1. **Density estimates with propagated uncertainty.** Posterior $\lambda_s(\mathbf{x})$ at every cell of the spatial grid, including credible intervals that account for both LT detection-process uncertainty and eDNA observation noise. This is something neither method delivers on its own at our coverage.
+
+2. **Calibration of the eDNA → animal link.** The species-specific conversion factor $c_s$ becomes identifiable. Once estimated, $c_s$ can be applied to eDNA-only surveys in the future to produce density estimates without needing concurrent LT data.
+
+3. **Coverage from eDNA where transects don't reach.** LT effort is patchy; eDNA samples are dense. For cells with eDNA but no LT, the joint fit produces a posterior anchored in eDNA + the calibration learned globally.
+
+4. **Shared latent field for principled extrapolation.** When we want densities in unsampled cells (for management products like Marine Protected Area design, or to integrate with prey-field forecasts), we extrapolate from a single posterior over $\lambda_s(\mathbf{x})$ — not from "the LT model" or "the eDNA model" separately.
+
+**Project status (as of this deck).** Simulation pipelines v1–v4.1 and the standalone distance-sampling pipeline (v4.1, v4.1a in development) are all in place and tested. The joint Stan model — the V5 step that ties them together — is the next integration milestone.
+
+## References
+
+- **Riutort-Mayol, G., Bürkner, P.-C., Andersen, M.R., Solin, A., & Vehtari, A. (2023).** *Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming.* Statistics and Computing 33, 17. — The HSGP rules of thumb used throughout this project.
+
+- **Buckland, S.T., Anderson, D.R., Burnham, K.P., Laake, J.L., Borchers, D.L., & Thomas, L. (2001, 2015).** *Distance Sampling: methods and applications* / *Introduction to Distance Sampling.* — Standard references for the LT side.
+
+- **Solin, A. & Särkkä, S. (2020).** *Hilbert space methods for reduced-rank Gaussian process regression.* Statistics and Computing 30, 419–446. — The HSGP foundation paper.
+
+- **Project repo**: <https://github.com/MMARINeDNA/eDNAVisualJointModel>
+
+- **Companion notebooks** that walk through individual model versions: `notebooks/v3_notebook.html`, `notebooks/v3.2_notebook.html`, `notebooks/distance_v4.1_notebook.html`.
+
+- **Companion GP intro deck**: `presentations/gp_models.html` (with its own presenter notes at `presentations/gp_models_presenter_notes.html`).
