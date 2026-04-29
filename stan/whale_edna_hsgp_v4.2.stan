@@ -129,7 +129,7 @@ data {
   // Species-specific conversion factor (log scale): log(copies per animal
   // per litre per km^2). Whales shed more eDNA per animal than hake, so
   // this is per-species.
-  vector[S] log_conv_factor;
+  vector[S+1] log_conv_factor;
 
   // log(vol_filtered) - litres of seawater filtered. v4.1 fix: this
   // factor was missing from v3 / v4's log_lambda_edna, forcing mu_sp
@@ -210,29 +210,29 @@ transformed data {
 // =============================================================================
 parameters {
 
-  vector[S+1]             mu_sp;      // log-density intercepts +1 = junk
-  vector<lower=0>[S]    gp_sigma;   // GP marginal SD per species
-  matrix<lower=0>[S, 3] gp_l;       // GP length-scales: lx(km), ly(km), lz(m)
-  matrix[S, M]          z_beta;     // non-centred basis coefficients
-
+  vector[S+1]           mu_sp;      // log-density intercepts +1 = junk
   real<lower=0>         sigma_junk; // standard deviation among junk
-  vector[N]             log_RE_junk_raw; // realizations of the junk RE among sites.
  
-  // alpha_ct, beta_ct, kappa, sigma_ct are all fixed in the data block.
-
-  // Metabarcoding overdispersion
+ // Metabarcoding overdispersion
   real          beta0_phi;
   real<lower=0> gamma0_phi;
   real<lower=0> gamma1_phi;
+
+  // Gaussian Processparameters
+  vector<lower=0>[S]    gp_sigma;   // GP marginal SD per species
+  matrix<lower=0>[S, 3] gp_l;       // log_GP length-scales: lx(km), ly(km), lz(m)
+  matrix[S, M]          z_beta;     // non-centred basis coefficients
+
+  vector[N]             log_RE_junk_raw; // realizations of the junk RE among sites.
 
 }
 
 // =============================================================================
 transformed parameters {
-
   matrix[N, S] log_lambda;       // log true animal density
   matrix[N, S+1] log_lambda_edna;  // log eDNA at sample depth +1=junk
   vector[N] log_RE_junk;  //  
+
 
   for (s in 1:S) {
     vector[M] wt  = hsgp_weights(
@@ -251,6 +251,8 @@ transformed parameters {
                               + log_conv_factor[s]
                               + log_vol_filtered;
     }
+    // print("mu_s = ",mu_sp[s]) ;
+    // print("f_s = ",f_s[1]);
   }
   
   // add latent variable for the junk for log_lambda_edna
@@ -260,6 +262,7 @@ transformed parameters {
       int J = S+1;
       log_lambda_edna[i, J] = mu_sp[J]
                               + log_RE_junk[i] 
+                              + log_conv_factor[J]
                               + log_vol_filtered;
   }
 }
@@ -267,19 +270,27 @@ transformed parameters {
 // =============================================================================
 model {
 
+  real qpcr_like1 = 0;
+  // real qpcr_like2 = 0;
+  // real qpcr_like3 = 0;
+  real mb_like = 0;
   // ------------------------------------------------------------------
   // Priors
   // ------------------------------------------------------------------
   mu_sp    ~ normal(prior_mu_sp_mu, prior_mu_sp_sig); // scalar mean and SD
   gp_sigma ~ gamma(prior_gp_sigma_shape, prior_gp_sigma_rate);
 
-  log_RE_junk ~ std_normal(); // 
-  sigma_junk ~ normal(0,2); // 
+  log_RE_junk_raw ~ std_normal(); // 
+  sigma_junk ~ normal(0,1); // 
   
   for (s in 1:S) {
     gp_l[s, 1] ~ normal(prior_gp_lx_mu, prior_gp_lx_sig);
     gp_l[s, 2] ~ normal(prior_gp_ly_mu, prior_gp_ly_sig);
     gp_l[s, 3] ~ normal(prior_gp_lz_mu, prior_gp_lz_sig);
+    
+    // log_gp_l[s, 1] ~ normal(log(prior_gp_lx_mu), 1);
+    // log_gp_l[s, 2] ~ normal(log(prior_gp_ly_mu), 1);
+    // log_gp_l[s, 3] ~ normal(log(prior_gp_lz_mu), 1);
   }
 
   to_vector(z_beta) ~ std_normal();
@@ -293,23 +304,32 @@ model {
   // ------------------------------------------------------------------
   // Likelihood 1 — qPCR hurdle (hake only, s=1)
   // ------------------------------------------------------------------
+  
   {
     for (r in 1:N_qpcr_long) {
       int  i            = qpcr_sample_idx[r];
       // log copies in aliquot = log eDNA at depth + log dilution fraction
       real log_lam      = log_lambda_edna[i, 1] + log_vol_frac;
-      real lam          = exp(fmin(log_lam, 15.0));   // FIX 3: guard overflow
+      real lam          = exp(log_lam);   // FIX 3: guard overflow
 
       real p_det        = 1.0 - exp(-kappa * lam);
-      p_det             = fmax(fmin(p_det, 1.0 - 1e-9), 1e-9);
+      //p_det             = fmax(fmin(p_det, 1.0 - 1e-9), 1e-9);
 
-      target += bernoulli_lpmf(qpcr_detect[r] | p_det);
+      // iqpcr_detect[r] == 1
+      // qpcr_like += bernoulli_lpmf(qpcr_detect[r] | p_det);
+      // target += bernoulli_lpmf(qpcr_detect[r] | p_det);
 
       if (qpcr_detect[r] == 1) {
-        real log_lam_safe = fmax(fmin(log_lam, 15.0), -10.0);
-        real mu_ct        = alpha_ct - beta_ct * log_lam_safe;
-        real sigma_ct     = pow(pow(sigma0_ct,2) + exp(2*(gamma0_ct + gamma1_ct*log_lam_safe )),0.5) ;
-        target += normal_lpdf(qpcr_ct[r] | mu_ct, fmax(sigma_ct, 1e-6));
+        real mu_ct        = alpha_ct - beta_ct * log_lam;
+        real sigma_ct     = pow(pow(sigma0_ct,2) + exp(2*(gamma0_ct + gamma1_ct*log_lam )),0.5) ;
+        qpcr_like1 += normal_lpdf(qpcr_ct[r] | mu_ct, sigma_ct);
+        
+        target += normal_lpdf(qpcr_ct[r] | mu_ct, sigma_ct);
+        qpcr_like1 += log1m_exp(-lam);
+        target += log1m_exp(-lam);
+      } else{ // if qpcr_detect[r] == 0
+        qpcr_like1 += -lam;
+        target += -lam;
       }
     }
   }
@@ -323,56 +343,65 @@ model {
 
       // eDNA concentrations at this sample
       vector[S+1] lam_edna_i;
-      for (s in 1:(S+1)) lam_edna_i[s] = exp(fmin(log_lambda_edna[i, s], 15.0));
+      vector[S+1] lam_K_edna_i; // Conditional density on presnece
+      for (s in 1:(S+1)){ 
+        lam_edna_i[s] = exp(log_lambda_edna[i, s] + log_vol_frac);
+        lam_K_edna_i[s] = lam_edna_i[s] / (1 - exp(-lam_edna_i[s]));
+      }
+      for (s in 1:(S+1)){
+      
+        real lam_s        = lam_edna_i[s] ;
+        real lam_K_s      = lam_K_edna_i[s] ;
+        real lam_sum      = sum(lam_edna_i) ;
+        real lam_K_sum    = sum(lam_K_edna_i) ;
+        real log_lam_sum  = log(lam_sum);
 
-      // FIX 4: clamp lam_sum before taking log to avoid log(0)
-      real lam_sum      = fmax(sum(lam_edna_i), 1e-12);
-      real log_lam_sum  = log(lam_sum);
+        // Compositional proportions
+        vector[S+1] pi_i;
+          pi_i = lam_K_edna_i / lam_K_sum;
 
-      // Compositional proportions
-      vector[S+1] pi_i;
-      // if (lam_sum < 1e-12) {
-      //   pi_i = rep_vector(1.0 / (S+1), S+1);
-      // } else {
-        pi_i = lam_edna_i / lam_sum;
-      // }
+          real log_phi_s  = beta0_phi + log_lam_sum
+                          + fmax(gamma0_phi - gamma1_phi * log(lam_K_s), 0.0);
+          real phi_s      = exp(log_phi_s);   // cap phi to avoid overflow
 
-      for (s in 1:(S+1)) {
-        // FIX 1: clamp log_lam_s before exp to keep log_p_zero well-defined
-        real log_lam_s  = fmax(fmin(log_lambda_edna[i, s], 15.0), -15.0);
-        real lam_s      = exp(log_lam_s);
+          real pi_s       = pi_i[s];
 
-        real log_phi_s  = beta0_phi + log_lam_sum
-                          + fmax(gamma0_phi - gamma1_phi * log_lam_s, 0.0);
-        real phi_s      = exp(fmin(log_phi_s, 10.0));   // cap phi to avoid overflow
-
-        real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
+        // if(r==1){  print("pi_s ",r,": ",pi_s);
+        //            print("log_lam_s ",r,": ",log_lambda_edna[i, ]);
+        //           print("lam_s ",r,": ",lam_s);
+        //            print("lam_K_s ",r,": ",lam_K_s);
+        //           print("phi_s ",r,": ",phi_s);
+        //           print("lam_sum ",r,": ",lam_sum);
+        // }
 
         // FIX 2: clamp alpha_bb and beta_bb away from zero
-        real alpha_bb   = fmax(pi_s * phi_s,         1e-6);
-        real beta_bb    = fmax((1.0 - pi_s) * phi_s, 1e-6);
+        real alpha_bb   = fmax(pi_s * phi_s,         1e-10);
+        real beta_bb    = fmax((1.0 - pi_s) * phi_s, 1e-10);
 
-        if (use_zi) {
-          // FIX 1 (cont): keep log1m_exp argument strictly negative
           real log_p_zero = -lam_s;
-          real log_p_pos  = log1m_exp(fmin(log_p_zero, -1e-9));
+          real log_p_pos  = log1m_exp(log_p_zero);
 
-          // target += zi_beta_binomial_lpmf(
-          //   mb_reads[r, s] | mb_total[r],
-          //   log_p_zero, log_p_pos,
-          //   alpha_bb, beta_bb
-          // );
-        } else {
-          // target += beta_binomial_lpmf(
-          //   mb_reads[r, s] | mb_total[r],
-          //   alpha_bb, beta_bb
-          // );
+          mb_like +=  zi_beta_binomial_lpmf(
+                          mb_reads[r, s] | mb_total[r],
+                          log_p_zero, log_p_pos,
+                          alpha_bb, beta_bb
+                      );
+          target += zi_beta_binomial_lpmf(
+            mb_reads[r, s] | mb_total[r],
+            log_p_zero, log_p_pos,
+            alpha_bb, beta_bb
+          );
         }
       }
     }
-  }
-
-}
+    print("QPCR1: ",qpcr_like1);
+    // print("QPCR2: ",qpcr_like2);
+    // print("QPCR3: ",qpcr_like3);
+    
+    print("MB: ",mb_like);
+    
+    
+} // End Model block
 
 // =============================================================================
 generated quantities {
@@ -461,12 +490,12 @@ generated quantities {
 
       real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
 
+    
+
       // FIX 2: clamp BB parameters
       real alpha_bb   = fmax(pi_s * phi_s,         1e-6);
       real beta_bb    = fmax((1.0 - pi_s) * phi_s, 1e-6);
 
-      if (use_zi) {
-        // FIX 1: keep log1m_exp argument strictly negative
         real log_p_zero = -lam_s;
         real log_p_pos  = log1m_exp(fmin(log_p_zero, -1e-9));
 
@@ -475,13 +504,7 @@ generated quantities {
           log_p_zero, log_p_pos,
           alpha_bb, beta_bb
         );
-      } else {
-        log_lik_mb[r] += beta_binomial_lpmf(
-          mb_reads[r, s] | mb_total[r],
-          alpha_bb, beta_bb
-        );
-      }
-
+      
       real p_bb         = beta_rng(alpha_bb, beta_bb);
       pp_mb_reads[r, s] = binomial_rng(mb_total[r],
                             fmax(fmin(p_bb, 1.0 - 1e-9), 1e-9));

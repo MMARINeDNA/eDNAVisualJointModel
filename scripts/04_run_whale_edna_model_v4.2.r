@@ -23,11 +23,11 @@ set.seed(42)
 # -----------------------------------------------------------------------------
 # 0. Configuration
 # -----------------------------------------------------------------------------
-N_CHAINS      <- 3
-N_WARMUP      <- 150
-N_SAMPLE      <- 100
-ADAPT_DELTA   <- 0.90
-MAX_TREEDEPTH <- 14
+N_CHAINS      <- 1
+N_WARMUP      <- 50
+N_SAMPLE      <- 1
+ADAPT_DELTA   <- 0.80
+MAX_TREEDEPTH <- 13
 
 OUTPUT_DIR <- "outputs/whale_edna_output_v4.2"
 dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -57,12 +57,14 @@ init_fn2 <- function(N_CHAIN){
   for(i in 1:N_CHAIN){
     init_list[[i]] <- list(
       mu_sp      = runif(S+1,1.8,2),
-      gp_sigma   = runif(S,0.95,1.05),
-      gp_l       = matrix(c(50, 300, 150),
+      gp_sigma   = runif(S,0.8,1.2),
+      gp_l       = runif(S*3,0.98,1.02)*matrix(c(50, 300, 150),
                           nrow = S, ncol = 3, byrow = TRUE),
-      z_beta     = matrix(0.0, nrow = S, ncol = M_total),
-      beta0_phi  = 2.0,
-      gamma0_phi = 5.0,
+      z_beta     = matrix(0, nrow = S, ncol = M_total),
+      log_RE_junk_raw = runif(N,-0.01,0.01),
+      sigma_junk = runif(1,0.5,1.0),
+      beta0_phi  = 0,
+      gamma0_phi = 2.0,
       gamma1_phi = 1.0
     )
   }
@@ -74,13 +76,13 @@ stanMod = stan(file = "stan/whale_edna_hsgp_v4.2.stan",
                verbose = FALSE, chains = N_CHAINS, thin = 1, 
                warmup = N_WARMUP, iter = N_WARMUP + N_SAMPLE, 
                init = init_fn2(N_CHAINS),
-               control = list(max_treedepth=14,
+               control = list(max_treedepth=MAX_TREEDEPTH,
                               adapt_init_buffer = 75),
                #                stepsize=0.01,
                #                adapt_delta=0.8,
                #                metric="diag_e"),
                #refresh = 100,
-               sample_file="tmpZ.csv",
+               sample_file="tmpY.csv",
                boost_lib = NULL
 )
 

@@ -63,7 +63,7 @@ sp_common    <- sim$meta$sp_common
 vol_aliquot  <- sim$meta$vol_aliquot
 vol_filtered <- sim$meta$vol_filtered                  # litres seawater filtered
 conv_factor  <- sim$meta$conv_factor                   # length-S vector
-stopifnot(length(conv_factor) == S)
+stopifnot(length(conv_factor) == S+1)
 
 N_qpcr_long  <- sim$meta$N_qpcr_long
 N_mb_long    <- sim$meta$N_mb_long
