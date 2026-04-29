@@ -8,8 +8,10 @@ simulated data in Stan.
 
 The repo also contains a parallel **distance-sampling** pipeline (the
 visual-survey side of the joint model, fit standalone for development
-and PPC), self-contained **notebooks** that walk through each model
-version, a **GP presentation** suitable for sharing with collaborators,
+and PPC, in both a non-spatial v4.1 form and a spatial-HSGP v4.1a form),
+self-contained **notebooks** that walk through each model version,
+**slide decks** for collaborators (a GP intro and a project-goals
+state-space overview, each with a companion presenter-notes document),
 and a small set of **data figures** summarising the real survey data.
 
 ## Directory layout
@@ -73,7 +75,8 @@ and a small set of **data figures** summarising the real survey data.
 │   ├── 05_check_whale_edna_model_v4.r
 │   ├── 05_check_whale_edna_model_v4.1.r
 │   ├── DetectionsBySpecies.R               Ad-hoc data exploration
-│   └── FinWhales.R
+│   ├── FinWhales.R
+│   └── getGrpSz.R                          Build the empirical group-size pools used by distance/
 │
 ├── outputs/                            Generated artifacts (per-version)
 │   ├── whale_edna_output_v{1,2,3,3.1,3.2,4,4.1}/   Per-version eDNA output:
@@ -168,6 +171,25 @@ Each script expects the **project root as the working directory**. Artifacts
 (Files: `*_v3.*`. Original v3 model fit, kept alongside v3.1 for
 side-by-side comparison.)
 
+- **Domain**: extended to cover the full US West Coast — San Francisco
+  (37.77°N) to the US/Canada border (~49°N), 500 km × 1270 km in UTM 10N.
+- **Bathymetry**: rotated cross-shore axis `X_prime` (25° in normalised
+  space) so isobaths run NW-SE. A pure 45° rotation confounds latitude
+  with bathymetry in this elongated domain.
+- **Observation design**: **300 stations** stratified 50/30/20 shelf /
+  slope / offshore on the rotated coordinate; **3 sample depths** (0, 150,
+  500 m); samples with `Z_sample > Z_bathy` dropped.
+- **Species spatial structure**:
+  - Pacific hake — shelf-slope break, broad in latitude.
+  - Humpback whale — southern + inshore shelf.
+  - Pacific white-sided dolphin — northern + offshore slope.
+- **Model form**: bathymetric + latitude habitat structure is absorbed
+  into the GP via a non-zero GP mean, so the exposed model is
+  `log(λ) = μ + f`.
+- **Plotting**: the 1 km grid in `02_plot_simulated_data_v3.1.r` evaluates
+  the closed-form GP mean at every cell (501 × 1271 = 637k cells) — no
+  kriging.
+
 ### V3.1 — v3 + reparameterised model fit
 
 (Files: `*_v3.1.*`. Same simulation, plotting, and downstream
@@ -257,25 +279,6 @@ habitat preference as v3.)
   `3500 / 2`) so all normalised coords land in `[-1, 1]`.
   Pre-existing bug carried over from v1/v2 fixed.
 - Outputs land in `outputs/whale_edna_output_v3.2/`.
-
-- **Domain**: extended to cover the full US West Coast — San Francisco
-  (37.77°N) to the US/Canada border (~49°N), 500 km × 1270 km in UTM 10N.
-- **Bathymetry**: rotated cross-shore axis `X_prime` (25° in normalised
-  space) so isobaths run NW-SE. A pure 45° rotation confounds latitude
-  with bathymetry in this elongated domain.
-- **Observation design**: **300 stations** stratified 50/30/20 shelf /
-  slope / offshore on the rotated coordinate; **3 sample depths** (0, 150,
-  500 m); samples with `Z_sample > Z_bathy` dropped.
-- **Species spatial structure**:
-  - Pacific hake — shelf-slope break, broad in latitude.
-  - Humpback whale — southern + inshore shelf.
-  - Pacific white-sided dolphin — northern + offshore slope.
-- **Model form**: bathymetric + latitude habitat structure is absorbed
-  into the GP via a non-zero GP mean, so the exposed model is
-  `log(λ) = μ + f`.
-- **Plotting**: the 1 km grid in `02_plot_simulated_data_v3.1.r` evaluates
-  the closed-form GP mean at every cell (501 × 1271 = 637k cells) — no
-  kriging.
 
 ### V4 — variable per-sample replication + junk reads + retuned densities
 
