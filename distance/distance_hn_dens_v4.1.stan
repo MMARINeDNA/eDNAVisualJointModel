@@ -42,7 +42,7 @@ data {
   real beta_size_prior_mean;
   real<lower=0> beta_size_prior_sd;
 
-  // Upper integration limit for the Jensen-corrected ESW (zero-truncated NB
+  // Upper integration limit for the population-average ESW (zero-truncated NB
   // population-mean ESW). Should be large enough to cover the right tail of
   // NB(mu_s, phi_s) under any plausible posterior values; e.g. for PWSD
   // (mu_s ~ 50, phi_s small) S_max = 500-1000 is safe.
@@ -119,10 +119,10 @@ transformed parameters {
   real<lower=0> esw_rep = sigma_rep * sqrt(pi() / 2)
                           * erf(w / (sqrt(2) * sigma_rep));
 
-  // Jensen-corrected population ESW: numerical integration of
+  // Population-average ESW: numerical integration of
   // ESW(sigma(s)) over the population group-size distribution. With
   // sigma(s) = exp(log_sigma + beta * (s - s_centre)) convex in s,
-  // E[ESW(sigma(s))] > ESW(sigma(E[s])) by Jensen, so using esw_rep in
+  // E[ESW(sigma(s))] > ESW(sigma(E[s])) by Jensen's inequality, so using esw_rep in
   // the encounter-rate Poisson under-estimates the true mean ESW and
   // inflates lambda_s. esw_pop fixes that. Sum runs over k = 1, ...,
   // S_max with pmf P(k) under the chosen group-size distribution.
@@ -196,14 +196,14 @@ model {
   }
   target += sum(log(esw_i)) - n * log(esw_pop);
 
-  // Encounter rate Poisson per segment, using Jensen-corrected
-  // population-mean ESW (averaged over zero-truncated NB).
+  // Encounter rate Poisson per segment, using the population-average
+  // ESW (averaged over zero-truncated NB).
   target += poisson_lpmf(seg_count | lambda_s * seg_l * 2 * esw_pop);
 }
 
 generated quantities {
   // Mean detection probability in the strip, averaged over the
-  // population group-size distribution (Jensen-corrected).
+  // population group-size distribution (population-average).
   real<lower=0, upper=1> p = esw_pop / w;
   // Same quantity at the population mean size (for comparison).
   real<lower=0, upper=1> p_at_mu = esw_rep / w;

@@ -96,7 +96,7 @@ $$
 
 ::: {.fragment}
 - Half-normal detection $g_s(d)$; PWSD's $\sigma$ depends on group size.
-- Jensen-corrected ESW + size-bias correction.
+- Population-average ESW + size-bias correction.
 :::
 
 ## Per-species data: humpback whale
