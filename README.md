@@ -6,6 +6,12 @@ eDNA observations (qPCR + metabarcoding) for three species on a spatial
 grid, and fits an anisotropic Hilbert-Space GP (HSGP) model to the
 simulated data in Stan.
 
+The repo also contains a parallel **distance-sampling** pipeline (the
+visual-survey side of the joint model, fit standalone for development
+and PPC), self-contained **vignettes** that walk through each model
+version, a **GP presentation** suitable for sharing with collaborators,
+and a small set of **data figures** summarising the real survey data.
+
 ## Directory layout
 
 ```
@@ -70,15 +76,41 @@ simulated data in Stan.
 │   └── FinWhales.R
 │
 ├── outputs/                            Generated artifacts (per-version)
-│   └── whale_edna_output_v{1,2,3,3.1,3.2,4,4.1}/   Per-version output folder:
-│           whale_edna_sim_v{N}.rds           Sim output (gitignored)
-│           simulated_edna_fields_v{N}.pdf    Tracked multi-page sim plot
-│           stan_data.rds                     stan_data list from step 03 (gitignored)
-│           whale_edna_fit.rds                CmdStanR fit object from step 04 (gitignored)
-│           *.png, *.csv, session_info.txt   diagnostics from step 05
+│   ├── whale_edna_output_v{1,2,3,3.1,3.2,4,4.1}/   Per-version eDNA output:
+│   │       whale_edna_sim_v{N}.rds           Sim output (gitignored)
+│   │       simulated_edna_fields_v{N}.pdf    Tracked multi-page sim plot
+│   │       stan_data.rds                     stan_data list from step 03 (gitignored)
+│   │       whale_edna_fit.rds                CmdStanR fit object from step 04 (gitignored)
+│   │       *.png, *.csv, session_info.txt   diagnostics from step 05
+│   │       v{N}_vignette.qmd                 source for the per-version write-up
+│   └── distance_v{N}/                  Distance-sampling per-version output (see below)
 │
-├── Data/                               Real survey data (effort, sightings, detections)
-└── Distance sampling trials/           Self-contained DS exploration (separate Stan model)
+├── distance/                           Line-transect distance-sampling pipeline
+│   ├── 00_distance_v{N}.R                  Self-contained simulate → fit → diagnose
+│   ├── distance_hn_dens_v{N}.stan          Half-normal detection + density Stan model
+│   ├── humpback_grpsz.RData                Empirical group-size data used by sim
+│   └── pwsd_grpsz.RData
+│
+├── vignettes/                          Self-contained HTML model write-ups
+│   ├── README.md                           Index + regeneration instructions
+│   ├── v3_vignette.html                    v3 HSGP joint qPCR / MB fit
+│   ├── v3.2_vignette.html                  v3.2 debugging case study
+│   └── distance_v4.1_vignette.html         Distance-sampling pipeline (PRs #34–#37)
+│
+├── presentations/                      Quarto / RevealJS slide decks
+│   ├── gp_models.qmd                       Source for the GP intro deck
+│   └── gp_models.html                      Self-contained rendered output
+│
+├── figures/                            Real-data summary maps (PNG)
+│
+├── Data/                               Real survey data
+│       effort.csv, sightings.csv            Line-transect (CCES 2018)
+│       hake_qPCR_MURI_df.csv                qPCR (tracked, ~200 KB)
+│       MV1_MURI_df.csv                      MARVER1 metabarcoding (gitignored, ~30 MB)
+│
+└── scripts/                            (continued) data-summary plot scripts
+        plotLTData.R, ploteDNAData.R         multi-species + multi-method overview maps
+        plotPWSDData.R, plotHumpbackData.R   per-species LT + eDNA two-panel figures
 ```
 
 ## Pipeline
@@ -330,6 +362,99 @@ in v3.2 / v3.2-bump-sigma-ct-and-treedepth. Output dir:
   latent field. New per-species prior-vs-posterior density overlays
   for `mu_sp`, `gp_sigma`, `gp_l[1..3]` (15 panels: 3 species × 5
   parameters).
+
+## Distance sampling
+
+`distance/` holds a self-contained line-transect distance-sampling
+pipeline. It is the **visual-survey half** of the joint model, factored
+out of the joint Stan model so the detection / encounter-rate logic
+can be developed, tested, and PPC'd standalone before being merged
+back. The same v4.1 zero-mean GP is used to draw the underlying
+density surface, so anything learned here transfers directly to the
+joint pipeline.
+
+Per species (humpback whale, Pacific white-sided dolphin) one run does:
+
+1. Simulate a zero-mean GP **animal-density** surface (animals/km²)
+   with the v4.1 domain, bathymetry, and species-specific GP
+   hyperparameters.
+2. Convert to a **group-density** surface using a per-species mean
+   group size (humpback = 2, PWSD = 50).
+3. Lay down systematic E-W parallel transects, split into 10 km
+   segments, and simulate sightings from a **species-specific
+   half-normal detection function**. PWSD's detection function has a
+   group-size covariate, `log σ_g = log σ_0 + β_size · (s_g − s̄)`,
+   so larger groups are more detectable.
+4. Draw PWSD group sizes from a log-normal fit to the empirical
+   `pwsd_grpsz.RData`; humpback group sizes are constant at 2.
+5. Fit `distance/distance_hn_dens_v4.1.stan` (one fit per species).
+   The model includes a Jensen-corrected ESW, the size-bias correction
+   `+ Σ log(esw_i) − n · log(esw_pop)` in the group-size likelihood,
+   and accepts species-specific priors on `log_lambda_s` as data.
+6. Write diagnostic plots, a parameter-recovery table, and
+   prior-vs-posterior density overlays for animal density `D = λ_s·µ_s`
+   to `outputs/distance_v4.1/`.
+
+Run from the project root:
+
+```
+Rscript distance/00_distance_v4.1.R
+```
+
+The full development arc (PRs #34–#37) is documented in
+`vignettes/distance_v4.1_vignette.html`.
+
+## Vignettes
+
+`vignettes/` collects self-contained HTML write-ups, one per model
+version, that explain the simulation, the statistical model (with
+equations), and the diagnostic + posterior-predictive output. The
+HTML files are inlined (Quarto's `embed-resources: true`) so they can
+be opened in a browser, dropped into Slack, or emailed without
+bringing additional assets along.
+
+| File | Covers |
+|---|---|
+| `v3_vignette.html` | v3 simulation + HSGP joint qPCR / metabarcoding fit. |
+| `v3.2_vignette.html` | v3.2 debugging case study — eight PRs of iterative diagnosis on the v3 sampler pathology, walked through chronologically. |
+| `distance_v4.1_vignette.html` | Line-transect distance sampling pipeline (PRs #34–#37). Spatial GP density → group-density surface → simulated sightings via half-normal detection function → non-spatial Stan distance fit, with per-species PPC plots and parameter recovery. |
+
+Each vignette's source `.qmd` lives next to its model artefacts in the
+matching `outputs/whale_edna_output_v{N}/` (or `outputs/distance_v{N}/`)
+folder. See `vignettes/README.md` for regeneration instructions and
+the `pdftoppm` recipe used to extract the per-version "simulated
+truth" page-by-page figures from the multi-page sim PDFs.
+
+## Presentations
+
+`presentations/` holds Quarto / RevealJS slide decks aimed at
+collaborators / audience-members rather than at people running the
+code.
+
+| File | Covers |
+|---|---|
+| `gp_models.html` | Practical introduction to Gaussian processes for spatial modelling: what a GP is, GPs as priors over spatial fields, how to fit a GP, and the HSGP approximation (Riutort-Mayol et al. 2023) that this project actually uses. |
+
+Render with `quarto render presentations/gp_models.qmd --to revealjs`;
+the rendered HTML is tracked in the repo so the slides are easy to
+share without a Quarto install.
+
+## Data figures
+
+A handful of standalone scripts in `scripts/` produce summary maps of
+the **real** survey data (no model fitting). They share a consistent
+visual style (light-grey land, grey effort lines or dark crosses for
+sampling locations, red sized circles for sightings/detections) and
+all write to `figures/`.
+
+| Script | Output | Contents |
+|---|---|---|
+| `scripts/plotLTData.R` | `figures/lt_data_pwsd_humpback.png` | Two-panel LT effort + sightings: PWSD (sqrt-scaled group sizes 1 – 452), humpback (linear 1 – 8). |
+| `scripts/ploteDNAData.R` | `figures/edna_data_4panel.png` | Four-panel eDNA: hake qPCR, hake / PWSD / humpback MARVER1. Crosses = sampled locations; circles sized by qPCR positives or total target reads. |
+| `scripts/plotPWSDData.R` | `figures/lt_edna_pwsd.png` | PWSD: LT (left) + eDNA (right) side by side, independent legends. |
+| `scripts/plotHumpbackData.R` | `figures/lt_edna_humpback.png` | Humpback: LT (left) + eDNA (right) side by side, independent legends. |
+
+All four scripts run from the project root with `Rscript scripts/<name>.R`.
 
 ## Versioning convention
 
