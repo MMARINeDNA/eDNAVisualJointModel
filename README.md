@@ -87,7 +87,9 @@ and a small set of **data figures** summarising the real survey data.
 │
 ├── distance/                           Line-transect distance-sampling pipeline
 │   ├── 00_distance_v{N}.R                  Self-contained simulate → fit → diagnose
-│   ├── distance_hn_dens_v{N}.stan          Half-normal detection + density Stan model
+│   ├── 00_distance_v4.1a.R                 Spatial HSGP variant (cetaceans only)
+│   ├── distance_hn_dens_v{N}.stan          Non-spatial HN detection + density model
+│   ├── distance_v4.1a.stan                 Spatial HSGP version of the LT model
 │   ├── humpback_grpsz.RData                Empirical group-size data used by sim
 │   └── pwsd_grpsz.RData
 │
@@ -403,6 +405,36 @@ Rscript distance/00_distance_v4.1.R
 
 The full development arc (PRs #34–#37) is documented in
 `notebooks/distance_v4.1_notebook.html`.
+
+### v4.1a — spatial HSGP variant
+
+`distance/distance_v4.1a.stan` + `distance/00_distance_v4.1a.R` extend
+v4.1 by replacing the single scalar `log_lambda_s` parameter with a 3-D
+anisotropic HSGP latent field over segment locations, mirroring the
+spatial structure of `stan/whale_edna_hsgp_v3.2.stan`:
+
+- `log λ_groups(x, y, z) = µ_sp + f(x, y, z)`, `f ∼ GP(0, K(ℓx, ℓy, ℓz))`
+- HSGP basis `M = (14, 8, 32) = 3584` (same as v4.1), boundary `c = 1.5`,
+  per-species `gp_l` priors centred on the named length-scales
+  ((50, 300, 100) for humpback; (40, 300, 300) for PWSD).
+- Detection function, group-size sub-model, Jensen-corrected ESW, and
+  size-bias correction are identical to v4.1.
+- Generated quantities adds spatial PPCs: per-segment `lambda_groups`,
+  `f_seg` (spatial component), posterior-predictive segment counts, and
+  per-segment / per-detection log-likelihoods for `loo`.
+
+Outputs land in `outputs/distance_v4.1a/`. Each species-fit produces a
+six-panel PDF with the truth + posterior `λ` surfaces, per-segment
+truth-vs-posterior scatters for `λ` and `f`, the count PPC, and a GP
+hyperparameter-recovery facet.
+
+Run from the project root (full fit takes ~1 hr per species):
+
+```
+Rscript distance/00_distance_v4.1a.R
+# or for a quick wiring smoke-test:
+ITER_WARMUP=200 ITER_SAMPLING=200 Rscript distance/00_distance_v4.1a.R
+```
 
 ## Notebooks
 
