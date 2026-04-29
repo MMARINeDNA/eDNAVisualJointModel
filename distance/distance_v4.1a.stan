@@ -17,7 +17,7 @@
 //   * x_i           ~ Half-normal(sigma_i)  truncated at w
 //   * group sizes   ~ ZTNB(mu_s, phi_s)  OR  log-normal(mu_log, sigma_log)
 //
-// All detection-function machinery (Jensen-corrected ESW with optional
+// All detection-function machinery (population-average ESW with optional
 // group-size covariate, size-bias correction in the group-size
 // likelihood) is identical to distance_hn_dens_v4.1.stan -- the only
 // change is that lambda_groups is now per-segment instead of a single
@@ -118,7 +118,7 @@ data {
   real beta_size_prior_mean;
   real<lower=0> beta_size_prior_sd;
 
-  // ---- Jensen-correction integration cap ----------------------------------
+  // ---- Population-average ESW integration cap ----------------------------
   int<lower=1> S_max;
 
   // ---- Group-size sub-model -----------------------------------------------
@@ -247,7 +247,7 @@ transformed parameters {
   real<lower=0> esw_rep = sigma_rep * sqrt(pi() / 2)
                           * erf(w / (sqrt(2) * sigma_rep));
 
-  // Jensen-corrected population-mean ESW. Identical to v4.1 — sums
+  // Population-average ESW. Identical to v4.1 — sums
   // sigma(k)-induced ESW(k) over the group-size pmf P(k) for k=1..S_max.
   real<lower=0> esw_pop;
   if (use_size_covar == 1) {
@@ -323,7 +323,7 @@ model {
 // =============================================================================
 generated quantities {
 
-  // Mean detection probability in the strip (Jensen-corrected) and at mu_s
+  // Mean detection probability in the strip (population-average) and at mu_s
   real<lower=0, upper=1> p       = esw_pop / w;
   real<lower=0, upper=1> p_at_mu = esw_rep / w;
 

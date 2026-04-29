@@ -6,7 +6,7 @@ date: today
 format:
   html:
     toc: true
-    toc-depth: 2
+    toc-depth: 3
     toc-location: left
     embed-resources: true
     theme: cosmo
@@ -19,6 +19,138 @@ format:
 These notes accompany the slide deck `presentations/project_goals.html`. Each section header below matches a slide title verbatim — use the table of contents on the left to jump to the slide you want background on.
 
 The slides themselves are intentionally sparse so they read well in a room. The detail lives here.
+
+## Symbol glossary
+
+A reference for every mathematical symbol used in the slide deck (and in these notes), grouped by where it appears. The companion deck `presentations/gp_models.html` has a more thorough glossary for the GP/HSGP machinery; the entries here cover what's needed to read the project-goals slides.
+
+### Indices, coordinates, dimensions
+
+$\mathbf{x} = (x, y, z)$
+:   Spatial location. $x$ = cross-shore (km), $y$ = along-shore (km), $z$ = bathymetric depth (m).
+
+$\mathbf{x}_i$
+:   Coordinate of the $i$-th eDNA water-sample.
+
+$\mathbf{x}_j$
+:   Coordinate of the $j$-th LT segment midpoint.
+
+$s$
+:   Species index. We model 3 species in the joint model; the distance-sampling pipeline uses 2 cetaceans (humpback, PWSD).
+
+$i, j$
+:   Generic indices for samples / segments / detections (context-dependent).
+
+$g$
+:   Group index in the LT submodel.
+
+### Latent density and GP
+
+$\lambda_s(\mathbf{x})$
+:   Animal density of species $s$ at coordinate $\mathbf{x}$ (animals/km²).
+
+$\mu_s$
+:   Species log-density intercept. Sets the population-mean density.
+
+$f_s(\mathbf{x})$
+:   Spatial GP residual field for species $s$ — captures the per-species spatial structure.
+
+$\mathcal{GP}(0, K)$
+:   Zero-mean Gaussian process with covariance function $K$.
+
+$K(\ell_x, \ell_y, \ell_z)$
+:   3-D anisotropic squared-exponential kernel.
+
+$\ell_x, \ell_y, \ell_z$
+:   Length-scales per dimension. Marine values used here: $\ell_x \sim 50$ km, $\ell_y \sim 300$ km, $\ell_z \sim 150$ m.
+
+$\sigma$
+:   Kernel amplitude (marginal SD of $f_s$).
+
+$M$
+:   Number of HSGP basis functions used to approximate the GP. $M = (14, 8, 32) = 3584$ in this project.
+
+$N$
+:   Number of observation locations (eDNA samples or LT segments depending on context).
+
+$\mathbb{E}[\cdot]$
+:   Expectation.
+
+### eDNA observation submodel
+
+$\text{copies}_{i,s}$
+:   Target-species DNA copy count in sample $i$.
+
+$c_s$
+:   Species-specific shedding / recovery factor (`conv_factor` in code) — the multiplicative scalar from "one animal of species $s$" to "DNA copies recovered per litre under the standard protocol".
+
+$\zeta(\mathbf{x}_i)$
+:   Depth-of-sample multiplier — how the water-column response scales eDNA concentration with depth.
+
+$v_i$
+:   Volume of seawater filtered for sample $i$ (litres).
+
+$\phi$
+:   Beta-Binomial over-dispersion parameter.
+
+Ct
+:   qPCR cycle-threshold value — log copy concentration is recovered by inverting the standard curve.
+
+$\kappa$
+:   qPCR detection rate (the hurdle).
+
+$\alpha_{\text{ct}}, \beta_{\text{ct}}, \sigma_{\text{ct}}$
+:   Fitted standard-curve intercept, slope, and Ct measurement-noise SD.
+
+### Line-transect observation submodel
+
+$L_j$
+:   Length of LT segment $j$ (km).
+
+$w$
+:   Truncation distance — observations beyond $w$ are discarded (km).
+
+$d$
+:   Perpendicular distance from the trackline to a detected group (km).
+
+$g_s(d)$
+:   Detection function for species $s$ — probability of detecting a group at perpendicular distance $d$. Half-normal: $g_s(d) = \exp(-d^2/2\sigma_s^2)$.
+
+$\sigma_s$
+:   Detection-function scale parameter for species $s$ (km). For PWSD this depends on group size.
+
+$\sigma_g$
+:   Group-specific detection scale: $\log \sigma_g = \log \sigma_0 + \beta_{\text{size}}\,(s_g - \bar{s})$.
+
+$\beta_{\text{size}}$
+:   Group-size slope on $\log \sigma$ in the detection function (PWSD only).
+
+$s_g$
+:   Group size — number of animals in a detected group.
+
+$\bar{s}_s$
+:   Mean group size (centring constant for the size covariate).
+
+$\bar{m}_s$
+:   Population mean group size for species $s$.
+
+$\mathrm{ESW}_s = \int_0^w g_s(d)\,\mathrm{d}d$
+:   Effective strip half-width for species $s$ — the area-equivalent integral of the detection function. For half-normal: $\mathrm{ESW}_s = \sigma_s \sqrt{\pi/2}\,\mathrm{erf}(w/\sigma_s\sqrt{2})$.
+
+$\mathrm{esw}_i$
+:   Per-detection ESW (depends on the observed group's size, when there's a size covariate).
+
+$\mathrm{esw}_{\text{pop}}$
+:   Population-average ESW: $\int g(d, s)\,p(s)\,\mathrm{d}d\,\mathrm{d}s$ averaged over the population group-size distribution.
+
+$\lambda_s^{(g)}(\mathbf{x}) = \lambda_s(\mathbf{x}) / \bar{m}_s$
+:   Group density (groups/km²): animal density divided by mean group size.
+
+$n_j$
+:   Number of detected groups on segment $j$.
+
+$\mathrm{erf}(\cdot)$
+:   Gauss error function.
 
 ## Why joint modelling?
 
@@ -96,7 +228,7 @@ A few wrinkles:
 
 1. **Group-size dependence in detection**. PWSD's $\sigma_s$ depends on group size — bigger groups are easier to spot. We model $\log \sigma_g = \log \sigma_0 + \beta_{\text{size}}(s_g - \bar{s})$. Humpback's group sizes are tightly distributed (mostly 1–2) so the covariate isn't identifiable for that species.
 
-2. **Jensen-corrected ESW**. Because $\sigma$ is convex in $s$, $\mathbb{E}[\mathrm{ESW}(\sigma(s))] > \mathrm{ESW}(\sigma(\mathbb{E}[s]))$. Using ESW at the mean group size as the encounter-rate constant under-estimates true mean ESW and inflates $\lambda_s$ posteriors. We numerically integrate ESW over the population group-size distribution.
+2. **Population-average ESW**. Because $\sigma$ is convex in $s$, $\mathbb{E}[\mathrm{ESW}(\sigma(s))] > \mathrm{ESW}(\sigma(\mathbb{E}[s]))$ (Jensen's inequality). Using ESW at the mean group size as the encounter-rate constant under-estimates the true mean ESW and inflates $\lambda_s$ posteriors. We numerically integrate ESW over the population group-size distribution.
 
 3. **Size-bias correction in the group-size sub-model**. When detection probability depends on size, observed groups are not iid draws from the population — larger groups are over-represented. The correction conditions on detection: $\log f(s \mid \text{detected}) = \log f_{\text{pop}}(s) + \log \mathrm{esw}_i - \log \mathrm{esw}_{\text{pop}}$.
 

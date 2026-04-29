@@ -6,7 +6,7 @@ date: today
 format:
   html:
     toc: true
-    toc-depth: 2
+    toc-depth: 3
     toc-location: left
     embed-resources: true
     theme: cosmo
@@ -19,6 +19,163 @@ format:
 These notes accompany the slide deck `presentations/gp_models.html`. Each section header below matches a slide title verbatim — use the table of contents on the left to jump to the slide you want background on.
 
 The slides themselves are intentionally sparse so they read well in a room. The detail lives here.
+
+## Symbol glossary
+
+A reference for every mathematical symbol used in the slide deck (and in these notes), grouped by where it appears.
+
+### Inputs and outputs
+
+$\mathbf{x},\ \mathbf{x}'$
+:   Input locations (column vectors). For our project, $\mathbf{x} = (X, Y, Z)$ in (km cross-shore, km along-shore, m depth).
+
+$\mathbf{x}_*$
+:   New input location at which we want to predict.
+
+$\mathbf{X}$
+:   Matrix stacking the $N$ training inputs row-wise; shape $N \times D$.
+
+$\mathbf{y}$
+:   Observed data (length $N$).
+
+$N$
+:   Number of observations / data points.
+
+$D$
+:   Number of input dimensions (1, 2, or 3 in this project).
+
+### GP definition and likelihoods
+
+$\mathcal{GP}(m, k)$
+:   Gaussian process with mean function $m$ and covariance function $k$.
+
+$m(\mathbf{x})$
+:   Mean function. Almost always set to $0$ in our applications — any deterministic structure goes into a separate $\mu$ term.
+
+$k(\mathbf{x}, \mathbf{x}')$
+:   Covariance / kernel function. Evaluated pointwise; gives a scalar.
+
+$\mathcal{N}(\mu, \sigma^2)$
+:   Univariate normal distribution with mean $\mu$ and variance $\sigma^2$.
+
+$\mathcal{MVN}(\mathbf{m}, \mathbf{K})$
+:   Multivariate normal distribution with mean vector $\mathbf{m}$ and covariance matrix $\mathbf{K}$.
+
+$\mathbf{m}, \mathbf{K}$
+:   Mean vector $m_i = m(\mathbf{x}_i)$ and covariance matrix $K_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$.
+
+$\sim$
+:   "Distributed as".
+
+$\mathbb{E}[\cdot]$
+:   Expectation.
+
+$\mathrm{Cov}(\cdot, \cdot)$
+:   Covariance.
+
+### Kernel hyperparameters
+
+$\sigma$
+:   Kernel amplitude. The marginal SD of $f$ — controls how far values can roam from the mean.
+
+$\ell$
+:   Length-scale. Controls correlation drop-off as a function of input distance: small $\ell$ → wiggly samples, large $\ell$ → smooth samples.
+
+$\ell_d, \ell_x, \ell_y, \ell_z$
+:   Per-dimension length-scales for the **anisotropic** kernel. Typical marine values used here: $\ell_x \sim 50$ km, $\ell_y \sim 300$ km, $\ell_z \sim 150$ m.
+
+$\sigma_n$
+:   Observation-noise SD (Gaussian regression context only).
+
+$\nu$
+:   Matérn kernel smoothness parameter ($\frac{1}{2}, \frac{3}{2}, \frac{5}{2}, \infty$); $\nu = \infty$ recovers the squared-exponential kernel.
+
+### Latent field for ecological data
+
+$\lambda(\mathbf{x})$
+:   Quantity of ecological interest at $\mathbf{x}$ — animal density (animals/km²), eDNA copy concentration, etc. Always $\geq 0$ in our use.
+
+$\mu$
+:   Log-density intercept. The model is $\log \lambda(\mathbf{x}) = \mu + f(\mathbf{x})$.
+
+$y_i$
+:   Observation at location $\mathbf{x}_i$ — a count, a Ct value, a read total.
+
+$p(y_i \mid \mu + f(\mathbf{x}_i))$
+:   Observation likelihood (Poisson / Bernoulli / ZI-Beta-Binomial / hurdle Ct, depending on data type).
+
+### Exact GP regression
+
+$\boldsymbol{\mu}_*$
+:   Posterior predictive mean vector at the new points $\mathbf{X}_*$.
+
+$\mathbf{\Sigma}_*$
+:   Posterior predictive covariance matrix at the new points.
+
+$\mathbf{K}_{X,X}$
+:   Kernel matrix evaluated on the training data; shape $N \times N$.
+
+$\mathbf{K}_{*,X}, \mathbf{K}_{X,*}$
+:   Kernel cross-blocks: new × training.
+
+$\mathbf{I}$
+:   Identity matrix.
+
+$\mathcal{O}(\cdot)$
+:   Big-O computational complexity.
+
+### HSGP machinery
+
+$\Omega$
+:   Bounded domain on which the basis is defined.
+
+$L$
+:   Domain half-extent ($\Omega = [-L, L]$ in 1-D; in higher dimensions a box with $L_d$ per axis).
+
+$S$
+:   Data half-range in a given dimension (max distance from the centre).
+
+$c = L / S$
+:   Boundary factor. Practical rule: $c \geq 1.5$.
+
+$\rho_\ell = \ell / S$
+:   Length-scale relative to the domain half-range.
+
+$M$
+:   Total HSGP basis dimension (the truncation count).
+
+$m_d$
+:   Basis count along dimension $d$. $M = \prod_d m_d$.
+
+$\phi_j(\mathbf{x})$
+:   $j$-th HSGP basis function — a Laplacian eigenfunction on $\Omega$. In 1-D, $\phi_j(x) = (1/\sqrt{L})\sin(j\pi(x+L)/2L)$.
+
+$\lambda_j$
+:   $j$-th Laplacian eigenvalue. $\sqrt{\lambda_j}$ is the corresponding eigenfrequency.
+
+$S(\omega)$
+:   Spectral density of the kernel at frequency $\omega$. For SE: $S(\omega) = \sigma^2\sqrt{2\pi}\,\ell\,e^{-\ell^2 \omega^2 / 2}$.
+
+$\boldsymbol{\omega}$
+:   Multi-dimensional frequency vector, with components $\omega_d = j_d \pi / 2L_d$.
+
+$z_j \sim \mathcal{N}(0, 1)$
+:   $j$-th HSGP basis coefficient (standard-normal prior).
+
+$\boldsymbol{\Phi}$
+:   Basis matrix; $\boldsymbol{\Phi}_{ij} = \phi_j(\mathbf{x}_i)$. Shape $N \times M$.
+
+$\mathbf{w}$
+:   Length-$M$ vector of spectral weights, $w_j = \sqrt{S(\sqrt{\lambda_j})}$.
+
+$\mathbf{z}$
+:   Length-$M$ vector of standard-normal HSGP coefficients.
+
+$\odot$
+:   Element-wise (Hadamard) product.
+
+$\mathbf{f}$
+:   Latent field evaluated at the data: $\mathbf{f} = \boldsymbol{\Phi}\,(\mathbf{w} \odot \mathbf{z})$.
 
 ## What is a Gaussian process?
 
