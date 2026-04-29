@@ -105,7 +105,7 @@ and a small set of **data figures** summarising the real survey data.
 │
 ├── figures/                            Real-data summary maps (PNG)
 │
-├── Data/                               Real survey data
+├── data/                               Real survey data
 │       effort.csv, sightings.csv            Line-transect (CCES 2018)
 │       hake_qPCR_MURI_df.csv                qPCR (tracked, ~200 KB)
 │       MV1_MURI_df.csv                      MARVER1 metabarcoding (gitignored, ~30 MB)

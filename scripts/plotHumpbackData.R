@@ -18,7 +18,7 @@
 #                                  = detections
 #   * Independent legends per panel (units differ: group size vs reads)
 #
-# Inputs : Data/effort.csv, Data/sightings.csv, Data/MV1_MURI_df.csv
+# Inputs : data/effort.csv, data/sightings.csv, data/MV1_MURI_df.csv
 # Output : figures/lt_edna_humpback.png  (14 x 7 in, 200 dpi)
 #
 # Run from the project root:
@@ -47,9 +47,9 @@ OUT_PNG <- "figures/lt_edna_humpback.png"
 # ---------------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------------
-sights <- read.csv("Data/sightings.csv",      stringsAsFactors = FALSE)
-eff    <- read.csv("Data/effort.csv",         stringsAsFactors = FALSE)
-mv1    <- read.csv("Data/MV1_MURI_df.csv",    stringsAsFactors = FALSE)
+sights <- read.csv("data/sightings.csv",      stringsAsFactors = FALSE)
+eff    <- read.csv("data/effort.csv",         stringsAsFactors = FALSE)
+mv1    <- read.csv("data/MV1_MURI_df.csv",    stringsAsFactors = FALSE)
 
 # ---------------------------------------------------------------------------
 # LT subsets — humpback sightings + all effort segments inside the map extent
