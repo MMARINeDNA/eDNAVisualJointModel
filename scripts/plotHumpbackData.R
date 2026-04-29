@@ -7,7 +7,7 @@
 #   Left panel  — Line-transect effort + humpback sightings (sized by
 #                 group_size; group sizes are 1 – 8 so a linear scale
 #                 reads cleanly).
-#   Right panel — MARVER metabarcoding sampling locations + humpback
+#   Right panel — MARVER1 metabarcoding sampling locations + humpback
 #                 detections (sized by total target reads; reads span
 #                 0 – ~110k so a sqrt scale is used).
 #
@@ -72,7 +72,7 @@ cat(sprintf("LT  : %d sightings, %d effort segments\n",
             nrow(sights_sp), nrow(eff_sub)))
 
 # ---------------------------------------------------------------------------
-# eDNA subsets — all MARVER sampling locations + humpback detections
+# eDNA subsets — all MARVER1 sampling locations + humpback detections
 # aggregated to (location_id) with total reads.
 # ---------------------------------------------------------------------------
 mb_all_loc <- mv1 |>
@@ -187,7 +187,7 @@ p_edna <- ggplot() +
                         range  = c(1.0, 9),
                         trans  = "sqrt",
                         breaks = mb_breaks) +
-  labs(title    = sprintf("MARVER eDNA: %d detections / %d sampled locations",
+  labs(title    = sprintf("MARVER1 eDNA: %d detections / %d sampled locations",
                           nrow(mb_sp_loc), nrow(mb_all_loc)),
        subtitle = sprintf("total reads 0 – %s (sqrt-scaled point size)",
                           format(max(mb_sp_loc$total_reads), big.mark = ",")))
@@ -197,9 +197,9 @@ p_edna <- ggplot() +
 # ---------------------------------------------------------------------------
 fig <- p_lt + p_edna +
   plot_annotation(
-    title    = sprintf("%s — line-transect + MARVER eDNA observations",
+    title    = sprintf("%s line-transect + MARVER1 eDNA observations",
                        SPECIES_LABEL),
-    subtitle = "US West Coast: San Francisco and northward. Left: grey lines = LT effort, red points = sightings (sized by group size). Right: dark crosses = eDNA sampled locations, red points = detections (sized by total reads). Independent legends per panel.",
+    subtitle = "Left: grey lines = LT effort, red points = sightings. Right: dark crosses = eDNA sampled locations, red points = detections.",
     theme    = theme(plot.title    = element_text(face = "bold", size = 14),
                      plot.subtitle = element_text(size = 10, colour = "grey40"))
   )
