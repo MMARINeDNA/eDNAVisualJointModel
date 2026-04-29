@@ -10,7 +10,7 @@
 #   * Humpback whale               (spcode = 76; group sizes 1 - 8,
 #     linear point-size scale)
 #
-# Inputs : Data/effort.csv, Data/sightings.csv
+# Inputs : data/effort.csv, data/sightings.csv
 # Output : figures/lt_data_pwsd_humpback.png  (12 x 7 in, 200 dpi)
 #
 # Run from the project root:
@@ -34,8 +34,8 @@ LON_MAX <- -120
 # ---------------------------------------------------------------------------
 # Load + filter
 # ---------------------------------------------------------------------------
-sights <- read.csv("Data/sightings.csv", stringsAsFactors = FALSE)
-eff    <- read.csv("Data/effort.csv",    stringsAsFactors = FALSE)
+sights <- read.csv("data/sightings.csv", stringsAsFactors = FALSE)
+eff    <- read.csv("data/effort.csv",    stringsAsFactors = FALSE)
 
 # Sightings: keep PWSD (22) and Humpback (76), inside the map extent, with
 # a non-missing positive group_size.

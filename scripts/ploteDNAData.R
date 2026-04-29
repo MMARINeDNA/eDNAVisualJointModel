@@ -4,8 +4,8 @@
 # Four-panel map of eDNA observations on the US West Coast (San Francisco
 # and northward), in the same style as scripts/plotLTData.R:
 #
-#   1. Pacific hake qPCR  (Data/hake_qPCR_MURI_df.csv)
-#   2. Pacific hake               via metabarcoding (Data/MV1_MURI_df.csv)
+#   1. Pacific hake qPCR  (data/hake_qPCR_MURI_df.csv)
+#   2. Pacific hake               via metabarcoding (data/MV1_MURI_df.csv)
 #   3. Pacific white-sided dolphin via metabarcoding
 #   4. Humpback whale              via metabarcoding
 #
@@ -19,7 +19,7 @@
 #       MB species: total target reads at the location (sqrt-transformed
 #                   because the range spans 0 to ~10^6)
 #
-# Inputs : Data/hake_qPCR_MURI_df.csv, Data/MV1_MURI_df.csv
+# Inputs : data/hake_qPCR_MURI_df.csv, data/MV1_MURI_df.csv
 # Output : figures/edna_data_4panel.png  (14 x 10 in, 200 dpi)
 #
 # Run from the project root:
@@ -42,8 +42,8 @@ LON_MAX <- -120
 # ---------------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------------
-qpcr <- read.csv("Data/hake_qPCR_MURI_df.csv", stringsAsFactors = FALSE)
-mv1  <- read.csv("Data/MV1_MURI_df.csv",       stringsAsFactors = FALSE)
+qpcr <- read.csv("data/hake_qPCR_MURI_df.csv", stringsAsFactors = FALSE)
+mv1  <- read.csv("data/MV1_MURI_df.csv",       stringsAsFactors = FALSE)
 
 cat(sprintf("hake_qPCR rows: %d\n", nrow(qpcr)))
 cat(sprintf("MV1 rows      : %d\n", nrow(mv1)))

@@ -3,10 +3,10 @@ library(ggplot2)
 library(usmap)
 library(sf)
 
-load("Data/detect_data.Rdata")
+load("data/detect_data.Rdata")
 
-effort <- read.csv("Data/effort.csv")
-sightings <- read.csv("Data/sightings.csv")
+effort <- read.csv("data/effort.csv")
+sightings <- read.csv("data/sightings.csv")
 
 bp_sightings <- sightings %>%
   filter(common_name == "Fin Whale") %>%
