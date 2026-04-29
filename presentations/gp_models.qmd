@@ -221,9 +221,10 @@ For ecological surveys with $N \sim 10^3{-}10^4$, the exact GP is impractical.
 
 ::: {.incremental}
 - **Inducing points / sparse GPs** (Snelson & Ghahramani; Titsias).
+- **Basis-function expansions** — fixed-rank kriging (Cressie & Johannesson 2008), predictive process (Banerjee *et al.* 2008), random Fourier features (Rahimi & Recht 2007).
 - **Vecchia / nearest-neighbour** (Datta *et al.* 2016).
 - **SPDE / Matérn** (Lindgren–Rue–Lindström — INLA).
-- **Spectral / Hilbert-space (HSGP)** — Solin & Särkkä; Riutort-Mayol *et al.*
+- **Spectral / Hilbert-space (HSGP)** — Solin & Särkkä; Riutort-Mayol *et al.* (a basis-function method using Laplacian eigenfunctions).
 :::
 
 ::: {.fragment}
