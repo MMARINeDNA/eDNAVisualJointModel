@@ -3241,18 +3241,17 @@ k(\mathbf{x}, \mathbf{x}&#39;) = \sigma^2 \exp\!\left(-\frac{1}{2}\sum_{d=1}^D \
 </section>
 <section id="approximation-strategies" class="level2">
 <h2 class="anchored" data-anchor-id="approximation-strategies">Approximation strategies</h2>
-<p>The two big families that we cover here:</p>
+<p>Three approaches we’ve explored for this project:</p>
 <ul>
-<li><strong>Basis-function expansions</strong>. Replace <span class="math inline">f(\mathbf{x})</span> with a finite sum <span class="math inline">\sum_{j=1}^M w_j(\theta)\,\phi_j(\mathbf{x})\,z_j</span> where the <span class="math inline">\phi_j</span> are pre-chosen basis functions and the <span class="math inline">z_j</span> (or coefficients <span class="math inline">\beta_j</span>) are learned. The basis can be:
+<li><p><strong>Splines as basis functions.</strong> Write <span class="math inline">f(\mathbf{x}) = \sum_{j=1}^M \beta_j\,\phi_j(\mathbf{x})</span> for a fixed spline basis <span class="math inline">\{\phi_j\}</span> and learn the coefficients <span class="math inline">\beta_j</span>. Common choices:</p>
 <ul>
-<li><strong>Fixed-rank kriging</strong> (Cressie &amp; Johannesson 2008) — explicit basis (e.g., bisquare or wavelet) at a chosen low rank; closed-form moment-matching to a chosen kernel.</li>
-<li><strong>Predictive process</strong> (Banerjee <em>et al.</em> 2008) — basis is the kernel evaluated at “knots”, giving an interpolation approximation.</li>
-<li><strong>Random Fourier features</strong> (Rahimi &amp; Recht 2007) — basis is a Monte Carlo set of sinusoids drawn from the kernel’s spectral density.</li>
-<li><strong>Hilbert-space approximate GP (HSGP)</strong> — basis is the Laplacian eigenfunctions on a bounded box, with weights <span class="math inline">w_j(\theta) = \sqrt{S_\theta(\sqrt{\lambda_j})}</span> from the spectral density. This is the method this project uses; see the next section.</li>
-</ul></li>
-<li><strong>SPDE / Matérn</strong> (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA’s spatial framework. Very efficient, but tied to Matérn and tied to the INLA inference machinery (not native to Stan).</li>
+<li><strong>Thin-plate regression splines</strong> (Wood 2003) — the default in <code>mgcv</code>. Penalised on the integral of the squared second derivatives. Equivalent in expectation to a GP with a specific Matérn-like kernel.</li>
+<li><strong>B-splines / P-splines</strong> (Eilers &amp; Marx 1996) — local-support polynomial pieces with a roughness penalty. Cheap, easy, work well in 1-D and tensor-product extensions in 2-D.</li>
 </ul>
-<p>(Other approaches that exist but we don’t cover: inducing-point / sparse GPs, which can be viewed as a basis-function method that learns its basis locations; and Vecchia / nearest-neighbour GP, which sparsifies the joint density via conditionals on nearby points.)</p>
+<p>Splines are the most accessible entry point: GAMs in <code>mgcv</code> give you “almost a GP” in one line of R, with REML hyperparameter selection and confidence bands. The conceptual link is direct — a thin-plate regression spline penalty is the marginal log-likelihood of a particular GP. Practical limit is the curse of dimensionality on tensor-product bases (3-D fields with anisotropic length-scales get awkward), and integrating into a non-Gaussian likelihood (qPCR hurdle, ZI-Beta-Binomial) takes more bookkeeping than HMC-native methods.</p></li>
+<li><p><strong>SPDE / Matérn</strong> (Lindgren–Rue–Lindström 2011). Recasts a Matérn GP as the solution of a stochastic PDE on a triangulated mesh, yielding a sparse Gaussian Markov random field. The foundation of R-INLA’s spatial framework. Very efficient on large <span class="math inline">N</span>, but tied to Matérn covariance and tied to the INLA inference machinery (not native to Stan, so HMC-native pipelines have to handle it through <code>inlabru</code> or roll their own).</p></li>
+<li><p><strong>Hilbert-space approximate GP (HSGP)</strong> (Solin &amp; Särkkä 2020; Riutort-Mayol <em>et al.</em> 2023). A basis-function expansion using Laplacian eigenfunctions on a bounded box, with the weights <span class="math inline">w_j(\theta) = \sqrt{S_\theta(\sqrt{\lambda_j})}</span> coming from the kernel’s spectral density. This is the method we settled on; the next section explains the construction in detail.</p></li>
+</ul>
 <p>This project uses <strong>HSGP</strong> because:</p>
 <ul>
 <li>Stan-native: no special inference machinery beyond what HMC already does.</li>
