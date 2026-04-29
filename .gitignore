@@ -86,3 +86,7 @@ outputs/distance_*/*
 !outputs/distance_*/distance_v*_vignette.qmd
 !outputs/distance_*/_vignette_figs/
 !outputs/distance_*/_vignette_figs/**
+
+# Big eDNA dataset — too large to track in git (30 MB). The smaller
+# qPCR file (Data/hake_qPCR_MURI_df.csv) stays tracked.
+Data/MV1_MURI_df.csv
