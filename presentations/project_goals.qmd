@@ -1,5 +1,5 @@
 ---
-title: "Joint visual + eDNA modelling for marine megafauna"
+title: "Integrated spatial models for cetaceans using eDNA and visual survey data"
 subtitle: "Project goals and model overview"
 author: "MMARINeDNA / eDNAVisualJointModel"
 date: today
@@ -28,11 +28,19 @@ knitr::opts_chunk$set(
 )
 ```
 
-## GitHub Repo
+## Subgroup B Workshop (Morning)
 
 <https://github.com/MMARINeDNA/eDNAVisualJointModel/>
 
-## Why joint modelling?
+::: {.incremental}
+- Scope and goals of the M3 integrated spatial model (EKJ)
+- qPCR and metabarcoding observational submodel (AOS)
+- Visual line-transect observational submodel (LT)
+- Spatial process model and estimation (EKJ)
+- Simulation, progress and next steps (EKJ)
+:::
+
+## Why integrated modelling?
 
 For the same species, in the same area, two complementary survey streams:
 
@@ -48,14 +56,14 @@ For the same species, in the same area, two complementary survey streams:
 **Joint fit**: a single latent density surface drives both observation processes.
 :::
 
-## State-space view of the joint model
+## State-space view of the integrated model
 
 ```{mermaid}
 %%| fig-align: center
 flowchart TB
   L["<b>Latent density surface</b><br/>log λ(x, y, z) = μ + f(x, y, z)<br/>f ~ GP(0, K)"]
-  L --> E["<b>eDNA observations</b><br/>qPCR Ct + MARVER1 reads"]
-  L --> V["<b>Visual observations</b><br/>line-transect sightings"]
+  L <--> E["<b>eDNA observations</b><br/>qPCR Ct + MARVER1 reads"]
+  L <--> V["<b>Visual observations</b><br/>line-transect sightings"]
 
   classDef latent fill:#fff5d6,stroke:#b08000,stroke-width:1.5px,color:#222;
   classDef obs    fill:#e0f0ff,stroke:#3a6ea5,stroke-width:1.5px,color:#222;
@@ -120,14 +128,7 @@ $$
 - **Shared latent field** for principled extrapolation and ecological inference.
 :::
 
-## Morning Objectives
-::: {.incremental}
-- Scope and goals of the M3 integrated spatial model (EKJ)
-- qPCR and metabarcoding observational submodel (AOS)
-- Visual line-transect observational submodel (LT)
-- Spatial process model and estimation (EKJ)
-- Simulation, progress and next steps (EKJ)
-:::
+
 
 ## References
 
