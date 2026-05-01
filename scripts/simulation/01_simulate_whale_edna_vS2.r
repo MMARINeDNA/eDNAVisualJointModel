@@ -62,11 +62,10 @@ n_stations    <- 200
 # Ordered to match gp_params: hake, humpback, PWSD. Same values as v4.
 conv_factor <- c(hake = 10, humpback = 200, pwsd = 110, junk=10)
 
-# Six sample depths per station - finer resolution of the water column
-# than v4's three. Samples with Z_sample > Z_bathy are dropped, so
-# offshore stations (deep) get all 6 depths and shelf stations (shallow)
-# get only the upper depths.
-sample_depths <- c(0, 50, 150, 250, 350, 500)
+# Surface-only sampling: a single sample at Z_sample = 0 per station.
+# The 3-D GP still includes Z_bathy as the third spatial coordinate;
+# only the water-column sampling depth is collapsed to the surface.
+sample_depths <- c(0)
 n_sample_depth <- length(sample_depths)
 
 vol_filtered  <- 2.5
@@ -228,11 +227,8 @@ gp_params <- list(
     ly    = 300,
     lz    = 150,
     mu    = log(15),
-    # eDNA water column at (0, 50, 150, 250, 350, 500 m). Linearly
-    # interpolated from v4's c(0, 3.0, 1.5) reference at (0, 150, 500)
-    # so peak detection at 150 m is preserved. Six values aligned to
-    # the new sample_depths.
-    zsample_pref = c( 0.0,  0, 0, 0, 0, 0)
+    # Surface-only sampling: zsample_pref aligns with sample_depths = c(0)
+    zsample_pref = c(0.0)
   ),
 
   humpback = list(
@@ -242,9 +238,7 @@ gp_params <- list(
     ly    = 300,
     lz    = 100,
     mu    = log(1),
-    # Interpolated from v4's c(0, 2.0, -1.3): peak at 150 m feeding-dive
-    # depth, drops off below.
-    zsample_pref = c( 0.0,  0, 0, 0, 0, 0) # set to 0 for testing
+    zsample_pref = c(0.0)
   ),
 
   pwsd = list(
@@ -254,9 +248,7 @@ gp_params <- list(
     ly    = 300,
     lz    = 300,
     mu    = log(1),
-    # Interpolated from v4's c(0, -3.0, -10.0): surface-active species,
-    # rapid attenuation with depth.
-    zsample_pref = c( 0.0, 0, 0, 0, 0, 0)
+    zsample_pref = c(0.0)
   )
 )
 # Habitat-preference fields (zbathy_pref_*, y_pref_*) deliberately
@@ -309,13 +301,18 @@ for (s in seq_len(n_species)) {
 zsample_effect <- matrix(NA, N, n_species)
 for (s in seq_len(n_species)) {
   p <- gp_params[[s]]
-  pref_fn <- approxfun(
-    x      = sample_depths,
-    y      = p$zsample_pref,
-    method = "linear",
-    rule   = 2
-  )
-  zsample_effect[, s] <- exp(pref_fn(samples$Z_sample))
+  if (n_sample_depth == 1L) {
+    # Surface-only: every sample takes the single zsample_pref value.
+    zsample_effect[, s] <- exp(p$zsample_pref[1])
+  } else {
+    pref_fn <- approxfun(
+      x      = sample_depths,
+      y      = p$zsample_pref,
+      method = "linear",
+      rule   = 2
+    )
+    zsample_effect[, s] <- exp(pref_fn(samples$Z_sample))
+  }
 }
 
 C_obs_si <- matrix(NA_integer_, N, n_species)
