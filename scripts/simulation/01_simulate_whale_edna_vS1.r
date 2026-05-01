@@ -1,19 +1,22 @@
 # =============================================================================
-# simulate_whale_edna_v4.2.R
+# simulate_whale_edna_vS1.R
 #
-# vS1 - 2DD space XY controls whale density at surface, sampling of eDNA at surface
-# zero-mean GP (so the model's structural assumption matches the truth),
-# 200 sampling stations, surface only 
-# qPCR-calibration
-# parameters (kappa, sigma_ct, alpha_ct, beta_ct) all treated as known
-# in downstream stages (sigma_ct passed inflated to absorb discrete-
-# count noise; see scripts/03_format_stan_data_v4.2.r).
+# vS1 — simplified 2-D simulation. Whale density is a function of (X, Y)
+# only; Z_bathy and the rotated cross-shore axis are removed entirely.
+# Stations are drawn uniformly from the study area (no shelf / slope /
+# offshore stratification). All sampling is surface-only.
+#
+# Latent field: zero-mean 2-D anisotropic GP
+#     log(lambda_si) = mu_s + f_s(X, Y),    f_s ~ GP(0, K(lx, ly))
+#
+# qPCR calibration parameters (kappa, sigma_ct, alpha_ct, beta_ct) are
+# all treated as known in downstream stages (sigma_ct passed inflated
+# to absorb discrete-count noise; see scripts/03_format_stan_data_v4.2.r).
 #
 # Includes changes from v4.1:
-#   * Ole added changes to Ct sigma function.
-#   * Ole reformulated the junk category so that it is retained in the mb_reads
-
-
+#   * collaborator changes to the Ct sigma function
+#   * collaborator reformulation of the junk category so junk reads are
+#     retained in mb_reads
 # =============================================================================
 
 library(tidyverse)
@@ -59,11 +62,8 @@ n_stations    <- 200
 # Ordered to match gp_params: hake, humpback, PWSD. Same values as v4.
 conv_factor <- c(hake = 10, humpback = 200, pwsd = 110, junk=10)
 
-# Six sample depths per station - finer resolution of the water column
-# than v4's three. Samples with Z_sample > Z_bathy are dropped, so
-# offshore stations (deep) get all 6 depths and shelf stations (shallow)
-# get only the upper depths.
-sample_depths <- c(0) # changed to surface-only
+# Surface-only sampling: a single sample depth at Z_sample = 0.
+sample_depths <- c(0)
 n_sample_depth <- length(sample_depths)
 
 vol_filtered  <- 2.5
@@ -83,102 +83,29 @@ mb_reads_min           <- 1000L
 mb_reads_max           <- 250000L
 
 # ---------------------------------------------------------------------------
-# 1. Rotated bathymetry
+# 1. Station locations
 #
-# Rather than depth = f(X), use a rotated cross-shore axis X_prime so the
-# shelf-slope isobaths run NW-SE (roughly parallel to the US West Coast).
-#
-# The rotation is applied in NORMALIZED space (both axes rescaled to [0, 1])
-# so the angle has a consistent geometric meaning regardless of the domain
-# aspect ratio. At 0° the bathymetry depends only on X (V2 behaviour); at
-# 90° only on Y. We use 25° — large enough for clearly tilted isobaths, but
-# small enough that both shelf and offshore are present at every latitude.
-# (At 45° in this elongated domain, latitude and bathymetry become almost
-# perfectly confounded, which breaks realistic species preferences.)
-# ---------------------------------------------------------------------------
-rotation_deg <- 25
-rot <- rotation_deg * pi / 180
-
-# X_prime spans [0, 300] km-equivalent over the domain, matching the V2
-# shelf profile. 0 = most offshore (SW corner), 300 = most nearshore (NE corner).
-X_prime_fn <- function(X_km, Y_km) {
-  raw <- cos(rot) * (X_km / X_km_max) + sin(rot) * (Y_km / Y_km_max)
-  300 * raw / (cos(rot) + sin(rot))
-}
-
-# Shelf-slope profile on the rotated axis — same logistic shape as V2,
-# now driven by X_prime instead of raw X
-bathy_mean_fn <- function(X_km, Y_km) {
-  xp       <- X_prime_fn(X_km, Y_km)
-  abyssal  <- 2500
-  shelf    <- 80
-  slope    <- abyssal + (shelf - abyssal) / (1 + exp(-0.06 * (xp - 180)))
-  pmax(slope, 10)
-}
-
-# ---------------------------------------------------------------------------
-# 2. Station locations
-#
-# Stratified by the rotated cross-shore coordinate so we have dense
-# coverage of the shelf/slope and lighter coverage offshore.
+# Uniform random sampling over the (X, Y) study area — no rotation, no
+# bathymetry-based stratification. Z_bathy is removed entirely; the GP
+# below is 2-D over (X, Y).
 # ---------------------------------------------------------------------------
 set.seed(1)
 
-gen_stratum <- function(n, xp_lo, xp_hi) {
-  # Rejection sampling: draw uniformly in (X_km, Y_km) and keep points
-  # whose rotated X_prime falls in [xp_lo, xp_hi]
-  out <- data.frame(X_km = numeric(0), Y_km = numeric(0))
-  while (nrow(out) < n) {
-    cand <- data.frame(
-      X_km = runif(n * 4, 0, X_km_max),
-      Y_km = runif(n * 4, 0, Y_km_max)
-    )
-    cand$xp <- X_prime_fn(cand$X_km, cand$Y_km)
-    keep <- cand[cand$xp >= xp_lo & cand$xp <= xp_hi, c("X_km", "Y_km")]
-    out <- rbind(out, keep)
-  }
-  out[seq_len(n), ]
-}
+stations <- tibble(
+  station = seq_len(n_stations),
+  X       = runif(n_stations, 0, X_km_max),   # km E-W from western edge
+  Y       = runif(n_stations, 0, Y_km_max),   # km N-S from SF
+  X_utm   = X_min + X * 1000,
+  Y_utm   = Y_min + Y * 1000
+)
 
-# Three strata matched to the shelf profile:
-#   shelf    : X_prime > 220 km (Z_bathy ~  80 – 300 m)
-#   slope    : X_prime 120–220 (Z_bathy ~ 300 – 2000 m)
-#   offshore : X_prime <  120  (Z_bathy > 2000 m)
-n_shelf    <- round(n_stations * 0.50)
-n_slope    <- round(n_stations * 0.30)
-n_offshore <- n_stations - n_shelf - n_slope
+cat(sprintf("Stations: %d (uniform over %.0f x %.0f km domain)\n",
+            n_stations, X_km_max, Y_km_max))
 
-stations <- bind_rows(
-  gen_stratum(n_shelf,    xp_lo = 220, xp_hi = 300),
-  gen_stratum(n_slope,    xp_lo = 120, xp_hi = 220),
-  gen_stratum(n_offshore, xp_lo =   0, xp_hi = 120)
-) %>%
-  slice_sample(n = n_stations) %>%
-  mutate(
-    station = row_number(),
-    X       = X_km,
-    Y       = Y_km,
-    X_utm   = X_min + X_km * 1000,
-    Y_utm   = Y_min + Y_km * 1000,
-    X_prime = X_prime_fn(X, Y)
-  ) %>%
-  dplyr::select(-X_km, -Y_km)
-
-set.seed(2)
-stations <- stations %>%
-  mutate(
-    Z_bathy_mean  = bathy_mean_fn(X, Y),
-    Z_bathy_noise = rnorm(n_stations, 0, Z_bathy_mean * 0.12),
-    Z_bathy       = pmax(Z_bathy_mean + Z_bathy_noise, 10)
-  )
-
-cat(sprintf("Stations: %d\n", n_stations))
-cat(sprintf("  X_prime range: %.0f – %.0f km\n",
-            min(stations$X_prime), max(stations$X_prime)))
-cat(sprintf("  Z_bathy range: %.0f – %.0f m\n",
-            min(stations$Z_bathy), max(stations$Z_bathy)))
-
-# Full sample table: station × sample depth, drop samples below seafloor
+# Full sample table: station × sample depth. Surface-only here, so this
+# is just one row per station; the depth_idx loop is preserved for
+# shape compatibility with downstream stages that expect a `samples`
+# table indexed by both station and depth_idx.
 samples <- expand.grid(
   station   = 1:n_stations,
   depth_idx = 1:n_sample_depth
@@ -187,33 +114,24 @@ samples <- expand.grid(
   mutate(
     Z_sample  = sample_depths[depth_idx],
     sample_id = row_number()
-  ) %>%
-  filter(Z_sample <= Z_bathy) %>%
-  mutate(sample_id = row_number())
+  )
 
 N <- nrow(samples)
-cat(sprintf("Samples after filtering Z_sample > Z_bathy: %d\n", N))
+cat(sprintf("Samples (surface-only): %d\n", N))
 
-# GP coordinates: (X, Y, Z_bathy). Bathymetry drives density structure.
-coords_gp <- as.matrix(samples[, c("X", "Y", "Z_bathy")])
+# GP coordinates: (X, Y) only. The latent field is 2-D.
+coords_gp <- as.matrix(samples[, c("X", "Y")])
 
 # ---------------------------------------------------------------------------
-# 3. GP hyperparameters + realistic spatial structure
+# 2. GP hyperparameters
 #
 # Model form exposed to downstream inference:
-#   log(lambda_s) = mu_s + f_s(X, Y, Z_bathy)
+#   log(lambda_s) = mu_s + f_s(X, Y)
 #
-# All spatial structure (bathymetric habitat, latitude band) lives inside
-# f_s — the GP. In the simulation, f_s is drawn from an anisotropic
-# Gaussian with a non-zero mean that encodes the species' habitat
-# preferences, and an anisotropic squared-exponential covariance. From the
-# model's perspective this is one realisation of a zero-mean GP; the
-# habitat structure is simply the feature we want the data to reveal.
-#
-# Realistic preferences for the US West Coast:
-#   Hake         — shelf-slope break (Z_bathy 150–400 m), broad latitude
-#   Humpback     — shallow shelf, concentrated south (central CA to S. OR)
-#   PWS dolphin  — deep slope / oceanic, concentrated north of Cape Mendocino
+# 2-D zero-mean anisotropic GP per species, with cross-shore (lx) and
+# along-shore (ly) length-scales. Z_bathy is no longer part of the field.
+# `zsample_pref` is kept for shape compatibility with downstream code,
+# but with surface-only sampling it has a single entry (no depth effect).
 # ---------------------------------------------------------------------------
 
 gp_params <- list(
@@ -223,13 +141,9 @@ gp_params <- list(
     sigma = 2,
     lx    =  50,
     ly    = 300,
-    lz    = 150,
     mu    = log(15),
-    # eDNA water column at (0, 50, 150, 250, 350, 500 m). Linearly
-    # interpolated from v4's c(0, 3.0, 1.5) reference at (0, 150, 500)
-    # so peak detection at 150 m is preserved. Six values aligned to
-    # the new sample_depths.
-    zsample_pref = c( 0.0,  1.0,  3.0,  2.57, 2.14, 1.50)
+    # Surface-only sampling: zsample_pref aligns with sample_depths = c(0)
+    zsample_pref = c(0.0)
   ),
 
   humpback = list(
@@ -237,9 +151,8 @@ gp_params <- list(
     sigma = 1.0,
     lx    =  50,
     ly    = 300,
-    lz    = 100,
     mu    = log(2.5), # made larger than is realistic
-    zsample_pref = c( 0.0,  0.67, 2.00, 1.06, 0.11, -1.30)
+    zsample_pref = c(0.0)
   ),
 
   pwsd = list(
@@ -247,24 +160,22 @@ gp_params <- list(
     sigma = 1.3,
     lx    =  40,
     ly    = 300,
-    lz    = 300,
     mu    = log(5), # made larger than is realistic
-    zsample_pref = c( 0.0, -1.0, -3.0, -5.0, -7.0, -10.0)
+    zsample_pref = c(0.0)
   )
 )
 
 # ---------------------------------------------------------------------------
-# 4. Preference + GP draws
+# 3. GP draws (2-D)
 # ---------------------------------------------------------------------------
 
-aniso_cov <- function(coords, sigma, lx, ly, lz) {
+aniso_cov <- function(coords, sigma, lx, ly) {
   n <- nrow(coords)
   K <- matrix(0, n, n)
   for (i in seq_len(n)) {
     for (j in i:n) {
       d2 <- ((coords[i,1]-coords[j,1])/lx)^2 +
-        ((coords[i,2]-coords[j,2])/ly)^2 +
-        ((coords[i,3]-coords[j,3])/lz)^2
+            ((coords[i,2]-coords[j,2])/ly)^2
       K[i,j] <- K[j,i] <- sigma^2 * exp(-0.5 * d2)
     }
   }
@@ -279,9 +190,9 @@ gp_mean_si     <- matrix(0,  N, n_species)   # zero-mean - kept for output shape
 for (s in seq_len(n_species)) {
   p  <- gp_params[[s]]
 
-  K  <- aniso_cov(coords_gp, p$sigma, p$lx, p$ly, p$lz)
+  K  <- aniso_cov(coords_gp, p$sigma, p$lx, p$ly)
 
-  # Zero-mean GP: f_s ~ MVN(0, K_s). No habitat-preference offset.
+  # Zero-mean GP: f_s ~ MVN(0, K_s).
   fs <- as.vector(mvrnorm(1, mu = rep(0.0, N), Sigma = K))
   gp_field_si[, s] <- fs
 
@@ -295,13 +206,18 @@ for (s in seq_len(n_species)) {
 zsample_effect <- matrix(NA, N, n_species)
 for (s in seq_len(n_species)) {
   p <- gp_params[[s]]
-  pref_fn <- approxfun(
-    x      = sample_depths,
-    y      = p$zsample_pref,
-    method = "linear",
-    rule   = 2
-  )
-  zsample_effect[, s] <- exp(pref_fn(samples$Z_sample))
+  if (n_sample_depth == 1L) {
+    # Surface-only: every sample takes the single zsample_pref value.
+    zsample_effect[, s] <- exp(p$zsample_pref[1])
+  } else {
+    pref_fn <- approxfun(
+      x      = sample_depths,
+      y      = p$zsample_pref,
+      method = "linear",
+      rule   = 2
+    )
+    zsample_effect[, s] <- exp(pref_fn(samples$Z_sample))
+  }
 }
 
 C_obs_si <- matrix(NA_integer_, N, n_species)
@@ -495,21 +411,12 @@ sim <- list(
     Y_max_utm             = Y_max,
     X_km_max              = X_km_max,
     Y_km_max              = Y_km_max,
-    rotation_deg          = rotation_deg,
-    bathy_profile         = list(
-      rotation_deg       = rotation_deg,
-      shelf_break_xprime = 180,
-      abyssal_depth      = 2500,
-      shelf_depth        =   80,
-      slope_k            = 0.06
-    ),
     coord_note = paste(
       "X (km): 0 = western edge of domain (100000 UTM E),",
       "500 = eastern edge (600000 UTM E); ",
       "Y (km): 0 = SF (~4180000 UTM N, 37.77°N),",
       "1270 = US/Canada border (~5450000 UTM N, ~49°N); ",
-      "Z_bathy: bottom depth (m), derived from rotated X_prime; ",
-      "Z_sample: water column sample depth (m)"
+      "Z_sample: water column sample depth (m, surface only)"
     )
   ),
   design = list(
@@ -519,8 +426,8 @@ sim <- list(
     n_mb_rep_i   = n_mb_rep_i      # per-sample MB rep count   (1, 2 or 3)
   ),
   truth = list(
-    gp_field_si    = gp_field_si,    # f_s — includes habitat structure
-    gp_mean_si     = gp_mean_si,     # diagnostic: GP mean used for sim
+    gp_field_si    = gp_field_si,    # f_s — zero-mean 2-D GP draw over (X, Y)
+    gp_mean_si     = gp_mean_si,     # zero matrix; kept for output shape
     lambda_true_si = lambda_true_si,
     C_obs_si       = C_obs_si,       # N × S  bottle copies
     qpcr_copies    = qpcr_copies,    # N_qpcr_long  aliquot copies (hake)
