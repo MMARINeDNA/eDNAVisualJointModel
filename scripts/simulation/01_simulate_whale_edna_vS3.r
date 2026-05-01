@@ -415,22 +415,22 @@ qpcr_ct      <- ifelse(
 # proportion.
 set.seed(200)
 
-# For every metabarcoding sample, define an expected copies of junk
-# and then a realized number of copies in each replicate.
-# Junk does not have a spatial pattern.
-junk_mean <- 50
+# For every metabarcoding sample, define expected bottle junk copies
+# (no spatial pattern; one rnegbin draw per sample).
+junk_mean   <- 50
 junk_theta  <- 1000
-junk_exp_copies <- rnegbin(nrow(samples),mu=junk_mean,theta=junk_theta)
+junk_exp_copies <- rnegbin(nrow(samples), mu = junk_mean, theta = junk_theta)
 
 C_obs_si_junk <- junk_exp_copies * 50
 
-mb_junk_copies <- matrix(NA_integer_, N_mb_long, 1)
-mb_junk_copies <- rbinom(N_mb_long,
-                           size = C_obs_si_junk[mb_sample_idx],
-                           prob = vol_aliquot / 100)
+# Aliquot-level junk Binomial draw — taken ONCE per sample and repeated
+# across replicates so every aliquot from a station receives the same
+# junk count. Together with the sample-level pi_all below, this means
+# all replicates from a station share the same expected proportion of
+# reads attributable to junk (and to each target species).
+mb_junk_per_sample <- rbinom(N, size = C_obs_si_junk, prob = vol_aliquot / 100)
+mb_junk_copies     <- mb_junk_per_sample[mb_sample_idx]
 
-# Per-aliquot total read depth from the mixture defined at the top of
-# the script.
 # Per-aliquot total read depth from the mixture defined at the top of
 # the script.
 component_tight <- rbinom(N_mb_long, 1, mb_reads_p_tight)
@@ -441,34 +441,34 @@ read_depth <- ifelse(
 )
 read_depth <- pmin(pmax(as.integer(round(read_depth)), mb_reads_min), mb_reads_max)
 
-pi_junk    <- mb_junk_copies / (rowSums(mb_copies) + mb_junk_copies)
-# hist(pi_junk)
+# Read-proportion mixture computed at the SAMPLE level. All aliquots
+# from a given station share the same expected proportion of reads from
+# each target species + junk; per-aliquot variation in the observed
+# read counts then comes only from the multinomial draw itself + the
+# per-aliquot read-depth roll. The aliquot-level Binomial mb_copies
+# values built in section 7 are kept and saved as truth, but they no
+# longer drive the multinomial probabilities below.
+sample_total   <- rowSums(C_obs_si) + C_obs_si_junk        # length N
+zero_total     <- sample_total == 0
+sample_pi_edna <- C_obs_si      / pmax(sample_total, 1)    # N x n_species
+sample_pi_junk <- C_obs_si_junk / pmax(sample_total, 1)    # length N
+sample_pi_edna[zero_total, ] <- 0
+sample_pi_junk[zero_total]   <- 1   # if a sample has zero target + zero junk, force all-junk
 
-# Target-species proportions (within the non-junk pool)
-pi_edna <- mb_copies / (rowSums(mb_copies) + mb_junk_copies)
-pi_all <- cbind(pi_edna,pi_junk)
+pi_edna <- sample_pi_edna[mb_sample_idx, , drop = FALSE]   # N_mb_long x n_species
+pi_junk <- sample_pi_junk[mb_sample_idx]                    # length N_mb_long
+pi_all  <- cbind(pi_edna, pi_junk)
 
-# Aliquots with zero copies across all target species have no target
-# signal at all — all reads in that aliquot are junk. Force
-# target_read_depth = 0 for those rows so the multinomial produces zero
-# target reads, and bump the junk read count to preserve the per-aliquot
-# total. A sentinel pi is set only to keep rmultinom well-defined when
-# size = 0.
-
-empty_rows <- !is.finite(rowSums(pi_edna))
-pi_edna[empty_rows, ] <- 0
-#target_read_depth[empty_rows] 
-
-# Multinomial draw of target reads per aliquot; stack as N_mb_long × n_species
+# Multinomial draw of (target species + junk) reads per aliquot.
 mb_reads <- t(vapply(
   seq_len(N_mb_long),
   function(i) rmultinom(1, size = read_depth[i], prob = pi_all[i, ])[, 1],
-  integer(n_species+1)
+  integer(n_species + 1)
 ))
 storage.mode(mb_reads) <- "integer"
-mb_total   <- as.integer(rowSums(mb_reads))    # = target_read_depth
+mb_total <- as.integer(rowSums(mb_reads))
 
-target_read_depth <- read_depth - mb_reads[,"pi_junk"]
+target_read_depth <- read_depth - mb_reads[, "pi_junk"]
 
 # ---------------------------------------------------------------------------
 # 10. Bundle and save
