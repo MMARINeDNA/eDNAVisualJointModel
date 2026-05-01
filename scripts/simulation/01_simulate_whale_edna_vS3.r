@@ -1,8 +1,9 @@
 # =============================================================================
-# simulate_whale_edna_v4S4.R
+# simulate_whale_edna_v4S3.R
 #
 # zero-mean GP (so the model's structural assumption matches the truth),
-# 200 sampling stations, 5 depths, and the qPCR-calibration
+# 200 sampling stations, 5 depths, but no depth pref (all set to 0)
+# and the qPCR-calibration
 # parameters (kappa, sigma_ct, alpha_ct, beta_ct) all treated as known
 # in downstream stages (sigma_ct passed inflated to absorb discrete-
 # count noise; see scripts/03_format_stan_data_v4.2.r).
@@ -15,7 +16,7 @@
 #   1. Z_bathy  - bottom depth at (X, Y); enters the GP as the third
 #                 spatial coordinate (so the latent field is over X-Y-Z).
 #   2. Z_sample - water column depth at which the sample was filtered;
-#                 drives the per-sample log_zsample_effect offset.
+#                 drives the per-sample log_zsample_effect offset, set to 0
 # =============================================================================
 
 library(tidyverse)
@@ -231,7 +232,7 @@ gp_params <- list(
     # interpolated from v4's c(0, 3.0, 1.5) reference at (0, 150, 500)
     # so peak detection at 150 m is preserved. Six values aligned to
     # the new sample_depths.
-    zsample_pref = c( 0.0,  1.0,  3.0,  2.57, 2.14, 1.50)
+    zsample_pref = c( 0.0,  0, 0, 0, 0, 0)
   ),
 
   humpback = list(
@@ -243,7 +244,7 @@ gp_params <- list(
     mu    = log(1),
     # Interpolated from v4's c(0, 2.0, -1.3): peak at 150 m feeding-dive
     # depth, drops off below.
-    zsample_pref = c( 0.0,  0.67, 2.00, 1.06, 0.11, -1.30)
+    zsample_pref = c( 0.0,  0, 0, 0, 0, 0) # set to 0 for testing
   ),
 
   pwsd = list(
@@ -255,7 +256,7 @@ gp_params <- list(
     mu    = log(1),
     # Interpolated from v4's c(0, -3.0, -10.0): surface-active species,
     # rapid attenuation with depth.
-    zsample_pref = c( 0.0, -1.0, -3.0, -5.0, -7.0, -10.0)
+    zsample_pref = c( 0.0, 0, 0, 0, 0, 0)
   )
 )
 # Habitat-preference fields (zbathy_pref_*, y_pref_*) deliberately

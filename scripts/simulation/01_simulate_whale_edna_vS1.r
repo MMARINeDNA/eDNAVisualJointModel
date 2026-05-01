@@ -151,7 +151,7 @@ gp_params <- list(
     sigma = 1.0,
     lx    =  50,
     ly    = 300,
-    mu    = log(2.5), # made larger than is realistic
+    mu    = log(1), # made larger than is realistic
     zsample_pref = c(0.0)
   ),
 
@@ -160,7 +160,7 @@ gp_params <- list(
     sigma = 1.3,
     lx    =  40,
     ly    = 300,
-    mu    = log(5), # made larger than is realistic
+    mu    = log(1), # made larger than is realistic
     zsample_pref = c(0.0)
   )
 )
