@@ -190,7 +190,7 @@ stan_data <- list(
 
   # Coordinates (normalised to [-1, 1])
   coords      = coords_norm,
-  # coord_scale = coord_scale,
+  coord_scale = coord_scale,
 
   # HSGP
   L_hsgp = HSGP_C,
