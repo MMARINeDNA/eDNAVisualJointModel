@@ -453,8 +453,8 @@ sim <- list(
   )
 )
 
-dir.create("outputs/whale_edna_output_v4.2", showWarnings = FALSE, recursive = TRUE)
-saveRDS(sim, "outputs/whale_edna_output_v4.2/whale_edna_sim_v4.2.rds")
+dir.create("outputs/whale_edna_output_vS1", showWarnings = FALSE, recursive = TRUE)
+saveRDS(sim, "outputs/whale_edna_output_vS1/whale_edna_sim_vS1.rds")
 
 # ---------------------------------------------------------------------------
 # 11. Detection-rate diagnostic
