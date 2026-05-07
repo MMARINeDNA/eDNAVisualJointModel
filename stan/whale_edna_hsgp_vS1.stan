@@ -42,7 +42,7 @@ functions {
   // Calculated Spectral Lambda for each basis and each dimension.
   // -------------------------------------------------------------------------
 
-	vector lambda_nD(real[] L, int[] m, int D) {
+	vector lambda_nD(array[] real L, array[] int m, int D) {
 		vector[D] lam;
 		for(i in 1:D){
 			lam[i] = ((m[i]*pi())/(2*L[i]))^2; }
@@ -60,6 +60,14 @@ functions {
 				
 		return S;
 	}
+	real spd_nD(real alpha, row_vector rho, vector w, int D) {
+		real S;
+		S = alpha^2 * sqrt(2*pi())^D * prod(rho) * exp(-0.5*((rho .* rho) * (w .* w)));
+				
+		return S;
+	}
+
+	
   // -------------------------------------------------------------------------
   // N x M HSGP design matrix (2-D product of 1-D eigenfunctions)
   // -------------------------------------------------------------------------
@@ -72,36 +80,21 @@ functions {
 		fi = fi1 .* fi2;
 		return fi;
 	}
-
-
-
-  // -------------------------------------------------------------------------
-  // Spectral weights (length M) for anisotropic 3-D SE kernel
-  // -------------------------------------------------------------------------
-  vector hsgp_weights(real sigma_gp, vector l, vector L,
-                      vector coord_scale, array[] int m) {
-    int M = m[1] * m[2] * m[3];
-    vector[M] wt;
-    real alpha_dim = pow(sigma_gp, 1.0 / 3.0);
-    int col = 1;
-    for (j1 in 1:m[1]) {
-      for (j2 in 1:m[2]) {
-        for (j3 in 1:m[3]) {
-          real freq1 = (j1 * pi() / (2.0 * L[1])) / coord_scale[1];
-          real freq2 = (j2 * pi() / (2.0 * L[2])) / coord_scale[2];
-          real freq3 = (j3 * pi() / (2.0 * L[3])) / coord_scale[3];
-          wt[col] = sqrt(
-            spd_se_1d(alpha_dim, l[1], freq1) *
-            spd_se_1d(alpha_dim, l[2], freq2) *
-            spd_se_1d(alpha_dim, l[3], freq3)
-          );
-          col += 1;
-        }
-      }
-    }
-    return wt;
-  }
-
+	vector phi_nD(array[] real L, array[] int m, matrix x) {
+		int c = cols(x);
+		int r = rows(x);
+		
+		matrix[r,c] fi;
+		vector[r] fi1;
+		for (i in 1:c){
+			fi[,i] = 1/sqrt(L[i])*sin(m[i]*pi()*(x[,i]+L[i])/(2*L[i]));
+		}
+		fi1 = fi[,1];
+		for (i in 2:c){
+			fi1 = fi1 .* fi[,i];
+		}
+		return fi1;
+	}
 }
 
 // =============================================================================
@@ -110,7 +103,10 @@ data {
   // Dimensions
   int<lower=1> N;          // total samples (station × depth combinations)
   int<lower=1> S;          // species (3)
-  int<lower=1> M;          // HSGP basis dimension = m1 * m2 * m3
+  int<lower=1> M;          // HSGP basis dimension = prod(HSGP_M)
+  int<lower=1> D1;         // Number of dimensions for the primary GP.
+
+  array[M,D1] int INDICES;	//indices of combinations of basis functions 
 
   // Species-specific conversion factor (log scale): log(copies per animal
   // per litre per km^2). Whales shed more eDNA per animal than hake, so
@@ -122,13 +118,16 @@ data {
 
   // Coordinates normalised to [-1, 1] (unnormalized units :col 1=X km, 2=Y km)
   matrix[N, 2] coords;
+  
+  int<lower=1> N_pred;          // total prediction locations
+  matrix[N_pred,2] pred_coords;
 
   // Original-unit half-ranges used for normalisation
   vector<lower=0>[2] coord_scale;
 
   // HSGP boundary extension factors and basis counts
-  vector<lower=0>[3]    L_hsgp;
-  array[3] int<lower=1> m_hsgp;
+  array[D1] real<lower=0> L_hsgp;
+  array[D1] int<lower=1> m_hsgp;
 
   // Fixed water-column eDNA log-offsets (pre-computed in R): N × S
   matrix[N, S] log_zsample_effect;
@@ -145,11 +144,11 @@ data {
   // ------ Metabarcoding data (all species), long form ------
   int<lower=1>                          N_mb_long;
   array[N_mb_long] int<lower=1, upper=N> mb_sample_idx;
-  array[N_mb_long, S+1] int<lower=0>       mb_reads;
+  array[N_mb_long, S+1] int<lower=0>      mb_reads;
   array[N_mb_long]    int<lower=0>       mb_total;
 
   // 1 = zero-inflated BB, 0 = plain BB
-  # int<lower=0, upper=1> use_zi;
+  // int<lower=0, upper=1> use_zi;
 
   // Fixed qPCR standard-curve coefficients (pre-estimated calibration).
   // alpha_ct, beta_ct were already data in v4. v4.1: kappa, sigma_ct
@@ -160,7 +159,10 @@ data {
   real alpha_ct;
   real beta_ct;
   real<lower=0, upper=1> kappa;
-  real<lower=0> sigma_ct;
+  real gamma0_ct;
+  real gamma1_ct;
+  real<lower=0> sigma0_ct;
+
 
   // Prior hyperparameters (passed as data for easy tuning).
   // gp_sigma uses Gamma(shape, rate) - mode (alpha-1)/beta, mean
@@ -171,9 +173,10 @@ data {
   real prior_mu_sp_sig;
   real<lower=0> prior_gp_sigma_shape;
   real<lower=0> prior_gp_sigma_rate;
-  real prior_gp_lx_mu;       real<lower=0> prior_gp_lx_sig;
-  real prior_gp_ly_mu;       real<lower=0> prior_gp_ly_sig;
-  real prior_gp_lz_mu;       real<lower=0> prior_gp_lz_sig;
+  // Shared transformed gp length scale parameters (gamma distributed)
+  real<lower=0> prior_gp_raw_alpha;       
+  real<lower=0> prior_gp_raw_beta;
+  
   real prior_beta0_phi_mu;   real<lower=0> prior_beta0_phi_sig;
   real prior_gamma0_phi_mu;  real<lower=0> prior_gamma0_phi_sig;
   real prior_gamma1_phi_mu;  real<lower=0> prior_gamma1_phi_sig;
@@ -184,8 +187,15 @@ data {
 transformed data {
 
   // HSGP design matrix — built once, reused every iteration
-  matrix[N, M] PHI = hsgp_phi(coords, L_hsgp, m_hsgp);
+  //matrix[N, M] PHI = hsgp_phi(coords, L_hsgp, m_hsgp);
 
+  matrix[N,M] PHI;
+  matrix[N_pred,M] PHI_pred;
+  // Calculate PHI onces from the indexes, buffer, and  coordinate locations
+  for(m in 1:M){
+    PHI[,m] = phi_nD(L_hsgp, INDICES[m,], coords);
+    PHI_pred[,m] = phi_nD(L_hsgp, INDICES[m,], pred_coords);
+  }
   // Log aliquot dilution: log(vol_aliquot / 100)
   real log_vol_frac = log(vol_aliquot / 100.0);
 
@@ -194,45 +204,56 @@ transformed data {
 // =============================================================================
 parameters {
 
-  vector[S]             mu_sp;      // log-density intercepts
-  vector<lower=0>[S]    gp_sigma;   // GP marginal SD per species
-  matrix<lower=0>[S, 3] gp_l;       // GP length-scales: lx(km), ly(km), lz(m)
-  matrix[S, M]          z_beta;     // non-centred basis coefficients
-
-  // alpha_ct, beta_ct, kappa, sigma_ct are all fixed in the data block.
-
   // Metabarcoding overdispersion
-  vector[S]          beta0_phi;
-  vector<lower=0>[S] gamma0_phi;
-  vector<lower=0>[S] gamma1_phi;
+  real          beta0_phi;
+  real<lower=0> gamma0_phi;
+  real<lower=0> gamma1_phi;
+  
+  // qPCR parameters
+      // alpha_ct, beta_ct, kappa, sigma_ct are all fixed in the data block.
 
+  // GP parameters
+  vector[S+1]             mu_sp;      // log-density intercepts
+  vector<lower=0>[S]    gp_sigma;   // GP marginal SD per species
+  matrix<lower=0>[S, D1] gp_l_raw;  // GP length-scales: lx(km), ly(km) 
+  array[S] vector[M]     z_beta;    // non-centred basis coefficients
 }
 
 // =============================================================================
 transformed parameters {
 
   matrix[N, S] log_lambda;       // log true animal density
-  matrix[N, S] log_lambda_edna;  // log eDNA at sample depth
+  matrix[N, S+1] log_lambda_edna;  // log eDNA (copies)
+  
+  {// Local variable start
+  matrix[N, S] f_s;  // log eDNA (copies)
+    for (s in 1:S) {
+      vector[M] diagSPD ;
+    
+      for(m in 1:M){
+        diagSPD[m] =  sqrt(spd_nD(gp_sigma[s], gp_l_raw[s,], 
+                            sqrt(lambda_nD(L_hsgp, INDICES[m,], D1)), D1)); 
+      } // end M loop
 
-  for (s in 1:S) {
-    vector[M] wt  = hsgp_weights(
-      gp_sigma[s],
-      to_vector(gp_l[s, ]),
-      L_hsgp,
-      coord_scale,
-      m_hsgp
-    );
-    vector[N] f_s = PHI * (wt .* to_vector(z_beta[s, ]));
+      f_s[,s] = PHI * (diagSPD .* z_beta[s,]);
+      
 
-    for (i in 1:N) {
-      log_lambda[i, s]      = mu_sp[s] + f_s[i];
-      log_lambda_edna[i, s] = log_lambda[i, s]
-                              + log_zsample_effect[i, s]
+    log_lambda[, s]      = mu_sp[s] + f_s[,s];
+    log_lambda_edna[, s] = log_lambda[ ,s]
+                              + log_zsample_effect[, s]
                               + log_conv_factor[s]
                               + log_vol_filtered;
-    }
-  }
+    
+    } // end S loop
+  } // end local variable.
+  // add latent variable for the junk for log_lambda_edna
+  // NON-SPATIAL
+  //log_RE_junk = log_RE_junk_raw * sigma_junk;
 
+      log_lambda_edna[, S+1] = rep_vector(mu_sp[S+1]
+                              // + log_RE_junk[i] 
+                              + log_conv_factor[S+1]
+                              + log_vol_filtered                              ,N);
 }
 
 // =============================================================================
@@ -245,14 +266,16 @@ model {
   gp_sigma ~ gamma(prior_gp_sigma_shape, prior_gp_sigma_rate);
 
   for (s in 1:S) {
-    gp_l[s, 1] ~ normal(prior_gp_lx_mu, prior_gp_lx_sig);
-    gp_l[s, 2] ~ normal(prior_gp_ly_mu, prior_gp_ly_sig);
-    gp_l[s, 3] ~ normal(prior_gp_lz_mu, prior_gp_lz_sig);
+    for(d in 1:D1){
+      gp_l_raw[s, d] ~ gamma(prior_gp_raw_alpha, prior_gp_raw_beta);
+    }
   }
 
-  to_vector(z_beta) ~ std_normal();
+  for (s in 1:S) {
+      z_beta[s] ~ std_normal();
+  }
 
-  // kappa, sigma_ct are fixed in the data block (no prior).
+  // kappa, sigma_ct are fixed in the data block (no priors for now).
 
   beta0_phi  ~ normal(prior_beta0_phi_mu,  prior_beta0_phi_sig);
   gamma0_phi ~ normal(prior_gamma0_phi_mu, prior_gamma0_phi_sig);
@@ -261,22 +284,24 @@ model {
   // ------------------------------------------------------------------
   // Likelihood 1 — qPCR hurdle (hake only, s=1)
   // ------------------------------------------------------------------
-  {
+    {
     for (r in 1:N_qpcr_long) {
       int  i            = qpcr_sample_idx[r];
       // log copies in aliquot = log eDNA at depth + log dilution fraction
-      real log_lam      = log_lambda_edna[i, 1] + log_vol_frac;
-      real lam          = exp(fmin(log_lam, 15.0));   // FIX 3: guard overflow
-
-      real p_det        = 1.0 - exp(-kappa * lam);
-      p_det             = fmax(fmin(p_det, 1.0 - 1e-9), 1e-9);
-
-      target += bernoulli_lpmf(qpcr_detect[r] | p_det);
+      real log_lam      = log_lambda_edna[i, 1] +log_vol_frac;
+      real lam          = exp(log_lam);   
 
       if (qpcr_detect[r] == 1) {
-        real log_lam_safe = fmax(fmin(log_lam, 15.0), -10.0);
-        real mu_ct        = alpha_ct - beta_ct * log_lam_safe;
-        target += normal_lpdf(qpcr_ct[r] | mu_ct, fmax(sigma_ct, 1e-6));
+        real mu_ct        = alpha_ct - beta_ct * log_lam ;
+        real sigma_ct     = pow(pow(sigma0_ct,2) + exp(2*(gamma0_ct + gamma1_ct*log_lam )),0.5) ;
+          //  qpcr_like1 += normal_lpdf(qpcr_ct[r] | mu_ct, sigma_ct);
+        
+        target += normal_lpdf(qpcr_ct[r] | mu_ct, sigma_ct);
+            //qpcr_like1 += log1m_exp(-kappa * lam);
+        target += log1m_exp(-kappa * lam);
+      } else{ // if qpcr_detect[r] == 0
+            //qpcr_like1 += -(kappa * lam);
+        target += -(kappa * lam);
       }
     }
   }
@@ -289,166 +314,212 @@ model {
       int i = mb_sample_idx[r];
 
       // eDNA concentrations at this sample
-      vector[S] lam_edna_i;
-      for (s in 1:S) lam_edna_i[s] = exp(fmin(log_lambda_edna[i, s], 15.0));
-
-      // FIX 4: clamp lam_sum before taking log to avoid log(0)
-      real lam_sum      = fmax(sum(lam_edna_i), 1e-12);
-      real log_lam_sum  = log(lam_sum);
-
-      // Compositional proportions
-      vector[S] pi_i;
-      if (lam_sum < 1e-12) {
-        pi_i = rep_vector(1.0 / S, S);
-      } else {
-        pi_i = lam_edna_i / lam_sum;
+      vector[S+1] lam_edna_i;
+      vector[S+1] lam_K_edna_i; // Conditional density on presence
+      vector[S+1] log_lam_edna_i;
+      vector[S+1] log_lam_K_edna_i; // Conditional density on presnce
+      
+      for (s in 1:(S+1)){ 
+        log_lam_edna_i[s]     = log_lambda_edna[i, s] +log_vol_frac  ;
+        lam_edna_i[s]         = exp(log_lam_edna_i[s]);
+        log_lam_K_edna_i[s]   = log_lam_edna_i[s] - log1m_exp(-lam_edna_i[s]);
+        lam_K_edna_i[s]       = exp(log_lam_K_edna_i[s]);
       }
+      vector[S+1] log_nu;
+      vector[S+1] log_pi_i;
+      vector[S+1] pi_i;
+      
+      log_nu = log_lam_K_edna_i - log_lam_K_edna_i[S+1];
+      log_pi_i = log_nu - log_sum_exp(log_nu);
+      pi_i = exp(log_pi_i);
+      
+      real log_lam_sum  = log_sum_exp(log_lam_edna_i);
+      
+      for (s in 1:(S+1)){
+        // Compositional proportions
+          real log_phi_s  = beta0_phi  + log_lam_sum //+beta0_phi
+                              + fmax(gamma0_phi - gamma1_phi * log_lam_K_edna_i[s], 0.0);
+          real phi_s      = exp(log_phi_s);   // cap phi to avoid overflow
 
-      for (s in 1:S) {
-        // FIX 1: clamp log_lam_s before exp to keep log_p_zero well-defined
-        real log_lam_s  = fmax(fmin(log_lambda_edna[i, s], 15.0), -15.0);
-        real lam_s      = exp(log_lam_s);
+        real alpha_bb   =  exp(log_pi_i[s] + log_phi_s) ;
+        real beta_bb    =  exp(log1m_exp(log_pi_i[s]) + log_phi_s) ;
 
-        real log_phi_s  = beta0_phi[s] + log_lam_sum
-                          + fmax(gamma0_phi[s] - gamma1_phi[s] * log_lam_s, 0.0);
-        real phi_s      = exp(fmin(log_phi_s, 10.0));   // cap phi to avoid overflow
+          real log_p_zero = -lam_edna_i[s] ;
+          real log_p_pos  = log1m_exp(log_p_zero);
 
-        real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
-
-        // FIX 2: clamp alpha_bb and beta_bb away from zero
-        real alpha_bb   = fmax(pi_s * phi_s,         1e-6);
-        real beta_bb    = fmax((1.0 - pi_s) * phi_s, 1e-6);
-
-        if (use_zi) {
-          // FIX 1 (cont): keep log1m_exp argument strictly negative
-          real log_p_zero = -lam_s;
-          real log_p_pos  = log1m_exp(fmin(log_p_zero, -1e-9));
-
+          // mb_like +=  zi_beta_binomial_lpmf(
+          //                 mb_reads[r, s] | mb_total[r],
+          //                 log_p_zero, log_p_pos,
+          //                 alpha_bb, beta_bb
+          //             );
           target += zi_beta_binomial_lpmf(
-            mb_reads[r, s] | mb_total[r],
-            log_p_zero, log_p_pos,
-            alpha_bb, beta_bb
-          );
-        } else {
-          target += beta_binomial_lpmf(
-            mb_reads[r, s] | mb_total[r],
-            alpha_bb, beta_bb
+                      mb_reads[r, s] | mb_total[r],
+                      log_p_zero, log_p_pos,
+                      alpha_bb, beta_bb
           );
         }
+        // if(r==1){
+        //   print("log_lam_edna(1:4): ", log_lambda_edna[1:4,] ) ;
+        //   print("log_lam_edna_i (1:4):",log_lam_edna_i) ;
+        // }
       }
     }
-  }
-
-}
+       //print("QPCR1: ",qpcr_like1);
+      // print("QPCR2: ",qpcr_like2);
+      // print("QPCR3: ",qpcr_like3);
+    
+       //print("MB: ",mb_like);
+} // End MODEL BLOCK
 
 // =============================================================================
 generated quantities {
+  // Back transformed gp_ length scales.
+  matrix[S,D1] gp_l;
+  for(d in 1:D1){
+    gp_l[,d] = (gp_l_raw[,d] * coord_scale[d]);
+  }
 
-  vector[N_qpcr_long] log_lik_qpcr;
-  vector[N_mb_long]   log_lik_mb;
+  //vector[N_qpcr_long] log_lik_qpcr;
+  //vector[N_mb_long]   log_lik_mb;
 
-  array[N_qpcr_long] int  pp_qpcr_detect;
-  vector[N_qpcr_long]     pp_qpcr_ct;
-  array[N_mb_long, S] int pp_mb_reads;
+  // array[N_qpcr_long] int  pp_qpcr_detect;
+  // vector[N_qpcr_long]     pp_qpcr_ct;
+  
+  matrix[N_mb_long,S+1] pp_pi_hat;
+  array[N_mb_long, S+1] int pp_mb_reads;
 
   matrix[N, S] lambda_hat;
-  matrix[N, S] lambda_edna_hat;
-
-  for (i in 1:N) {
-    for (s in 1:S) {
-      lambda_hat[i, s]      = exp(log_lambda[i, s]);
-      lambda_edna_hat[i, s] = exp(log_lambda_edna[i, s]);
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // qPCR generated quantities
-  // ------------------------------------------------------------------
-  for (r in 1:N_qpcr_long) {
-    int  i            = qpcr_sample_idx[r];
-    real log_lam      = log_lambda_edna[i, 1] + log_vol_frac;
-    real lam          = exp(fmin(log_lam, 15.0));
-    real p_det        = fmax(fmin(1.0 - exp(-kappa * lam), 1.0 - 1e-9), 1e-9);
-
-    log_lik_qpcr[r] = bernoulli_lpmf(qpcr_detect[r] | p_det);
-    if (qpcr_detect[r] == 1) {
-      real log_lam_safe = fmax(fmin(log_lam, 15.0), -10.0);
-      real mu_ct        = alpha_ct - beta_ct * log_lam_safe;
-      log_lik_qpcr[r]  += normal_lpdf(qpcr_ct[r] | mu_ct, fmax(sigma_ct, 1e-6));
-    }
-
-    pp_qpcr_detect[r] = bernoulli_rng(p_det);
-    if (pp_qpcr_detect[r] == 1) {
-      real log_lam_safe = fmax(fmin(log_lam, 15.0), -10.0);
-      real mu_ct        = alpha_ct - beta_ct * log_lam_safe;
-      pp_qpcr_ct[r]     = normal_rng(mu_ct, fmax(sigma_ct, 1e-6));
-    } else {
-      pp_qpcr_ct[r] = 0.0;
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Metabarcoding generated quantities
-  // ------------------------------------------------------------------
-  for (r in 1:N_mb_long) {
-    log_lik_mb[r] = 0.0;
-
-    if (mb_total[r] == 0) {
-      for (s in 1:S) pp_mb_reads[r, s] = 0;
-      continue;
-    }
-
-    int i = mb_sample_idx[r];
-
-    vector[S] lam_edna_i;
-    for (s in 1:S) lam_edna_i[s] = exp(fmin(log_lambda_edna[i, s], 15.0));
-
-    // FIX 4: clamp before log
-    real lam_sum     = fmax(sum(lam_edna_i), 1e-12);
-    real log_lam_sum = log(lam_sum);
-
-    vector[S] pi_i;
-    if (lam_sum < 1e-12) {
-      pi_i = rep_vector(1.0 / S, S);
-    } else {
-      pi_i = lam_edna_i / lam_sum;
-    }
+  matrix[N, S+1] lambda_edna_hat;
 
     for (s in 1:S) {
-      real log_lam_s  = fmax(fmin(log_lambda_edna[i, s], 15.0), -15.0);
-      real lam_s      = exp(log_lam_s);
+      lambda_hat[, s]      = exp(log_lambda[, s]);
+      lambda_edna_hat[, s] = exp(log_lambda_edna[, s]);
+    }
+    lambda_edna_hat[, S+1] = exp(log_lambda_edna[, S+1]);
+  
 
-      real log_phi_s  = beta0_phi[s] + log_lam_sum
-                        + fmax(gamma0_phi[s] - gamma1_phi[s] * log_lam_s, 0.0);
-      real phi_s      = exp(fmin(log_phi_s, 10.0));
+  // // ------------------------------------------------------------------
+  // // qPCR generated quantities
+  // // ------------------------------------------------------------------
+  // for (r in 1:N_qpcr_long) {
+  //   int  i            = qpcr_sample_idx[r];
+  //   real log_lam      = log_lambda_edna[i, 1] + log_vol_frac;
+  //   real lam          = exp(fmin(log_lam, 15.0));
+  //   real p_det        = fmax(fmin(1.0 - exp(-kappa * lam), 1.0 - 1e-9), 1e-9);
+  // 
+  //   log_lik_qpcr[r] = bernoulli_lpmf(qpcr_detect[r] | p_det);
+  //   if (qpcr_detect[r] == 1) {
+  //     real log_lam_safe = fmax(fmin(log_lam, 15.0), -10.0);
+  //     real mu_ct        = alpha_ct - beta_ct * log_lam_safe;
+  //     log_lik_qpcr[r]  += normal_lpdf(qpcr_ct[r] | mu_ct, fmax(sigma_ct, 1e-6));
+  //   }
+  // 
+  //   pp_qpcr_detect[r] = bernoulli_rng(p_det);
+  //   if (pp_qpcr_detect[r] == 1) {
+  //     real log_lam_safe = fmax(fmin(log_lam, 15.0), -10.0);
+  //     real mu_ct        = alpha_ct - beta_ct * log_lam_safe;
+  //     pp_qpcr_ct[r]     = normal_rng(mu_ct, fmax(sigma_ct, 1e-6));
+  //   } else {
+  //     pp_qpcr_ct[r] = 0.0;
+  //   }
+  // }
+  // 
+  // // ------------------------------------------------------------------
+  // // Metabarcoding generated quantities
+  // // ------------------------------------------------------------------
+   {
+    for (r in 1:N_mb_long) {
+      int i = mb_sample_idx[r];
 
-      real pi_s       = fmax(fmin(pi_i[s], 1.0 - 1e-6), 1e-6);
-
-      // FIX 2: clamp BB parameters
-      real alpha_bb   = fmax(pi_s * phi_s,         1e-6);
-      real beta_bb    = fmax((1.0 - pi_s) * phi_s, 1e-6);
-
-      if (use_zi) {
-        // FIX 1: keep log1m_exp argument strictly negative
-        real log_p_zero = -lam_s;
-        real log_p_pos  = log1m_exp(fmin(log_p_zero, -1e-9));
-
-        log_lik_mb[r] += zi_beta_binomial_lpmf(
-          mb_reads[r, s] | mb_total[r],
-          log_p_zero, log_p_pos,
-          alpha_bb, beta_bb
-        );
-      } else {
-        log_lik_mb[r] += beta_binomial_lpmf(
-          mb_reads[r, s] | mb_total[r],
-          alpha_bb, beta_bb
-        );
+      // eDNA concentrations at this sample
+      vector[S+1] lam_edna_i;
+      vector[S+1] lam_K_edna_i; // Conditional density on presence
+      vector[S+1] log_lam_edna_i;
+      vector[S+1] log_lam_K_edna_i; // Conditional density on presnce
+      for (s in 1:(S+1)){ 
+        log_lam_edna_i[s]     = log_lambda_edna[i, s] + log_vol_frac ;
+        lam_edna_i[s]         = exp(log_lam_edna_i[s]);
+        log_lam_K_edna_i[s]   = log_lam_edna_i[s] - log1m_exp(-lam_edna_i[s]);
+        lam_K_edna_i[s]       = exp(log_lam_K_edna_i[s]);
       }
+      vector[S+1] log_nu;
+      vector[S+1] log_pi_i;
+      vector[S+1] pi_i;
+      
+      log_nu = log_lam_K_edna_i - log_lam_K_edna_i[S+1];
+      log_pi_i = log_nu - log_sum_exp(log_nu);
+      pi_i = exp(log_pi_i);
+      pp_pi_hat[r,] = to_row_vector(pi_i);
+      
+      real log_lam_sum  = log_sum_exp(log_lam_edna_i);
+      
+      for (s in 1:(S+1)){
+        
+        // Compositional proportions
+          real log_phi_s  = beta0_phi  + log_lam_sum //+beta0_phi
+                              + fmax(gamma0_phi - gamma1_phi * log_lam_K_edna_i[s], 0.0);
+          real phi_s      = exp(log_phi_s);   // cap phi to avoid overflow
 
-      real p_bb         = beta_rng(alpha_bb, beta_bb);
-      pp_mb_reads[r, s] = binomial_rng(mb_total[r],
+        // if(r==1){  print("pi_s ",r,": ",pi_s);
+        //            print("log_lam_s ",r,": ",log_lambda_edna[i, ]);
+        //           print("lam_s ",r,": ",lam_s);
+        //            print("lam_K_s ",r,": ",lam_K_s);
+        //           print("phi_s ",r,": ",phi_s);
+        //           print("lam_sum ",r,": ",lam_sum);
+        // }
+
+        // FIX 2: clamp alpha_bb and beta_bb away from zero
+        real alpha_bb   =  exp(log_pi_i[s] + log_phi_s) ;
+        real beta_bb    =  exp(log1m_exp(log_pi_i[s]) + log_phi_s) ;
+
+          // print(alpha_bb);
+          // print(beta_bb);
+
+          // real log_p_zero = -lam_edna_i[s] ;
+          // real log_p_pos  = log1m_exp(log_p_zero);
+          // 
+          // log_lik_mb[r] = zi_beta_binomial_lpmf(
+          //             mb_reads[r, s] | mb_total[r],
+          //             log_p_zero, log_p_pos,
+          //             alpha_bb, beta_bb
+          // );
+        
+        real p_bb         = beta_rng(alpha_bb, beta_bb);
+        pp_mb_reads[r, s] = binomial_rng(mb_total[r],
                             fmax(fmin(p_bb, 1.0 - 1e-9), 1e-9));
+        }
+      }
     }
-  }
+    
+  matrix[N_pred, S] log_lambda_pred;        // log true animal density
+  matrix[N_pred, S+1] log_lambda_edna_pred;  // log eDNA (copies)
 
+  for (s in 1:S) {
+    {// Local variable start
+      vector[M] diagSPD ;
+      vector[N_pred] f_s_tmp; // GP - smooth effect
+    
+      for(m in 1:M){
+        diagSPD[m] =  sqrt(spd_nD(gp_sigma[s], gp_l_raw[s,], 
+                            sqrt(lambda_nD(L_hsgp, INDICES[m,], D1)), D1)); 
+      } // end M loop
+
+      f_s_tmp = PHI_pred * (diagSPD .* z_beta[s,]);
+    
+    log_lambda_pred[, s]      = mu_sp[s] + f_s_tmp;
+    log_lambda_edna_pred[, s] = log_lambda_pred[ ,s]
+                              //+ log_zsample_effect[, s]
+                              + log_conv_factor[s]
+                              + log_vol_filtered;
+    } // end local variable.  
+  } // end S loop
+  
+  // add latent variable for the junk for log_lambda_edna
+  // NON-SPATIAL
+  //log_RE_junk = log_RE_junk_raw * sigma_junk;
+
+      log_lambda_edna_pred[, S+1] = rep_vector(mu_sp[S+1]
+                              // + log_RE_junk[i] 
+                              + log_conv_factor[S+1]
+                              + log_vol_filtered,N_pred);      
 }

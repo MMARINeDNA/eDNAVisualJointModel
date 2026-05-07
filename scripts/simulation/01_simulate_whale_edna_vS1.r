@@ -54,7 +54,7 @@ Y_min <- 4180000; Y_max <- 5450000  # ~1270 km N-S
 X_km_max <- (X_max - X_min) / 1000   # 500 km
 Y_km_max <- (Y_max - Y_min) / 1000   # 1270 km
 
-n_stations    <- 200
+n_stations    <- 250
 
 # Species-specific animals -> eDNA-copies conversion factor (copies/L per
 # animal/km^2 per litre filtered). Whales shed far more eDNA per animal
@@ -151,16 +151,16 @@ gp_params <- list(
     sigma = 1.0,
     lx    =  50,
     ly    = 300,
-    mu    = log(1), # made larger than is realistic
+    mu    = log(0.01), # made larger than is realistic
     zsample_pref = c(0.0)
   ),
 
   pwsd = list(
     name  = sp_names[3],
     sigma = 1.3,
-    lx    =  40,
+    lx    =  50,
     ly    = 300,
-    mu    = log(1), # made larger than is realistic
+    mu    = log(0.02), # made larger than is realistic
     zsample_pref = c(0.0)
   )
 )
@@ -324,14 +324,15 @@ junk_theta  <- 1000
 junk_exp_copies <- rnegbin(nrow(samples), mu = junk_mean, theta = junk_theta)
 
 C_obs_si_junk <- junk_exp_copies * 50
+mb_copies_si_junk <- junk_exp_copies 
 
 # Aliquot-level junk Binomial draw — taken ONCE per sample and repeated
 # across replicates so every aliquot from a station receives the same
 # junk count. Together with the sample-level pi_all below, this means
 # all replicates from a station share the same expected proportion of
 # reads attributable to junk (and to each target species).
-mb_junk_per_sample <- rbinom(N, size = C_obs_si_junk, prob = vol_aliquot / 100)
-mb_junk_copies     <- mb_junk_per_sample[mb_sample_idx]
+mb_copies_junk <- rbinom(N, size = C_obs_si_junk, prob = vol_aliquot / 100)
+#mb_junk_copies     <- mb_junk_per_sample[mb_sample_idx]
 
 # Per-aliquot total read depth from the mixture defined at the top of
 # the script.
@@ -347,19 +348,20 @@ read_depth <- pmin(pmax(as.integer(round(read_depth)), mb_reads_min), mb_reads_m
 # from a given station share the same expected proportion of reads from
 # each target species + junk; per-aliquot variation in the observed
 # read counts then comes only from the multinomial draw itself + the
-# per-aliquot read-depth roll. The aliquot-level Binomial mb_copies
-# values built in section 7 are kept and saved as truth, but they no
-# longer drive the multinomial probabilities below.
-sample_total   <- rowSums(C_obs_si) + C_obs_si_junk        # length N
-zero_total     <- sample_total == 0
-sample_pi_edna <- C_obs_si      / pmax(sample_total, 1)    # N x n_species
-sample_pi_junk <- C_obs_si_junk / pmax(sample_total, 1)    # length N
-sample_pi_edna[zero_total, ] <- 0
-sample_pi_junk[zero_total]   <- 1   # if a sample has zero target + zero junk, force all-junk
+# per-aliquot read-depth roll. 
+# Ole fixed this.  The mb_copies need to be carried though to affect the 
+#  mb_reads
 
-pi_edna <- sample_pi_edna[mb_sample_idx, , drop = FALSE]   # N_mb_long x n_species
-pi_junk <- sample_pi_junk[mb_sample_idx]                    # length N_mb_long
+sample_total   <- rowSums(mb_copies) + mb_copies_junk        # length N
+zero_total     <- sample_total == 0
+pi_edna <- mb_copies      / sample_total    # N x n_species
+pi_junk <- mb_copies_junk / sample_total  
 pi_all  <- cbind(pi_edna, pi_junk)
+
+# sample_pi_edna[zero_total, ] <- 0
+# sample_pi_junk[zero_total]   <- 1   # if a sample has zero target + zero junk, force all-junk
+# pi_edna <- sample_pi_edna[mb_sample_idx, , drop = FALSE]   # N_mb_long x n_species
+# pi_junk <- sample_pi_junk[mb_sample_idx]                    # length N_mb_long
 
 # Multinomial draw of (target species + junk) reads per aliquot.
 mb_reads <- t(vapply(
@@ -372,8 +374,24 @@ mb_total <- as.integer(rowSums(mb_reads))
 
 target_read_depth <- read_depth - mb_reads[, "pi_junk"]
 
+# --------------------------
+# 10. Detection probabilities by samples
+# --------------------------
+mb_detect <- cbind(mb_sample_idx,mb_reads) %>% as.data.frame()
+colnames(mb_detect) <- c("mb_sample_idx","sp_1","sp_2","sp_3","sp_junk")                
+mb_detect <- pivot_longer(mb_detect,cols= -mb_sample_idx,values_to="reads",names_to="species") %>%
+                ungroup() %>%
+                mutate(reads = ifelse(reads>0,1,0)) %>%  
+                group_by(mb_sample_idx,species) %>% 
+                summarise(detect = max(reads)) 
+mb_detect_summary <- mb_detect %>% ungroup() %>%
+                group_by(species) %>% 
+                summarise(tot_detect = sum(detect),tot_samp=length(detect))
+
+
+
 # ---------------------------------------------------------------------------
-# 10. Bundle and save
+# 11. Bundle and save
 # ---------------------------------------------------------------------------
 sim <- list(
   meta = list(
@@ -449,7 +467,9 @@ sim <- list(
     mb_reads        = mb_reads,         # N_mb_long × n_species + 1
     mb_total        = mb_total,         # length N_mb_long (= target reads)
     mb_junk_reads   = mb_reads[,ncol(mb_reads)],       # length N_mb_long
-    mb_pi_junk      = pi_junk           # length N_mb_long, 5–95%
+    mb_pi_junk      = pi_junk,           # length N_mb_long, 5–95%
+    mb_detect       = mb_detect,
+    mb_detect_summary = mb_detect_summary
   )
 )
 
