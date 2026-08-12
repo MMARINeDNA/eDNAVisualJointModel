@@ -11,7 +11,7 @@
 #
 # qPCR calibration parameters (kappa, sigma_ct, alpha_ct, beta_ct) are
 # all treated as known in downstream stages (sigma_ct passed inflated
-# to absorb discrete-count noise; see scripts/03_format_stan_data_v4.2.r).
+# to absorb discrete-count noise; see 03_format_stan_data_vS1.r).
 #
 # Includes changes from v4.1:
 #   * collaborator changes to the Ct sigma function

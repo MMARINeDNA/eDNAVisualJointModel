@@ -1,22 +1,22 @@
 # =============================================================================
-# plot_simulated_data_v4.1.R
+# 02_plot_simulated_data_vS1.R
 #
-# Three-page summary of the v4.1 simulation (zero-mean GP, 3 species,
-# 500 stations x 6 sample depths). With Option A applied, the simulated
-# field is a pure zero-mean GP draw - there's no closed-form expected
-# lambda surface, but we can recover a continuous version by KRIGING
-# the GP draw from station locations onto a 1 km grid (conditional
-# mean: f_grid = K_gs * K_ss^-1 * f_stations). This gives the visual
-# of v4's continuous lambda surface while staying faithful to the
-# specific GP draw the simulation produced.
+# Summary plots of the vS1 simulation (zero-mean 2-D GP over (X, Y), 3
+# species, 250 surface-only stations). The simulated field is a pure
+# zero-mean GP draw - there's no closed-form expected lambda surface, but
+# we recover a continuous version by KRIGING the GP draw from station
+# locations onto a 1 km grid (conditional mean:
+# f_grid = K_gs * K_ss^-1 * f_stations).
 #
-#   Page 1 - Kriged log(lambda) surface on a 1 km grid for each
-#            species at z = 0 m, with station locations overlaid as
-#            open circles. Same look as v4's page 1.
-#   Page 2 - Per-station log(lambda_true) vs each spatial covariate
-#            (X, Y, Z_bathy), one row per species.
-#   Page 3 - Water-column sampling-depth effect exp(zsample_pref) on
-#            the reversed depth axis, one curve per species.
+#   Page 1 - Kriged log(lambda) surface on a 1 km grid for each species,
+#            with station locations overlaid as open circles.
+#   Page 2 - Metabarcoding detections (0/1) by species over (X, Y).
+#   Page 3 - Per-station log(lambda_true) vs each spatial covariate (X, Y).
+#
+# Inputs:  outputs/whale_edna_output_vS1/whale_edna_sim_vS1.rds
+# Outputs: outputs/whale_edna_output_vS1/simulated_edna_fields_vS1.pdf
+#
+# Self-contained: reads only the simulation .rds written by 01.
 # =============================================================================
 
 library(tidyverse)
@@ -35,27 +35,7 @@ samples        <- sim$design$samples
 stations       <- sim$design$stations
 X_km_max       <- sim$meta$X_km_max
 Y_km_max       <- sim$meta$Y_km_max
-bathy          <- sim$meta$bathy_profile
-
-# ---------------------------------------------------------------------------
-# Bathymetry contour helper (still relevant for showing shelf geometry).
-# ---------------------------------------------------------------------------
-rot <- bathy$rotation_deg * pi / 180
-
-X_prime_fn <- function(X_km, Y_km) {
-  raw <- cos(rot) * (X_km / X_km_max) + sin(rot) * (Y_km / Y_km_max)
-  300 * raw / (cos(rot) + sin(rot))
-}
-
-bathy_mean_fn <- function(X_km, Y_km) {
-  xp <- X_prime_fn(X_km, Y_km)
-  pmax(
-    bathy$abyssal_depth +
-      (bathy$shelf_depth - bathy$abyssal_depth) /
-      (1 + exp(-bathy$slope_k * (xp - bathy$shelf_break_xprime))),
-    10
-  )
-}
+mb_detect      <- sim$observed$mb_detect   # sample-level MB detections (0/1)
 
 sp_colours <- viridis(n_species, option = "viridis", end = 0.85)
 
