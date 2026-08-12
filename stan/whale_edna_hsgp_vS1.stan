@@ -1,7 +1,9 @@
 // =============================================================================
-// whale_edna_hsgp.stan  (v4.1)
+// whale_edna_hsgp_vS1.stan
 //
-// 3-D anisotropic HSGP model for three-species whale/fish eDNA.
+// N-D anisotropic HSGP model for multi-species whale/fish eDNA (configured
+// for the vS1 2-D (X, Y) latent field). Dimension is generic via D1 / the
+// INDICES basis grid, so the same model serves 1-D, 2-D, or 3-D GPs.
 // SF to US/Canada border, UTM Zone 10N.
 //
 // Latent field:

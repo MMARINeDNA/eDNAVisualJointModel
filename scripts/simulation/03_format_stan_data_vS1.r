@@ -308,3 +308,9 @@ cat(sprintf("  Stan data ready: N=%d  S=%d  M=%d  N_qpcr=%d  N_mb=%d\n",
 # -----------------------------------------------------------------------------
 saveRDS(stan_data, file.path(OUTPUT_DIR, "stan_data.rds"))
 cat(sprintf("Saved %s\n", file.path(OUTPUT_DIR, "stan_data.rds")))
+
+# Prediction-grid locations (unnormalised km, columns x/y) are needed by
+# 04 to label the prediction draws. Saved separately so stan_data stays a
+# pure Stan data list (only variables the model declares).
+saveRDS(pred_points, file.path(OUTPUT_DIR, "pred_points.rds"))
+cat(sprintf("Saved %s\n", file.path(OUTPUT_DIR, "pred_points.rds")))
