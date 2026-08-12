@@ -328,11 +328,14 @@ mb_copies_si_junk <- junk_exp_copies
 
 # Aliquot-level junk Binomial draw — taken ONCE per sample and repeated
 # across replicates so every aliquot from a station receives the same
-# junk count. Together with the sample-level pi_all below, this means
-# all replicates from a station share the same expected proportion of
-# reads attributable to junk (and to each target species).
-mb_copies_junk <- rbinom(N, size = C_obs_si_junk, prob = vol_aliquot / 100)
-#mb_junk_copies     <- mb_junk_per_sample[mb_sample_idx]
+# junk count. `mb_copies_junk` is one draw per sample (length N); it is
+# then expanded to aliquot long form (length N_mb_long) via mb_sample_idx
+# so junk is CONSTANT within a sample and correctly aligned with the
+# per-aliquot target draws in mb_copies (which is N_mb_long x n_species).
+# Without this expansion, adding a length-N vector to the length-N_mb_long
+# mb_copies recycles junk across aliquots and misaligns it with samples.
+mb_copies_junk      <- rbinom(N, size = C_obs_si_junk, prob = vol_aliquot / 100)
+mb_copies_junk_long <- mb_copies_junk[mb_sample_idx]   # N_mb_long, constant within sample
 
 # Per-aliquot total read depth from the mixture defined at the top of
 # the script.
@@ -352,10 +355,10 @@ read_depth <- pmin(pmax(as.integer(round(read_depth)), mb_reads_min), mb_reads_m
 # Ole fixed this.  The mb_copies need to be carried though to affect the 
 #  mb_reads
 
-sample_total   <- rowSums(mb_copies) + mb_copies_junk        # length N
+sample_total   <- rowSums(mb_copies) + mb_copies_junk_long   # length N_mb_long
 zero_total     <- sample_total == 0
-pi_edna <- mb_copies      / sample_total    # N x n_species
-pi_junk <- mb_copies_junk / sample_total  
+pi_edna <- mb_copies           / sample_total   # N_mb_long x n_species
+pi_junk <- mb_copies_junk_long / sample_total   # length N_mb_long
 pi_all  <- cbind(pi_edna, pi_junk)
 
 # sample_pi_edna[zero_total, ] <- 0
