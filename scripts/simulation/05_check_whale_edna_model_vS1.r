@@ -2,12 +2,15 @@
 # 05_check_whale_edna_model_vS1.R
 #
 # Diagnostics + posterior predictive checks for the fit produced by
-# scripts/04_run_whale_edna_model_vS1.r.
+# scripts/simulation/04_run_whale_edna_model_vS1.r.
 #
-# Inputs:  outputs/whale_edna_output_vS1/whale_edna_sim_vS1.rds        (for true parameters / truth)
+# Inputs:  outputs/whale_edna_output_vS1/whale_edna_sim_vS1.rds   (truth)
 #          outputs/whale_edna_output_vS1/stan_data.rds
-#          outputs/whale_edna_output_vS1/whale_edna_fit.rds
-# Outputs: plots, CSVs, and session info in outputs/whale_edna_output_v4/
+#          outputs/whale_edna_output_vS1/whale_edna_vS1_fit.rds
+# Outputs: outputs/whale_edna_output_vS1/fit_summary_vS1.pdf
+#
+# Self-contained: everything used below is loaded from the fit object and
+# the on-disk inputs above; no objects from the 04 session are required.
 # =============================================================================
 
 library(tidyverse)
@@ -30,6 +33,15 @@ fit       <- readRDS(file.path(OUTPUT_DIR, "whale_edna_vS1_fit.rds"))
 stan_data <- readRDS(file.path(OUTPUT_DIR, "stan_data.rds"))
 sim       <- readRDS("outputs/whale_edna_output_vS1/whale_edna_sim_vS1.rds")
 
+# Objects assembled in 04, pulled from the saved fit bundle (these used to be
+# session globals carried over from running 04 first). All plain/serialisable:
+#   draws        - posterior draws_array of the model parameters
+#   sampler_diag - NUTS sampler diagnostics draws_array
+#   diag_summary - list: num_divergent / num_max_treedepth / ebfmi per chain
+draws_arr    <- fit$draws
+pred_obs_loc <- fit$pred_obs_loc
+pred_all_loc <- fit$pred_all_loc
+
 samples         <- sim$design$samples
 gp_params       <- sim$truth$gp_params
 lambda_true_si  <- sim$truth$lambda_true_si
@@ -51,9 +63,6 @@ N_mb_long       <- stan_data$N_mb_long
 # -----------------------------------------------------------------------------
 cat("=== Diagnostics ===\n")
 
-# fit$cmdstan_diagnose()
-
-draws_arr <- as_draws_array(as.array(fit$stanMod))
 diag_sum  <- summarise_draws(
   draws_arr,
   mean, sd,
@@ -69,38 +78,29 @@ cat(sprintf("  Rhat > 1.01 : %d parameters\n", nrow(rhat_bad)))
 cat(sprintf("  ESS < 400   : %d parameters\n", nrow(ess_bad)))
 #if (nrow(rhat_bad) > 0) print(rhat_bad %>% select(variable, Rhat))
 
-sampler_diag <- check_hmc_diagnostics(fit$stanMod)
-# cat(sprintf("  Divergences       : %d\n", sum(sampler_diag$divergent__)))
-# cat(sprintf("  Max treedepth hits: %d\n",
-#             sum(sampler_diag$treedepth__ >= MAX_TREEDEPTH)))
+# NUTS sampler diagnostics (divergences / max-treedepth / E-BFMI per chain),
+# summarised by cmdstanr in 04.
+cat(sprintf("  Divergences       : %d\n", sum(fit$diag_summary$num_divergent)))
+cat(sprintf("  Max treedepth hits: %d\n", sum(fit$diag_summary$num_max_treedepth)))
+cat(sprintf("  E-BFMI (per chain): %s\n",
+            paste(sprintf("%.2f", fit$diag_summary$ebfmi), collapse = ", ")))
 
-# Energy plot. bayesplot's mcmc_nuts_* family expects a tidy NUTS data
-# frame with columns (Chain, Iteration, Parameter, Value), not the
-# CmdStanR sampler_diagnostics(format = "df") shape. Use nuts_params()
-# to convert.
-# nuts_df <- bayesplot::nuts_params(fit)
-# energy_plot <- mcmc_nuts_energy(nuts_df) +
-#   ggtitle("NUTS Energy")
-# ggsave(file.path(OUTPUT_DIR, "diag_energy.png"),
-#        energy_plot, width = 8, height = 4)
-
-# Scalar parameter trace plots. alpha_ct and beta_ct are now fixed in
-# data and so are not sampled.
-gp_pars = c("lp__", "mu_sp","gp_sigma","gp_l_raw","gp_l")
-traceplot(fit$stanMod,pars=c("lp__",gp_pars))
+# Trace plots (bayesplot on the stored draws array). alpha_ct / beta_ct are
+# fixed in data and so are not sampled.
+gp_pars   = c("lp__", "mu_sp","gp_sigma","gp_l_raw","gp_l")
+gp_regex  <- "^lp__$|^mu_sp|^gp_sigma|^gp_l"
+p_trace_gp <- mcmc_trace(draws_arr, regex_pars = gp_regex)
 
 ## MB parameters
-mb_pars <- c("beta0_phi", "gamma0_phi","gamma1_phi")
-traceplot(fit$stanMod,pars=c("lp__",mb_pars))
+mb_pars   <- c("beta0_phi", "gamma0_phi","gamma1_phi")
+mb_regex  <- "^lp__$|^beta0_phi|^gamma0_phi|^gamma1_phi"
+p_trace_mb <- mcmc_trace(draws_arr, regex_pars = mb_regex)
 
-## QPCR parameters  
+## QPCR parameters (fixed as data in vS1, not sampled)
 # qpcr_pars <- c("alpha_ct", "beta_ct","kappa","gamma0_ct","gamma1_ct","sigma0_ct")
-# traceplot(stanMod,pars=c("lp__",qpcr_pars))
 
-# ggsave(file.path(OUTPUT_DIR, "diag_trace.png"),
-#        trace_plot, width = 14, height = 10)
-
-print(summary(stanMod,pars=scalar_pars))
+print(p_trace_gp)
+print(fit$stanMod_main$GP)
 
 # -----------------------------------------------------------------------------
 # 2. Predictions
@@ -350,9 +350,8 @@ pdf(file = paste0(OUTPUT_DIR,"/fit_summary_vS1.pdf"),
     onefile=TRUE,width = 8.5,height=8.5)
 
 
-  traceplot(fit$stanMod,pars=c("lp__",gp_pars))
-  traceplot(fit$stanMod,pars=c("lp__",mb_pars))
-  #traceplot(fit$stanMod,pars=c("lp__",qpcr_pars))
+  print(p_trace_gp)
+  print(p_trace_mb)
 
   print(p_mu_gp_sigma)
   print(p_ls)

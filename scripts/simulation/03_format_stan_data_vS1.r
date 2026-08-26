@@ -18,8 +18,10 @@ set.seed(42)
 # HSGP basis terms per dimension. Sized to Riutort-Mayol's
 # faithful-representation rule m >= 1.75 * c / rho_l for the simulated
 # truth. With c = 1.5, half-ranges (250, 635), and named
-# (lx, ly) = (50, 300) the rule wants m >= (13, 6).
-HSGP_M <- c(4L, 4L)#, 32L)    # M_total = 3584
+# (lx, ly) = (50, 300) the rule wants m >= (13, 6). c(16, 8) meets it
+# with margin; the coarser c(4, 4) oversmooths and biases the shorter
+# (cross-shore) length scale, so it is not used as the default.
+HSGP_M <- c(16L, 8L)          # M_total = 128
 HSGP_C <- c(1.5, 1.5)#, 1.5)   # boundary extension (>= 1.5 recommended)
 
 OUTPUT_DIR <- "outputs/whale_edna_output_vS1"
@@ -308,3 +310,9 @@ cat(sprintf("  Stan data ready: N=%d  S=%d  M=%d  N_qpcr=%d  N_mb=%d\n",
 # -----------------------------------------------------------------------------
 saveRDS(stan_data, file.path(OUTPUT_DIR, "stan_data.rds"))
 cat(sprintf("Saved %s\n", file.path(OUTPUT_DIR, "stan_data.rds")))
+
+# Prediction-grid locations (unnormalised km, columns x/y) are needed by
+# 04 to label the prediction draws. Saved separately so stan_data stays a
+# pure Stan data list (only variables the model declares).
+saveRDS(pred_points, file.path(OUTPUT_DIR, "pred_points.rds"))
+cat(sprintf("Saved %s\n", file.path(OUTPUT_DIR, "pred_points.rds")))
