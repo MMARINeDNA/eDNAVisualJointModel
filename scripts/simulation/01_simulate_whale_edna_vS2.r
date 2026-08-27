@@ -438,22 +438,16 @@ read_depth <- ifelse(
 )
 read_depth <- pmin(pmax(as.integer(round(read_depth)), mb_reads_min), mb_reads_max)
 
-# Read-proportion mixture computed at the SAMPLE level. All aliquots
-# from a given station share the same expected proportion of reads from
-# each target species + junk; per-aliquot variation in the observed
-# read counts then comes only from the multinomial draw itself + the
-# per-aliquot read-depth roll. The aliquot-level Binomial mb_copies
-# values built in section 7 are kept and saved as truth, but they no
-# longer drive the multinomial probabilities below.
-sample_total   <- rowSums(C_obs_si) + C_obs_si_junk        # length N
-zero_total     <- sample_total == 0
-sample_pi_edna <- C_obs_si      / pmax(sample_total, 1)    # N x n_species
-sample_pi_junk <- C_obs_si_junk / pmax(sample_total, 1)    # length N
-sample_pi_edna[zero_total, ] <- 0
-sample_pi_junk[zero_total]   <- 1   # if a sample has zero target + zero junk, force all-junk
-
-pi_edna <- sample_pi_edna[mb_sample_idx, , drop = FALSE]   # N_mb_long x n_species
-pi_junk <- sample_pi_junk[mb_sample_idx]                    # length N_mb_long
+# Read-proportion mixture. vS1 fix: drive the multinomial read proportions
+# from the ALIQUOT-level draws (mb_copies target copies, mb_junk_copies junk
+# copies) rather than the bottle-level expected copies (C_obs_si). This makes
+# the MB reads reflect the same aliquot realisation the qPCR sees (removing a
+# qPCR/MB disagreement), while junk stays constant within a sample:
+# mb_junk_copies is the per-sample junk draw already expanded to aliquot long
+# form via mb_sample_idx, so all replicates of a station share its junk count.
+sample_total <- rowSums(mb_copies) + mb_junk_copies        # length N_mb_long
+pi_edna <- mb_copies      / sample_total                   # N_mb_long x n_species
+pi_junk <- mb_junk_copies / sample_total                   # length N_mb_long
 pi_all  <- cbind(pi_edna, pi_junk)
 
 # Multinomial draw of (target species + junk) reads per aliquot.
@@ -557,8 +551,24 @@ sim <- list(
   )
 )
 
-dir.create("outputs/whale_edna_output_v4.2", showWarnings = FALSE, recursive = TRUE)
-saveRDS(sim, "outputs/whale_edna_output_v4.2/whale_edna_sim_v4.2.rds")
+# HSGP basis recommendation (faithful-representation rule) from this
+# scenario's shortest per-dimension length scale and the data coordinate
+# half-ranges. Stored with the sim for a future format/estimation stage.
+# NB: a short bottom-depth length scale (lz) can demand a large Z basis.
+source("scripts/simulation/vS1_functions.R")   # hsgp_basis_rule()
+ls_min     <- c(x = min(vapply(gp_params, `[[`, numeric(1), "lx")),
+                y = min(vapply(gp_params, `[[`, numeric(1), "ly")),
+                z = min(vapply(gp_params, `[[`, numeric(1), "lz")))
+half_range <- c(x = diff(range(coords_gp[,1]))/2,
+                y = diff(range(coords_gp[,2]))/2,
+                z = diff(range(coords_gp[,3]))/2)
+sim$meta$hsgp_basis_recommended <- hsgp_basis_rule(ls_min, half_range)
+cat(sprintf("HSGP basis rule (X, Y, Z_bathy): m >= (%s)  -> total M = %d\n",
+            paste(sim$meta$hsgp_basis_recommended, collapse = ", "),
+            prod(sim$meta$hsgp_basis_recommended)))
+
+dir.create("outputs/whale_edna_output_vS2", showWarnings = FALSE, recursive = TRUE)
+saveRDS(sim, "outputs/whale_edna_output_vS2/whale_edna_sim_vS2.rds")
 
 # ---------------------------------------------------------------------------
 # 11. Detection-rate diagnostic

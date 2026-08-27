@@ -36,6 +36,33 @@ vS1_default_gp_params <- function() {
 }
 
 # -----------------------------------------------------------------------------
+# hsgp_basis_rule(): a-priori HSGP basis count per dimension.
+#
+# Riutort-Mayol et al.'s faithful-representation rule: the minimum number of
+# basis terms to represent a GP with (normalised) length scale rho at boundary
+# factor c is  m >= 1.75 * c / rho.  `lengthscale` and `half_range` are given
+# in the SAME physical units per dimension; rho = lengthscale / half_range is
+# the length scale on the normalised [-1, 1] coordinate. Pass the SHORTEST
+# length scale across species in each dimension (the most demanding). `safety`
+# (>= 1) adds margin: the vS1 sweep found the bare rule (13, 6) already on the
+# recovery plateau, with the shipped default c(16, 8) a modest margin on top.
+#
+# The Stan model takes m_hsgp / INDICES as data, so switching from a hard-coded
+# basis vector to hsgp_basis_rule(...) needs no model change. Returns an
+# integer vector, one entry per dimension.
+#
+# NOTE for the 3-D scenarios (vS2/3/4): a short bottom-depth length scale (lz)
+# over a large Z_bathy range implies a LARGE m in that dimension - inspect the
+# returned vector before committing to a fit, as total M = prod(m) can explode.
+# -----------------------------------------------------------------------------
+hsgp_basis_rule <- function(lengthscale, half_range, c = 1.5,
+                            safety = 1.0, min_m = 2L) {
+  stopifnot(length(lengthscale) == length(half_range), all(lengthscale > 0))
+  rho_norm <- lengthscale / half_range
+  pmax(as.integer(min_m), as.integer(ceiling(1.75 * c / rho_norm * safety)))
+}
+
+# -----------------------------------------------------------------------------
 # simulate_whale_edna_vS1(): one vS1 simulation replicate.
 # Returns the same nested list structure that 01 saves to disk, so
 # format_stan_data_vS1() can consume it directly.
@@ -200,6 +227,17 @@ format_stan_data_vS1 <- function(sim,
   conv_factor  <- sim$meta$conv_factor
   X_km_max     <- sim$meta$X_km_max
   Y_km_max     <- sim$meta$Y_km_max
+
+  # HSGP_M = "auto" derives the per-dimension basis from the simulation truth
+  # via the faithful-representation rule (shortest length scale per dimension).
+  if (identical(HSGP_M, "auto")) {
+    gp     <- sim$truth$gp_params
+    ls_min <- c(min(vapply(gp, `[[`, numeric(1), "lx")),
+                min(vapply(gp, `[[`, numeric(1), "ly")))
+    HSGP_M <- hsgp_basis_rule(ls_min, c(X_km_max/2, Y_km_max/2))
+    message(sprintf("format_stan_data_vS1: HSGP_M=auto -> c(%d, %d)",
+                    HSGP_M[1], HSGP_M[2]))
+  }
 
   # water-column log-offset
   log_zsample_effect <- log(as.matrix(zsample_effect))
