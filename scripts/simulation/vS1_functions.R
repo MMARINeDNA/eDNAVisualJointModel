@@ -15,7 +15,27 @@
 
 # NB: MASS (mvrnorm, rnegbin) is used via MASS:: prefixes rather than
 # library(MASS) so it does not mask dplyr::select downstream.
-suppressMessages(library(tidyverse))
+suppressMessages({
+  library(tidyverse)
+  library(splines)   # ns() for the parametric bottom-depth covariate (vS2B)
+})
+
+# -----------------------------------------------------------------------------
+# bathy_spline_basis(): centred natural-spline design for a bottom-depth
+# covariate, plus the setup needed to rebuild it identically at fit time.
+# Returns the N x df basis (intercept excluded, columns centred so the smooth
+# is orthogonal to the species intercept) and the knots / centre used.
+# -----------------------------------------------------------------------------
+bathy_spline_basis <- function(z, df = 4L, setup = NULL) {
+  if (is.null(setup)) {
+    B0     <- splines::ns(z, df = df)
+    setup  <- list(df = df, knots = attr(B0, "knots"),
+                   bknots = attr(B0, "Boundary.knots"), centre = colMeans(B0))
+  } else {
+    B0 <- splines::ns(z, knots = setup$knots, Boundary.knots = setup$bknots)
+  }
+  list(B = sweep(unclass(B0), 2, setup$centre, "-"), setup = setup)
+}
 
 # -----------------------------------------------------------------------------
 # Default vS1 GP truth (shared lx/ly across species; differing marginal SD).
@@ -299,4 +319,210 @@ format_stan_data_vS1 <- function(sim,
     prior_gamma1_phi_mu = 1.0, prior_gamma1_phi_sig = 0.5
   )
   list(stan_data = stan_data, pred_points = pred_points)
+}
+
+# -----------------------------------------------------------------------------
+# format_stan_data_hsgp(): general N-D formatter for the dimension-general
+# Stan model (whale_edna_hsgp_vS1.stan with D1 = length(coord_cols)).
+#
+# Builds the Stan data list for an HSGP over an arbitrary set of coordinate
+# columns (e.g. c("X","Y") for vS1, c("X","Y","Z_bathy") for the 3-D demo).
+# Coordinates are normalised to [-1, 1] from their own data range (so gp_l is
+# recovered in each column's native units via coord_scale). HSGP_M gives the
+# basis count per dimension (cap the demanding Z_bathy dimension here).
+# -----------------------------------------------------------------------------
+format_stan_data_hsgp <- function(sim, HSGP_M, coord_cols,
+                                  HSGP_C = rep(1.5, length(HSGP_M)),
+                                  prediction_n = 4L) {
+  stopifnot(length(HSGP_M) == length(coord_cols),
+            length(HSGP_C) == length(coord_cols))
+  samples      <- sim$design$samples
+  N            <- sim$meta$N
+  S            <- sim$meta$n_species
+  vol_aliquot  <- sim$meta$vol_aliquot
+  vol_filtered <- sim$meta$vol_filtered
+  conv_factor  <- sim$meta$conv_factor
+  D1           <- length(coord_cols)
+
+  # coordinates -> [-1, 1] from data range; coord_scale = half-range per dim
+  coords_raw   <- as.matrix(samples[, coord_cols, drop = FALSE])
+  storage.mode(coords_raw) <- "double"
+  cmax <- apply(coords_raw, 2, max); cmin <- apply(coords_raw, 2, min)
+  coord_centre <- (cmax + cmin) / 2
+  coord_scale  <- (cmax - cmin) / 2
+  coords_norm  <- sweep(sweep(coords_raw, 2, coord_centre, "-"), 2, coord_scale, "/")
+  stopifnot(max(abs(coords_norm)) <= 1 + 1e-9, all(coord_scale > 0))
+
+  # water-column log-offset
+  log_zsample_effect <- log(as.matrix(sim$truth$zsample_effect))
+  log_zsample_effect[!is.finite(log_zsample_effect)] <- -10.0
+
+  # tiny prediction set (predictions unused in the demos; keeps GQ valid)
+  Np <- max(2L, min(as.integer(prediction_n), N))
+  pred_coords_norm <- coords_norm[seq_len(Np), , drop = FALSE]
+  pred_points      <- as.data.frame(coords_raw[seq_len(Np), , drop = FALSE])
+
+  # qPCR / MB passthrough (drop zero-read MB rows)
+  qpcr_sample_idx <- as.integer(sim$observed$qpcr_sample_idx)
+  qpcr_detect_vec <- as.integer(sim$observed$qpcr_detect)
+  qpcr_ct_vec     <- as.numeric(sim$observed$qpcr_ct); qpcr_ct_vec[is.na(qpcr_ct_vec)] <- 0.0
+  mb_reads_full <- sim$observed$mb_reads; storage.mode(mb_reads_full) <- "integer"
+  mb_total_full <- as.integer(sim$observed$mb_total)
+  keep <- mb_total_full > 0
+  mb_reads_long <- mb_reads_full[keep, , drop = FALSE]
+  mb_sample_idx <- as.integer(sim$observed$mb_sample_idx)[keep]
+  mb_total_vec  <- mb_total_full[keep]
+
+  INDICES <- as.matrix(do.call(expand_grid, lapply(HSGP_M, seq_len)))
+
+  stan_data <- list(
+    N = as.integer(N), N_pred = as.integer(Np), S = as.integer(S),
+    M = as.integer(prod(HSGP_M)), D1 = as.integer(D1), INDICES = INDICES,
+    coords = coords_norm, coord_scale = coord_scale, pred_coords = pred_coords_norm,
+    L_hsgp = HSGP_C, m_hsgp = as.integer(HSGP_M),
+    log_zsample_effect = log_zsample_effect,
+    log_conv_factor = as.numeric(log(conv_factor)),
+    vol_aliquot = vol_aliquot, log_vol_filtered = log(vol_filtered),
+    N_qpcr_long = length(qpcr_sample_idx), qpcr_sample_idx = qpcr_sample_idx,
+    qpcr_detect = qpcr_detect_vec, qpcr_ct = qpcr_ct_vec,
+    N_mb_long = nrow(mb_reads_long), mb_sample_idx = mb_sample_idx,
+    mb_reads = mb_reads_long, mb_total = mb_total_vec,
+    alpha_ct = sim$truth$qpcr_params$alpha_ct, beta_ct = sim$truth$qpcr_params$beta_ct,
+    kappa = sim$truth$qpcr_params$kappa, gamma0_ct = sim$truth$qpcr_params$gamma_0,
+    gamma1_ct = sim$truth$qpcr_params$gamma_1, sigma0_ct = sim$truth$qpcr_params$sigma_0,
+    prior_mu_sp_mu = 2.0, prior_mu_sp_sig = 1.5,
+    prior_gp_sigma_shape = 8.0, prior_gp_sigma_rate = 4.0,
+    prior_gp_raw_alpha = 10, prior_gp_raw_beta = 16,
+    prior_beta0_phi_mu = 0.0, prior_beta0_phi_sig = 1.0,
+    prior_gamma0_phi_mu = 2.0, prior_gamma0_phi_sig = 1.0,
+    prior_gamma1_phi_mu = 1.0, prior_gamma1_phi_sig = 0.5
+  )
+  list(stan_data = stan_data, pred_points = pred_points,
+       coord_centre = coord_centre, coord_scale = coord_scale)
+}
+
+# -----------------------------------------------------------------------------
+# simulate_whale_edna_vS2B(): Version B truth. A 2-D GP over (X, Y) PLUS a
+# smooth parametric bottom-depth effect  h_s(Z_bathy) = B(Z_bathy) %*% beta_s,
+# with B a centred natural spline. Z_bathy is drawn (largely) independently of
+# (X, Y) so the depth effect is identifiable separately from the spatial GP.
+# Observation model (qPCR hurdle + junk MB multinomial, aliquot-level) matches
+# the corrected vS1 sims.
+# -----------------------------------------------------------------------------
+simulate_whale_edna_vS2B <- function(seed = 1L, n_stations = 200L,
+                                     df = 4L, bathy_scale = 1.0,
+                                     gp_params = vS1_default_gp_params()) {
+  set.seed(seed)
+  n_species <- length(gp_params)
+  sp_names  <- vapply(gp_params, `[[`, character(1), "name")
+  sp_common <- c("Pacific hake", "Humpback whale", "Pacific white-sided dolphin")
+  conv_factor   <- c(hake = 10, humpback = 200, pwsd = 110, junk = 10)
+  vol_filtered  <- 2.5; vol_aliquot <- 2
+  X_min <- 100000; X_max <- 600000; Y_min <- 4180000; Y_max <- 5450000
+  X_km_max <- (X_max-X_min)/1000; Y_km_max <- (Y_max-Y_min)/1000
+  mb_reads_p_tight <- 0.80
+  mb_reads_tight_meanlog <- log(75000); mb_reads_tight_sdlog <- 0.25
+  mb_reads_wide_meanlog  <- log(40000); mb_reads_wide_sdlog  <- 1.00
+  mb_reads_min <- 1000L; mb_reads_max <- 250000L
+
+  stations <- tibble(station = seq_len(n_stations),
+                     X = runif(n_stations, 0, X_km_max),
+                     Y = runif(n_stations, 0, Y_km_max),
+                     X_utm = X_min + X*1000, Y_utm = Y_min + Y*1000,
+                     Z_bathy = pmax(50, 50 + 3150*rbeta(n_stations, 2, 2)))  # ~independent depth
+  samples <- stations %>% mutate(depth_idx = 1L, Z_sample = 0, sample_id = row_number())
+  N <- nrow(samples)
+  coords_xy <- as.matrix(samples[, c("X","Y")])
+
+  # 2-D GP per species
+  aniso_cov <- function(coords, sigma, lx, ly) {
+    n <- nrow(coords); K <- matrix(0, n, n)
+    for (i in seq_len(n)) for (j in i:n) {
+      d2 <- ((coords[i,1]-coords[j,1])/lx)^2 + ((coords[i,2]-coords[j,2])/ly)^2
+      K[i,j] <- K[j,i] <- sigma^2 * exp(-0.5*d2)
+    }
+    K + diag(1e-6, n)
+  }
+  gp_field_si <- matrix(NA, N, n_species)
+  for (s in seq_len(n_species)) {
+    p <- gp_params[[s]]
+    gp_field_si[,s] <- as.vector(MASS::mvrnorm(1, rep(0, N), aniso_cov(coords_xy, p$sigma, p$lx, p$ly)))
+  }
+
+  # parametric bottom-depth effect via centred natural spline
+  bs <- bathy_spline_basis(samples$Z_bathy, df = df)
+  beta_bathy_true <- rbind(
+    c( 1.2, -0.3, -1.0, -1.4),   # hake
+    c(-1.0,  1.3,  1.1, -0.9),   # humpback
+    c(-1.3, -0.4,  0.7,  1.5)    # pwsd
+  )[seq_len(n_species), seq_len(bs$setup$df), drop = FALSE] * bathy_scale
+  bathy_effect_si <- bs$B %*% t(beta_bathy_true)              # N x S
+
+  mu_vec <- vapply(gp_params, `[[`, numeric(1), "mu")
+  log_lambda_si  <- sweep(gp_field_si + bathy_effect_si, 2, mu_vec, "+")
+  lambda_true_si <- exp(log_lambda_si)
+  zsample_effect <- matrix(1.0, N, n_species)
+
+  # observation model (aliquot-level; matches corrected vS1)
+  C_obs_si <- matrix(NA_integer_, N, n_species)
+  for (s in seq_len(n_species))
+    C_obs_si[,s] <- MASS::rnegbin(N, mu = conv_factor[s]*lambda_true_si[,s]*vol_filtered, theta = 10)
+  n_qpcr_rep_i <- rep(3L, N); n_mb_rep_i <- rep(3L, N)
+  N_qpcr_long <- sum(n_qpcr_rep_i); N_mb_long <- sum(n_mb_rep_i)
+  qpcr_sample_idx <- rep(seq_len(N), n_qpcr_rep_i); mb_sample_idx <- rep(seq_len(N), n_mb_rep_i)
+  qpcr_copies     <- rbinom(N_qpcr_long, C_obs_si[qpcr_sample_idx,1], vol_aliquot/100)
+  qpcr_exp_copies <- C_obs_si[qpcr_sample_idx,1] * (vol_aliquot/100)
+  mb_copies <- matrix(NA_integer_, N_mb_long, n_species)
+  for (s in seq_len(n_species))
+    mb_copies[,s] <- rbinom(N_mb_long, C_obs_si[mb_sample_idx,s], vol_aliquot/100)
+  qpcr_p <- list(kappa=0.85, alpha_ct=38.0, beta_ct=1.44, gamma_0=0.30, gamma_1=-0.30, sigma_0=0.23)
+  qpcr_detect <- rbinom(N_qpcr_long, 1, 1 - exp(-qpcr_p$kappa*qpcr_exp_copies))
+  qpcr_p$sigma_ct <- sqrt(qpcr_p$sigma_0^2 + exp(2*(qpcr_p$gamma_0 + qpcr_p$gamma_1*log(qpcr_exp_copies))))
+  qpcr_ct <- ifelse(qpcr_detect==1L,
+                    qpcr_p$alpha_ct - qpcr_p$beta_ct*log(pmax(qpcr_exp_copies,1)) + rnorm(N_qpcr_long,0,qpcr_p$sigma_ct),
+                    NA_real_)
+  junk_exp_copies <- MASS::rnegbin(N, mu = 50, theta = 1000)
+  mb_copies_junk      <- rbinom(N, junk_exp_copies*50, vol_aliquot/100)
+  mb_copies_junk_long <- mb_copies_junk[mb_sample_idx]
+  ct <- rbinom(N_mb_long, 1, mb_reads_p_tight)
+  read_depth <- ifelse(ct==1L, rlnorm(N_mb_long, mb_reads_tight_meanlog, mb_reads_tight_sdlog),
+                               rlnorm(N_mb_long, mb_reads_wide_meanlog,  mb_reads_wide_sdlog))
+  read_depth <- pmin(pmax(as.integer(round(read_depth)), mb_reads_min), mb_reads_max)
+  sample_total <- rowSums(mb_copies) + mb_copies_junk_long
+  pi_all <- cbind(mb_copies/sample_total, mb_copies_junk_long/sample_total)
+  mb_reads <- t(vapply(seq_len(N_mb_long),
+                       function(i) rmultinom(1, read_depth[i], pi_all[i,])[,1], integer(n_species+1)))
+  storage.mode(mb_reads) <- "integer"; mb_total <- as.integer(rowSums(mb_reads))
+
+  list(
+    meta = list(n_species=n_species, sp_names=sp_names, sp_common=sp_common,
+                conv_factor=conv_factor, vol_filtered=vol_filtered, vol_aliquot=vol_aliquot,
+                N=N, N_qpcr_long=N_qpcr_long, N_mb_long=N_mb_long,
+                X_km_max=X_km_max, Y_km_max=Y_km_max, seed=seed),
+    design = list(stations=stations, samples=samples,
+                  n_qpcr_rep_i=n_qpcr_rep_i, n_mb_rep_i=n_mb_rep_i),
+    truth = list(gp_field_si=gp_field_si, bathy_effect_si=bathy_effect_si,
+                 lambda_true_si=lambda_true_si, C_obs_si=C_obs_si, zsample_effect=zsample_effect,
+                 gp_params=gp_params, qpcr_params=qpcr_p,
+                 beta_bathy_true=beta_bathy_true, bathy_spline=bs$setup),
+    observed = list(qpcr_sample_idx=qpcr_sample_idx, qpcr_detect=qpcr_detect, qpcr_ct=qpcr_ct,
+                    mb_sample_idx=mb_sample_idx, mb_reads=mb_reads, mb_total=mb_total)
+  )
+}
+
+# -----------------------------------------------------------------------------
+# format_stan_data_bathycov(): Stan data for the 2-D HSGP + spline bottom-depth
+# model (whale_edna_hsgp_2D_bathycov.stan). Reuses the 2-D HSGP formatter and
+# appends the spline design (rebuilt with the sim's stored basis setup).
+# -----------------------------------------------------------------------------
+format_stan_data_bathycov <- function(sim, HSGP_M = c(14L, 6L), prediction_n = 4L) {
+  fd <- format_stan_data_hsgp(sim, HSGP_M = HSGP_M, coord_cols = c("X","Y"),
+                              prediction_n = prediction_n)
+  sd <- fd$stan_data
+  B  <- bathy_spline_basis(sim$design$samples$Z_bathy, setup = sim$truth$bathy_spline)$B
+  sd$K_bathy              <- ncol(B)
+  sd$B_bathy              <- B
+  sd$B_bathy_pred         <- B[seq_len(sd$N_pred), , drop = FALSE]
+  sd$prior_beta_bathy_sig <- 2.0
+  list(stan_data = sd, pred_points = fd$pred_points)
 }

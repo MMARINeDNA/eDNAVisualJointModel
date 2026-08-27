@@ -1,9 +1,11 @@
 // =============================================================================
-// whale_edna_hsgp_vS1.stan
+// whale_edna_hsgp_2D_bathycov.stan
 //
-// N-D anisotropic HSGP model for multi-species whale/fish eDNA (configured
-// for the vS1 2-D (X, Y) latent field). Dimension is generic via D1 / the
-// INDICES basis grid, so the same model serves 1-D, 2-D, or 3-D GPs.
+// Demonstration B: a 2-D HSGP over (X, Y) PLUS bottom depth as a PARAMETRIC
+// covariate (centred natural spline), rather than a 3rd GP axis:
+//   log(lambda_si) = mu_s + f_s(X, Y) + B_bathy_i . beta_bathy_s
+// f_s is the dimension-general HSGP (here D1 = 2); B_bathy is the spline
+// design passed as data and beta_bathy the estimated per-species coefficients.
 // SF to US/Canada border, UTM Zone 10N.
 //
 // Latent field:
@@ -184,6 +186,12 @@ data {
   real prior_gamma0_phi_mu;  real<lower=0> prior_gamma0_phi_sig;
   real prior_gamma1_phi_mu;  real<lower=0> prior_gamma1_phi_sig;
 
+  // Parametric bottom-depth covariate: centred natural-spline design.
+  // Enters log_lambda additively; the (X,Y) field stays a 2-D HSGP.
+  int<lower=1> K_bathy;
+  matrix[N, K_bathy]      B_bathy;
+  matrix[N_pred, K_bathy] B_bathy_pred;
+  real<lower=0> prior_beta_bathy_sig;
 }
 
 // =============================================================================
@@ -220,6 +228,7 @@ parameters {
   vector<lower=0>[S]    gp_sigma;   // GP marginal SD per species
   matrix<lower=0>[S, D1] gp_l_raw;  // GP length-scales: lx(km), ly(km) 
   array[S] vector[M]     z_beta;    // non-centred basis coefficients
+  matrix[S, K_bathy]     beta_bathy; // bottom-depth spline coefficients
 }
 
 // =============================================================================
@@ -241,7 +250,7 @@ transformed parameters {
       f_s[,s] = PHI * (diagSPD .* z_beta[s,]);
       
 
-    log_lambda[, s]      = mu_sp[s] + f_s[,s];
+    log_lambda[, s]      = mu_sp[s] + f_s[,s] + B_bathy * beta_bathy[s]';
     log_lambda_edna[, s] = log_lambda[ ,s]
                               + log_zsample_effect[, s]
                               + log_conv_factor[s]
@@ -279,6 +288,8 @@ model {
   }
 
   // kappa, sigma_ct are fixed in the data block (no priors for now).
+
+  to_vector(beta_bathy) ~ normal(0, prior_beta_bathy_sig);
 
   beta0_phi  ~ normal(prior_beta0_phi_mu,  prior_beta0_phi_sig);
   gamma0_phi ~ normal(prior_gamma0_phi_mu, prior_gamma0_phi_sig);
@@ -509,7 +520,7 @@ generated quantities {
 
       f_s_tmp = PHI_pred * (diagSPD .* z_beta[s,]);
     
-    log_lambda_pred[, s]      = mu_sp[s] + f_s_tmp;
+    log_lambda_pred[, s]      = mu_sp[s] + f_s_tmp + B_bathy_pred * beta_bathy[s]';
     log_lambda_edna_pred[, s] = log_lambda_pred[ ,s]
                               //+ log_zsample_effect[, s]
                               + log_conv_factor[s]
