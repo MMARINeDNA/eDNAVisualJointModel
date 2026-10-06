@@ -1,0 +1,3 @@
+[submodule "external/HSGP4eDNA"]
+	path = external/HSGP4eDNA
+	url = https://github.com/MMARINeDNA/HSGP4eDNA.git
