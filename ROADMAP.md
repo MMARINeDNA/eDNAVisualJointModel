@@ -168,7 +168,7 @@ accordingly.
    `Distance sampling trials/`, and the duplicate
    `distance/distance_hn_dens.stan` / `distance_stan_density.Rmd`.
 2. Move the real-data scripts to `scripts/data_figures/`.
-3. Write `tests/smoke.R` with the eDNA case: a thin `R/0x_fit_edna.r` that
+3. Write `tests/smoke.R` with the eDNA case: a thin `R/fit_edna.r` that
    calls HSGP4eDNA's simulator, formatter, and `hsgp_nd.stan` via the
    submodule. Also include the existing non-spatial `distance_v4.1` case
    unchanged, as the visual baseline that later phases must preserve. Do not
@@ -179,6 +179,34 @@ accordingly.
 
 ✅ Check: the smoke test passes for eDNA and the non-spatial v4.1 visual model. Deleted
 files are recoverable from `pre-restructure`.
+
+**Done 2026-10-06.**
+
+- Deleted 72 files: the v1–v4.1 eDNA Stan models, `scripts/older_simulations/`,
+  `00_pipeline_v*.r`, `outputs/whale_edna_output_v*/`,
+  `Distance sampling trials/`, the duplicate distance trial files,
+  `notebooks/v3_notebook.html` + `notebooks/README.md`, and
+  `scripts/simulation/README.md`.
+- Moved the 9 real-data scripts (including the harbor porpoise scripts from
+  #61) to `scripts/data_figures/`. Moved the v3.2 and distance v4.1 notebooks
+  to `docs/history/`.
+- The eDNA driver is `R/fit_edna.r`. Per the gp2d_bathysp decision, it drives
+  `hsgp_2d_bathysp.stan` via HSGP4eDNA's own `09_fit_gp2d_bathysp.r`, not
+  `hsgp_nd.stan`.
+- `distance/00_distance_v4.1.R` gained the env overrides `OUTPUT_DIR`,
+  `CHAINS`, `ITER_WARMUP` and `ITER_SAMPLING`. Its defaults are unchanged. It
+  now also saves its divergence diagnostics and max Rhat.
+- `.gitignore` drops the obsolete rules. Its `stan/` rule now whitelists
+  `.stan` files at any depth, so `stan/include/` will be tracked.
+- The presentation presenter notes still mention old paths. That is left for
+  Phase 6, since those notes need re-rendering anyway.
+
+Smoke test (`Rscript tests/smoke.R`): **13/13 checks pass, 5.6 min**.
+
+| Case | Setup | Result |
+|---|---|---|
+| edna | `bathysp_smoke`: 100 stations, basis 8×4, spline df 4, 2 chains × 200/200 | 0 divergences, max Rhat 1.02, field R² hake 0.96 / humpback 0.59 / PWSD 0.66 (hake checked > 0.5) |
+| visual | v4.1, 2 chains × 300/300 | 0 divergences, max Rhat ≤ 1.016; σ and D truths inside their 95% CIs for both species |
 
 ### Phase 2: Refactor shared Stan functions (in HSGP4eDNA)
 
