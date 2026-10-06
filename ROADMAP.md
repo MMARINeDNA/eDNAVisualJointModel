@@ -182,14 +182,19 @@ files are recoverable from `pre-restructure`.
 
 ### Phase 2: Refactor shared Stan functions (in HSGP4eDNA)
 
-1. Move the functions block of `hsgp_nd.stan` and `hsgp_2d_bathysp.stan` into
-   `stan/include/hsgp_functions.stan` and `stan/include/edna_functions.stan`.
-   Optionally move the eDNA likelihood into an `edna_obs_lp(...)` function, so
-   the joint model calls exactly the same code.
-2. **(Required.)** Fold `hsgp_2d_bathysp.stan` into `hsgp_nd.stan` behind a
-   `K_bathy` spline-basis count (0 = off). Make the spline's design-matrix
-   construction an include as well, so the visual and joint models share it.
-   HSGP4eDNA then also has a single eDNA model.
+1. **(Required.)** Move the shared functions out of `hsgp_2d_bathysp.stan`, the
+   reference eDNA model for this repo, and of `hsgp_nd.stan`. They go into
+   `stan/include/hsgp_functions.stan` (`phi_nD`, `spd_nD`, `lambda_nD`) and
+   `stan/include/edna_functions.stan` (`zi_beta_binomial_lpmf`). Also move the
+   qPCR + MB likelihood into an `edna_obs_lp(...)` function, so the joint
+   model calls exactly the same code instead of copying about 300 lines. The
+   spline design matrix is already built in R (`bathy_spline_basis()` in
+   `R/functions.R`), so the visual and joint models call that directly.
+2. *(Optional tidy-up, not needed by this repo.)* `hsgp_2d_bathysp.stan` is
+   `hsgp_nd.stan` plus about 10 lines of spline term. It is already
+   dimension-general, so relaxing `K_bathy` to `<lower=0>` would let it
+   replace `hsgp_nd.stan` (`K_bathy = 0` gives `gp2d` / `gp3d`). That is
+   HSGP4eDNA's call, since it keeps 3-D and spline fits side by side.
 3. Turn `log_lik_qpcr` / `log_lik_mb` back on in generated quantities (L4 needs
    them anyway, for model comparison).
 
@@ -303,7 +308,7 @@ eDNA / visual / joint rows, and the comparison figure is produced.
 3. **Latent-field structure.** ~~`gp2d` first~~. Decided 2026-10-06: the
    visual and joint models use `gp2d_bathysp` (2-D HSGP + bottom-depth
    spline), with `gp2d` as the `K_bathy = 0` special case. Order is unchanged:
-   Phase 1 → Phase 2 (makes the spline model includable) → Phase 3 (visual).
+   Phase 1 → Phase 2 (makes the HSGP and eDNA functions includable) → Phase 3 (visual).
 4. **Phase 2 changes HSGP4eDNA itself** (includes, the optional model merge,
    `log_lik`). That repo has its own validation table and collaborators. If
    you'd rather leave it untouched, the only fallback is to vendor its Stan
