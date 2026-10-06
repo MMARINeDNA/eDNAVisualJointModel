@@ -138,6 +138,26 @@ in a fresh clone. HSGP4eDNA's `04_fit_gp2d.r` runs from inside the submodule.
 - The group-size pools are now at `data/grpsz/{humpback,pwsd}.rds`. They are
   identical to the old `.RData` files (683 humpback, 110 PWSD sightings).
 
+**Phase 0 check results** (fresh `--recurse-submodules` clone):
+
+| Check | Result |
+|---|---|
+| HSGP4eDNA `nobathy_surface` × `gp2d` (01 → 05), run in the submodule | ✅ 24 min, 0 divergences, 0 treedepth hits, Rhat ≤ 1.01, E-BFMI ≈ 0.85 |
+| `distance/00_distance_v4.1.R` (non-spatial) | ✅ 0 divergences; every truth inside its 95% CI, both species. Sporadic `ibeta_derivative` overflow messages only. |
+| `distance/00_distance_v4.1a.R` (spatial), 200/200 | ⚠️ Runs end to end, but humpback has 50% divergences and PWSD detection σ collapses to its 0.001 floor |
+| `distance/00_distance_v4.1a.R` (spatial), 1000/1000 | ❌ Humpback chain 3 stuck: step size ≈ 1e-5 (vs ≈ 6e-3 on the other chains), every draw at treedepth 12, lp ≈ 6×10⁶ away from the other chains. Stopped after 3.5 h at sampling draw 794 / 1000. |
+
+The simulated truths in the v4.1 run differ from the tracked
+`outputs/distance_v4.1/distance_v4.1_recovery.csv` (April 2026) even though the
+seed is the same. The cause is not the group-size change, because the
+`as.integer()` pools are identical. It is most likely RNG changes across R or
+package versions.
+
+**Consequence:** `distance_v4.1a` is **not a working baseline**. The spatial
+visual model is unvalidated. The detection-function machinery in
+`distance_hn_dens_v4.1.stan` is validated. Phases 1 and 3 below are adjusted
+accordingly.
+
 ### Phase 1: Delete obsolete eDNA code and add the smoke harness
 
 1. Delete `stan/whale_edna_hsgp_v*.stan`, `scripts/older_simulations/`,
@@ -147,12 +167,14 @@ in a fresh clone. HSGP4eDNA's `04_fit_gp2d.r` runs from inside the submodule.
 2. Move the real-data scripts to `scripts/data_figures/`.
 3. Write `tests/smoke.R` with the eDNA case: a thin `R/0x_fit_edna.r` that
    calls HSGP4eDNA's simulator, formatter, and `hsgp_nd.stan` via the
-   submodule. Also include the existing `distance_v4.1a` case unchanged, as
-   the baseline that later phases must preserve.
+   submodule. Also include the existing non-spatial `distance_v4.1` case
+   unchanged, as the visual baseline that later phases must preserve. Do not
+   include `distance_v4.1a`, which does not sample reliably (see the Phase 0
+   results).
 4. Rewrite `README.md` down to the target state, marking the parts that are
    not built yet.
 
-✅ Check: the smoke test passes for eDNA and the old visual model. Deleted
+✅ Check: the smoke test passes for eDNA and the non-spatial v4.1 visual model. Deleted
 files are recoverable from `pre-restructure`.
 
 ### Phase 2: Refactor shared Stan functions (in HSGP4eDNA)
@@ -177,11 +199,18 @@ and `bathysp_surface × gp2d_bathysp` cells. Tag `v1.1` and bump the submodule.
    `R/functions_visual.R`. It should take its latent field from HSGP4eDNA's
    simulators (same domain, same `default_gp_params()`, same coordinate
    normalization), so the eDNA and LT data can share one truth.
-2. Write `stan/hsgp_visual.stan`: the detection function, population-average
-   ESW, group-size model, and size-bias correction are copied verbatim from
-   `distance_v4.1a.stan` into `stan/include/visual_functions.stan`. Replace
-   the 3-D triple-loop HSGP with `#include`d `phi_nD` / `spd_nD`, a `gp2d`
-   field, and the basis from `hsgp_basis_rule()`.
+2. Write `stan/hsgp_visual.stan`. Copy the detection function,
+   population-average ESW, group-size model, and size-bias correction
+   verbatim from the **validated** `distance_hn_dens_v4.1.stan` into
+   `stan/include/visual_functions.stan`. Use the spatial wiring in
+   `distance_v4.1a.stan` (per-segment `lambda_groups`, segment PPCs,
+   `log_lik`) as a template only, because v4.1a never sampled reliably.
+   Replace its 3-D triple-loop HSGP with `#include`d `phi_nD` / `spd_nD`, a
+   `gp2d` field, and the basis from `hsgp_basis_rule()`. While porting, look
+   at why v4.1a failed: chains stuck at tiny step size, detection σ
+   collapsing, `gamma_lpdf` rejections at 0. Candidate causes are the
+   M = 3584 3-D basis, a centred GP parameterization, and σ/ESW
+   identifiability once density varies per segment.
 3. Validate in two steps:
    - (a) Fit the **non-spatial special case** (`M` tiny / `gp_sigma` → 0) to
      the same data as `distance_hn_dens_v4.1.stan`. It should match the old
