@@ -64,8 +64,8 @@ rnbinom_zt <- function(n, mu, size) {
 # -----------------------------------------------------------------------------
 # 1. Empirical group-size pools (same as v4.1)
 # -----------------------------------------------------------------------------
-load("distance/humpback_grpsz.RData")
-load("distance/pwsd_grpsz.RData")
+si.humpback <- readRDS("data/grpsz/humpback.rds")   # built by scripts/getGrpSz.R
+si.pwsd     <- readRDS("data/grpsz/pwsd.rds")
 gs_pool_humpback <- as.integer(si.humpback)
 gs_pool_pwsd     <- as.integer(si.pwsd)
 

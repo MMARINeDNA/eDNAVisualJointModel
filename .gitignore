@@ -90,3 +90,6 @@ outputs/distance_*/*
 # Big eDNA dataset — too large to track in git (30 MB). The smaller
 # qPCR file (data/hake_qPCR_MURI_df.csv) stays tracked.
 data/MV1_MURI_df.csv
+
+# Claude Code worktrees
+.claude/worktrees/

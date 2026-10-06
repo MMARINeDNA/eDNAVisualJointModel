@@ -1,17 +1,25 @@
+# Build the empirical group-size pools used by the distance-sampling
+# simulators (distance/00_distance_v4.1*.R). Run from the project root.
+# Outputs are small and tracked: data/grpsz/{humpback,pwsd}.rds
+
 library(dplyr)
 
-si.humpback <- read.csv("./data/sightings.csv") %>%
+dir.create("./data/grpsz", showWarnings = FALSE, recursive = TRUE)
+
+sightings <- read.csv("./data/sightings.csv")
+
+si.humpback <- sightings %>%
   filter(spcode == 76) %>%
   select(group_size)
 
 si.humpback <- na.omit(si.humpback$group_size)
 
-save(si.humpback, file = "./distance/humpback_grpsz.RData")
+saveRDS(si.humpback, file = "./data/grpsz/humpback.rds")
 
-si.pwsd <- read.csv("./data/sightings.csv") %>%
+si.pwsd <- sightings %>%
   filter(spcode == 22) %>%
-  select(group_size) 
+  select(group_size)
 
 si.pwsd <- na.omit(si.pwsd$group_size)
 
-save(si.pwsd, file = "./distance/pwsd_grpsz.RData")
+saveRDS(si.pwsd, file = "./data/grpsz/pwsd.rds")
