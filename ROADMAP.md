@@ -125,6 +125,19 @@ the tag `pre-restructure` so nothing is lost.
 ✅ Check: `00_distance_v4.1a.R` with `ITER_WARMUP=200 ITER_SAMPLING=200` runs
 in a fresh clone. HSGP4eDNA's `04_fit_gp2d.r` runs from inside the submodule.
 
+**Done 2026-10-06, with these deviations:**
+- Step 1 waited for another HSGP4eDNA session to land `7592a94` (a README-only
+  change: it closes the `bathysp_surface` fit gap and documents the
+  `bathygp_depthspref` limitation). `v1.0` is tagged on `7592a94` and the
+  submodule is pinned there. The tag exists locally only; push it to
+  HSGP4eDNA's origin.
+- The `pre-restructure` tag exists locally on `0aaa860`. It is not pushed yet.
+- Also removed a stray committed gitlink (`.claude/worktrees/jovial-thompson-a04c95`,
+  with no `.gitmodules` entry) that would break `--recurse-submodules` clones,
+  and gitignored `.claude/worktrees/`.
+- The group-size pools are now at `data/grpsz/{humpback,pwsd}.rds`. They are
+  identical to the old `.RData` files (683 humpback, 110 PWSD sightings).
+
 ### Phase 1: Delete obsolete eDNA code and add the smoke harness
 
 1. Delete `stan/whale_edna_hsgp_v*.stan`, `scripts/older_simulations/`,
