@@ -1,0 +1,40 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 HelveticaNeue;}
+{\colortbl;\red255\green255\blue255;\red25\green25\blue25;}
+{\*\expandedcolortbl;;\cssrgb\c12941\c12941\c12941;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\partightenfactor0
+
+\f0\fs32 \cf2 \expnd0\expndtw0\kerning0
+Ok. I've been banging away at testing the\'a0HSGP code based on a couple of Eiren's simulation scenarios and have some things that seem to work reasonably well.\
+\
+Basic scenario is:\'a0\
+qPCR for hake\'a0\
+MB for hake, humpbacks, dolphin,\'a0+ junk category.\
+junk is non-spatial, others look like the simulated field below.\
+250 observations for each qPCR and MB.\'a0 Only at surface.\
+Fix beta0_phi = 0\
+Fix all of the\'a0qPCR parameters.\
+Provide the proper scaling parameters for connecting whale # to DNA.\'a0\
+Lots of DNA for all three focal species (ie. this is an easy scenario with relatively few zeros).\
+length scales are identical for each species (50km for X, 300km for Y)\'a0\
+They vary somewhat in marginal SD (gp_sigma = c(2,1,1.3)).\
+\
+Model is a mean\'a0+ 2D GP for each of the three target species.\
+\
+I've been playing with changing the numbers of basis to see what happens as far as speed and parameter estimates. My main conclusion is that the above model is pretty fast (on the order of 30-ish minutes to get 1000 samples for the above model).\'a0 Fewer basis means faster, not surprisingly. It converges quite quickly (within say 30-40 iterations) and the mixing is reasonably efficient.\
+\
+I made a pdf for each of 3 runs from the same simulation (attached for three of the runs one with 4x4 basis functions, one with 8x8, one with 12x12, I also ran 20x20, but didn't attach). Basically, all of them do pretty well with respect to estimating the fields for each species.\'a04x4 is clearly over-smoothed and 20x20 is undersmoothed. But both are\'a0not too terrible in the predicted observed plots.\'a0 I'm guessing that you need to have a total # of basis functions (ie. 12x12 = 144, 20 x 20 = 400)\'a0somewhat less than the number of unique observations (here we have 250)... so 20x20 should probably be overfit and it sure looks like it is. It's really lumpy... and had some convergence issues:\
+\
+The tell-tale sign of over-fit seems to be that the length-scale parameter tends toward 0.\'a0 So for hake gp_l for the y dimension for 4,8,12, and 20 basis are about 300, 200, 150, and 80 (truth = 300).\'a0\
+\
+My main conclusions are that 1) things seem\'a0to work reasonably well, but we'll need to run some sensitivities to different basis choices. 2) you can make pretty good predictions even when your estimates of lower level parameters (gp_l , gp_sigma) are not awesome.\'a0But I think we can reasonably implement the algorithms in the HSGP paper for systematically making better guesses about the buffer around the area and number of basis.\'a0\
+\
+I'm going to poke at a couple more scenarios before I have to turn to other things. But I think the code for implementing the HSGP is good and general.\'a0 I now have a function that can accept 1D , 2D, or 3D GPs and the observation models for qPCR and MB properly talk to each other. I need to clean up the git a bit, but I think the I can run the other simulation scenarios that Eiren has set up without much modification.\
+\
+Ok.\'a0 After that long email, I found a mistake in the data generation part of the code that was causing some disagreements between the qpcr and mb parts of the models.\'a0 Apologies.\
+\
+Now that that is fixed, things are faster (10ish minutes for 250 observations, 1000 MCMC samples) and have better HSGP behavior (the field converge and don't really change when you ramp up the number of basis functions (3 results attached below for 4x4, 10x10, and 20x20 basis below). There is still some weirdness (overfitting) when you get to lots and lots of basis, but it is much less than before.\'a0 I also allowed the observation parameter for metabarcoding to be estimated (that worked) and ran it on some pretty rare whales (only ~ 20% of samples have humbacks, most of those are in the 1-ish expected copy range so technical replicates are a mix of zero and non-zero reads). It also does better at estimating spatial variance and length scales.\
+\
+Anyway.\'a0 Apologies for the\'a0too soon email. The code and such are all pushed to Eiren's repo (eDNAVisualJointModel) and the scripts that work all end in vS1 and are in scripts/simulation/.\'a0 Start with 01 and work your way up to 05.}
