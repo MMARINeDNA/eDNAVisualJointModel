@@ -79,7 +79,7 @@ mins <- timed({
   if (!is.null(vmod)) for (sp in vsim$meta$species) {
     vis[[sp]] <- tryCatch(
       fit_visual(vsim, sp, mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
-                 HSGP_M = c(8L, 4L)),
+                 M_max = 32L),   # small basis budget; prior floor follows it
       error = function(e) { message("  ERROR (", sp, "): ", conditionMessage(e)); NULL })
   }
 })

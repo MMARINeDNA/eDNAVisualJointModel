@@ -22,6 +22,7 @@ HSGP4EDNA_DIR <- "external/HSGP4eDNA"
 source(file.path(HSGP4EDNA_DIR, "R", "functions.R"))   # default_gp_params(),
                                                        # hsgp_basis_rule(),
                                                        # bathy_spline_basis()
+source("R/gp_priors.R")                                # gp_prior_from_design()
 
 # Study domain (km, UTM 10N offsets), as in HSGP4eDNA's simulators.
 LT_DOMAIN <- list(X_km_max = 500, Y_km_max = 1270)
@@ -172,8 +173,8 @@ simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
 
 # -----------------------------------------------------------------------------
 # format_stan_data_visual(): Stan data for one species.
-#   HSGP_M    basis per axis; NULL = hsgp_basis_rule() at the shortest true
-#             length-scale (sized like HSGP4eDNA's fits)
+#   HSGP_M    basis per axis; NULL = sized from the design-based prior
+#             (gp_prior_from_design(), within the M_max basis budget)
 #   use_gp    0 = no spatial field
 #   use_bathy FALSE = no bottom-depth spline
 # Coordinates are normalised by the DOMAIN extents (not the data range), so the
@@ -181,7 +182,8 @@ simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
 # -----------------------------------------------------------------------------
 format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5),
                                     use_gp = 1L, use_bathy = TRUE,
-                                    prior_mu_sp = c(-5, 2)) {
+                                    prior_mu_sp = c(-5, 2),
+                                    M_max = GP_BASIS_BUDGET) {
   seg <- sim$design$segments
   ob  <- sim$observed[[sp]]
   p   <- sim$truth$sp_params[[sp]]
@@ -189,15 +191,19 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
   coord_centre <- c(dom$X_km_max, dom$Y_km_max) / 2
   coord_scale  <- coord_centre
   coords <- sweep(sweep(as.matrix(seg[, c("X", "Y")]), 2, coord_centre, "-"), 2, coord_scale, "/")
-  if (is.null(HSGP_M)) {
-    gp <- sim$truth$gp_params[[sp]]
-    HSGP_M <- hsgp_basis_rule(c(gp$lx, gp$ly), coord_scale, c = HSGP_C[1])
-  }
+  # Design-based GP priors (R/gp_priors.R): segment locations only - no
+  # truth and no detections are used. The basis is
+  # sized to the prior's lower length-scale bound unless HSGP_M is given.
+  gp_prior <- gp_prior_from_design(seg[, c("X", "Y")],
+                                   domain_range = c(dom$X_km_max, dom$Y_km_max),
+                                   coord_scale = coord_scale,
+                                   M_max = M_max, c = HSGP_C[1])
+  if (is.null(HSGP_M)) HSGP_M <- gp_prior$HSGP_M
   INDICES <- as.matrix(do.call(tidyr::expand_grid, lapply(HSGP_M, seq_len)))
   B <- if (use_bathy) bathy_spline_basis(seg$Z_bathy, setup = sim$truth$spline_setup)$B else
     matrix(0, nrow(seg), 0)
 
-  list(
+  sd <- list(
     n = nrow(ob$obs), x = ob$obs$distance, s = as.integer(ob$obs$size), w = sim$meta$w,
     log_sigma_prior_mean = p$log_sigma_prior_mean, log_sigma_prior_sd = p$log_sigma_prior_sd,
     use_size_covar = p$use_size_covar, s_centre = p$s_centre,
@@ -212,11 +218,16 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
     coords = coords, coord_scale = coord_scale, L_hsgp = HSGP_C,
     K_bathy = ncol(B), B_bathy = B,
     N_pred = 0L, pred_coords = matrix(0, 0, 2), B_bathy_pred = matrix(0, 0, ncol(B)),
-    # Field priors: HSGP4eDNA's (gp_sigma, gp_l_raw, beta_bathy); mu_sp is
-    # weakly informative on log animals / km^2 (-5 +/- 2 -> 1e-4 .. 0.4).
+    # Field priors: gp_sigma and gp_l from the design rule; mu_sp weakly
+    # informative on log animals / km^2 (-5 +/- 2 -> 1e-4 .. 0.4);
+    # beta_bathy as HSGP4eDNA.
     prior_mu_sp_mu = prior_mu_sp[1], prior_mu_sp_sig = prior_mu_sp[2],
-    prior_gp_sigma_shape = 8.0, prior_gp_sigma_rate = 4.0,
-    prior_gp_raw_alpha = 10, prior_gp_raw_beta = 16,
+    prior_gp_sigma_shape = gp_prior$prior_gp_sigma_shape,
+    prior_gp_sigma_rate  = gp_prior$prior_gp_sigma_rate,
+    prior_gp_l_shape = gp_prior$prior_gp_l_shape,
+    prior_gp_l_scale = gp_prior$prior_gp_l_scale,
     prior_beta_bathy_sig = 2.0
   )
+  attr(sd, "gp_prior") <- gp_prior   # provenance (an attribute, so cmdstanr ignores it)
+  sd
 }
