@@ -88,8 +88,11 @@ visual: λ_groups_s = λ_s / E[group size_s];  seg_count ~ Poisson(2 L esw_pop �
 ```
 
 Hake has only eDNA data. Humpback and PWSD have both eDNA and LT data, which
-needs an explicit species-index map. Start with `gp2d` because it is validated
-and cheap. Add the bathy spline variant once `gp2d` works.
+needs an explicit species-index map. The **visual and joint models both use
+`gp2d_bathysp`**: a 2-D HSGP over (X, Y) plus a spline on bottom depth, the
+structure of HSGP4eDNA's `hsgp_2d_bathysp.stan`. Plain `gp2d` is kept as the
+special case with no spline basis (`K_bathy = 0`), which is useful for smoke
+tests and the `nobathy_surface` scenario. Decided 2026-10-06.
 
 ## 3. Guardrail: "works at every step"
 
@@ -165,7 +168,7 @@ accordingly.
    `Distance sampling trials/`, and the duplicate
    `distance/distance_hn_dens.stan` / `distance_stan_density.Rmd`.
 2. Move the real-data scripts to `scripts/data_figures/`.
-3. Write `tests/smoke.R` with the eDNA case: a thin `R/0x_fit_edna.r` that
+3. Write `tests/smoke.R` with the eDNA case: a thin `R/fit_edna.r` that
    calls HSGP4eDNA's simulator, formatter, and `hsgp_nd.stan` via the
    submodule. Also include the existing non-spatial `distance_v4.1` case
    unchanged, as the visual baseline that later phases must preserve. Do not
@@ -177,15 +180,49 @@ accordingly.
 ✅ Check: the smoke test passes for eDNA and the non-spatial v4.1 visual model. Deleted
 files are recoverable from `pre-restructure`.
 
+**Done 2026-10-06.**
+
+- Deleted 72 files: the v1–v4.1 eDNA Stan models, `scripts/older_simulations/`,
+  `00_pipeline_v*.r`, `outputs/whale_edna_output_v*/`,
+  `Distance sampling trials/`, the duplicate distance trial files,
+  `notebooks/v3_notebook.html` + `notebooks/README.md`, and
+  `scripts/simulation/README.md`.
+- Moved the 9 real-data scripts (including the harbor porpoise scripts from
+  #61) to `scripts/data_figures/`. Moved the v3.2 and distance v4.1 notebooks
+  to `docs/history/`.
+- The eDNA driver is `R/fit_edna.r`. Per the gp2d_bathysp decision, it drives
+  `hsgp_2d_bathysp.stan` via HSGP4eDNA's own `09_fit_gp2d_bathysp.r`, not
+  `hsgp_nd.stan`.
+- `distance/00_distance_v4.1.R` gained the env overrides `OUTPUT_DIR`,
+  `CHAINS`, `ITER_WARMUP` and `ITER_SAMPLING`. Its defaults are unchanged. It
+  now also saves its divergence diagnostics and max Rhat.
+- `.gitignore` drops the obsolete rules. Its `stan/` rule now whitelists
+  `.stan` files at any depth, so `stan/include/` will be tracked.
+- The presentation presenter notes still mention old paths. That is left for
+  Phase 6, since those notes need re-rendering anyway.
+
+Smoke test (`Rscript tests/smoke.R`): **13/13 checks pass, 5.6 min**.
+
+| Case | Setup | Result |
+|---|---|---|
+| edna | `bathysp_smoke`: 100 stations, basis 8×4, spline df 4, 2 chains × 200/200 | 0 divergences, max Rhat 1.02, field R² hake 0.96 / humpback 0.59 / PWSD 0.66 (hake checked > 0.5) |
+| visual | v4.1, 2 chains × 300/300 | 0 divergences, max Rhat ≤ 1.016; σ and D truths inside their 95% CIs for both species |
+
 ### Phase 2: Refactor shared Stan functions (in HSGP4eDNA)
 
-1. Move the functions block of `hsgp_nd.stan` and `hsgp_2d_bathysp.stan` into
-   `stan/include/hsgp_functions.stan` and `stan/include/edna_functions.stan`.
-   Optionally move the eDNA likelihood into an `edna_obs_lp(...)` function, so
-   the joint model calls exactly the same code.
-2. *(Optional, recommended.)* Fold `hsgp_2d_bathysp.stan` into `hsgp_nd.stan`
-   behind a `K_bathy` spline-basis count (0 = off). HSGP4eDNA would then also
-   have a single eDNA model.
+1. **(Required.)** Move the shared functions out of `hsgp_2d_bathysp.stan`, the
+   reference eDNA model for this repo, and of `hsgp_nd.stan`. They go into
+   `stan/include/hsgp_functions.stan` (`phi_nD`, `spd_nD`, `lambda_nD`) and
+   `stan/include/edna_functions.stan` (`zi_beta_binomial_lpmf`). Also move the
+   qPCR + MB likelihood into an `edna_obs_lp(...)` function, so the joint
+   model calls exactly the same code instead of copying about 300 lines. The
+   spline design matrix is already built in R (`bathy_spline_basis()` in
+   `R/functions.R`), so the visual and joint models call that directly.
+2. *(Optional tidy-up, not needed by this repo.)* `hsgp_2d_bathysp.stan` is
+   `hsgp_nd.stan` plus about 10 lines of spline term. It is already
+   dimension-general, so relaxing `K_bathy` to `<lower=0>` would let it
+   replace `hsgp_nd.stan` (`K_bathy = 0` gives `gp2d` / `gp3d`). That is
+   HSGP4eDNA's call, since it keeps 3-D and spline fits side by side.
 3. Turn `log_lik_qpcr` / `log_lik_mb` back on in generated quantities (L4 needs
    them anyway, for model comparison).
 
@@ -205,12 +242,29 @@ and `bathysp_surface × gp2d_bathysp` cells. Tag `v1.1` and bump the submodule.
    `stan/include/visual_functions.stan`. Use the spatial wiring in
    `distance_v4.1a.stan` (per-segment `lambda_groups`, segment PPCs,
    `log_lik`) as a template only, because v4.1a never sampled reliably.
-   Replace its 3-D triple-loop HSGP with `#include`d `phi_nD` / `spd_nD`, a
-   `gp2d` field, and the basis from `hsgp_basis_rule()`. While porting, look
-   at why v4.1a failed: chains stuck at tiny step size, detection σ
-   collapsing, `gamma_lpdf` rejections at 0. Candidate causes are the
-   M = 3584 3-D basis, a centred GP parameterization, and σ/ESW
-   identifiability once density varies per segment.
+   Replace its 3-D triple-loop HSGP with the `#include`d `gp2d_bathysp`
+   latent field: a 2-D HSGP over (X, Y) from `phi_nD` / `spd_nD`, plus the
+   bottom-depth spline. Take the basis size from `hsgp_basis_rule()`.
+
+   **Why v4.1a failed (diagnosed 2026-10-06).** `hsgp_weights` evaluates the
+   SE spectral density with length-scales and frequencies in km and m. The
+   eigenfunctions (`phi1d`) are orthonormal on the *normalized* domain
+   [−L, L]. The per-dimension Jacobian 1/`coord_scale` is missing, so every
+   basis weight is √(250·635·1750) ≈ 16,700× too large. In the 200/200 fits,
+   essentially 100% of segments in every chain sat at the log λ clamps (+15
+   or −10). The clamps have zero gradient, so chains stalled (step size down
+   to ~5e-7), and detection σ collapsed to absorb the impossible encounter
+   rates. The GP length-scales only *looked* recovered: their priors are
+   tight and centred on the truth, and the saturated field passed no
+   information back to them. HSGP4eDNA avoids this by sampling `gp_l_raw` in
+   normalized units and converting to km only in generated quantities.
+   Porting onto that code fixes the bug by construction.
+
+   Two lessons for the new model:
+   - Drop the `fmin`/`fmax` clamps on log λ and log σ. They hide this class
+     of bug and create zero-gradient regions.
+   - Use the same weakly-informative `gp_l` priors as HSGP4eDNA instead of
+     tight priors centred on the truth, so recovery actually tests something.
 3. Validate in two steps:
    - (a) Fit the **non-spatial special case** (`M` tiny / `gp_sigma` → 0) to
      the same data as `distance_hn_dens_v4.1.stan`. It should match the old
@@ -231,8 +285,9 @@ The validation row is recorded.
 - LT effort and sightings (transects, half-normal detection, group sizes) for
   the cetaceans.
 
-Start with `nobathy_surface`. This simulator is the only one in the repo; the
-eDNA-only and visual-only fits use subsets of its output.
+Start with `bathysp_surface`, the matched truth for `gp2d_bathysp`. Use
+`nobathy_surface` for the smoke test. This simulator is the only one in the
+repo; the eDNA-only and visual-only fits use subsets of its output.
 
 ✅ Check: the eDNA subset fit with HSGP4eDNA's model and the LT subset fit with
 `hsgp_visual.stan` each still recover the field. This proves the shared sim is
@@ -240,7 +295,7 @@ consistent with both single-source models before any joint fitting.
 
 ### Phase 5: Joint model
 
-1. Write `stan/hsgp_joint.stan`: one HSGP field per species, then
+1. Write `stan/hsgp_joint.stan`: one `gp2d_bathysp` field per species, then
    `edna_obs_lp(...)` (from the include) for all S species plus the visual
    likelihood (from the include) for the LT species. It needs a species map
    (e.g. `lt_species_idx = {2, 3}`).
@@ -259,8 +314,9 @@ eDNA / visual / joint rows, and the comparison figure is produced.
 
 ### Phase 6: Extend and tidy
 
-- Add the `bathysp_*` scenarios to the joint model (the spline variant, which
-  HSGP4eDNA showed is the practical way to handle bottom depth).
+- Add the remaining scenarios to the joint model: `bathysp_depthspref` (water
+  column + depth preference). Also add a `bathygp_*` truth as a deliberate
+  mis-specification check.
 - Add the real-data entry point (`01_load_muri.r`) that produces the same
   object shape as the simulator.
 - Write a final README results table. Re-render or retire presentations that
@@ -277,8 +333,10 @@ eDNA / visual / joint rows, and the comparison figure is produced.
    the tracked sim PDFs). I recommend keeping the v3.2 debugging case study
    and the distance notebook under `docs/history/` because they document
    decisions, and deleting the rest (the tag preserves them).
-3. **Whether the joint model starts at `gp2d` or `gp2d_bathysp`.** I recommend
-   `gp2d` first: it is the cheapest validated cell. Add the spline in Phase 6.
+3. **Latent-field structure.** ~~`gp2d` first~~. Decided 2026-10-06: the
+   visual and joint models use `gp2d_bathysp` (2-D HSGP + bottom-depth
+   spline), with `gp2d` as the `K_bathy = 0` special case. Order is unchanged:
+   Phase 1 → Phase 2 (makes the HSGP and eDNA functions includable) → Phase 3 (visual).
 4. **Phase 2 changes HSGP4eDNA itself** (includes, the optional model merge,
    `log_lik`). That repo has its own validation table and collaborators. If
    you'd rather leave it untouched, the only fallback is to vendor its Stan

@@ -21,13 +21,6 @@
 # RStudio files
 .Rproj.user/
 
-# produced notebooks — note: this project DOES track its rendered HTML
-# notebooks (they're the canonical write-up format and share well via
-# email / browsers). Keep the .pdf rule because the R-package toolchain
-# generates throwaway pdfs there.
-# notebooks/*.html         # intentionally not ignored
-notebooks/*.pdf
-
 # OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
 .httr-oauth
 
@@ -54,23 +47,18 @@ rsconnect/
 # DS Store
 *.DS_Store
 
-# Simulation artifacts (regenerable via scripts/01_simulate_whale_edna_v*.r)
+# Simulation / fit artifacts (regenerable)
 outputs/*.rds
 
-# Per-version output folders. Sim rds, fit rds, stan_data, CmdStan
-# csvs, diagnostic PNGs / CSVs are all gitignored, but the
-# simulated_edna_fields_v*.pdf plot files are tracked.
-outputs/whale_edna_output_*/*
-!outputs/whale_edna_output_*/simulated_edna_fields_v*.pdf
-!outputs/whale_edna_output_*/v*_notebook.qmd
-!outputs/whale_edna_output_*/_notebook_figs/
-!outputs/whale_edna_output_*/_notebook_figs/**
+# Smoke-test outputs (tests/smoke.R)
+outputs/smoke/
 
 # Stan compile artifacts — cmdstanr writes a compiled binary and a
 # generated .hpp header next to each .stan source. Whitelist only the
-# sources so any future artifact types also stay out.
-stan/*
-!stan/*.stan
+# sources (including stan/include/) so any future artifact types stay out.
+stan/**
+!stan/**/
+!stan/**/*.stan
 
 # Same pattern for distance/ (Distance sampling Stan models live here).
 distance/*
