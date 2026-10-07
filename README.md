@@ -105,22 +105,41 @@ history of the detection model is in `docs/history/distance_v4.1_notebook.html`.
 ## Results
 
 **Visual model** (`R/validate_visual.r`, 5 replicates, 4 chains × 1000/1000,
-basis 14×6, spline df 4):
+design-based GP priors, basis 28×14 = 392, spline df 4):
 
-| Species | Detections | Runtime | Divergences | max Rhat | Field R² | Coverage: D / σ / E[s] |
-|---|---|---|---|---|---|---|
-| Humpback | 549–917 | 1.8–2.6 min | 1 in 5 fits | ≤ 1.007 | 0.84–0.93 | 5/5, 5/5, 5/5 |
-| PWSD | 41–100 | 3.0–3.6 min | 1 in 5 fits | ≤ 1.003 | 0.59–0.75 | 5/5, 4/5, 5/5 |
+| Species | Detections | Runtime | Divergences | max Rhat | Field R² | Coverage D / σ_det / E[s] | Coverage gp_sigma / lx / ly |
+|---|---|---|---|---|---|---|---|
+| Humpback | 549–917 | 2.1–4.8 min | 0 in 5 fits | ≤ 1.01 | 0.87–0.93 | 5/5, 5/5, 5/5 | 5/5, 5/5, 5/5 |
+| PWSD | 41–100 | 5.2–7.9 min | 1 each in 2 fits | ≤ 1.00 | 0.60–0.79 | 5/5, 4/5, 5/5 | 5/5, 4/5, 5/5 |
 
-Mean density is recovered with a median bias of −3% (humpback) and −4% (PWSD).
-The GP hyperparameters are **pulled by the shared HSGP4eDNA priors**:
-- `gp_sigma ~ gamma(8, 4)` has mean 2, against truths of 1.0 and 1.3.
-- `gp_l_raw ~ gamma(10, 16)` has mean about 156 km for `lx`, against a truth
-  of 50 km.
+Median relative bias:
+- mean density: −3% for both species;
+- `gp_sigma`: +3% (humpback), +5% (PWSD);
+- `lx`: −6% (humpback), +48% (PWSD, which has only 41–100 detections).
 
-As a result `gp_sigma` runs about 40% high, and `lx` about 17% high for
-humpback and about 2× for PWSD. Their coverage is 2/5 to 5/5. See `ROADMAP.md`
-Phase 3.
+The earlier HSGP4eDNA priors gave 2/5 to 5/5 coverage, `gp_sigma` +40% and
+PWSD `lx` +99%. See `ROADMAP.md`.
+
+### GP priors
+
+The field priors come from the **survey design only**: sample locations,
+domain extent and the basis budget. Observed outcomes never enter
+(`R/gp_priors.R`, `gp_prior_from_design()`):
+
+- **Length-scales:** inverse-gamma on each axis, with 1% of mass below ℓ_min
+  and 1% above the domain extent. ℓ_min is the larger of two floors:
+  - the median spacing of sample coordinates along the axis;
+  - the shortest length-scale a basis of `GP_BASIS_BUDGET` = 400 functions
+    can represent.
+
+  The basis is sized to ℓ_min, so it can represent everything the prior
+  allows.
+- **Marginal SD:** `gp_sigma ~ gamma(4.05, 3.37)`, with 1% of mass below 0.25
+  and 1% above 3.
+- **Floor check:** `floor_check()` flags a fit whose length-scale posterior
+  piles up against ℓ_min. This uses no truth, so it works on real data. A flag
+  means the budget may be limiting the fit: refit with a larger `M_max` and
+  see whether the length-scale moves.
 
 ## Layout
 
@@ -128,7 +147,7 @@ Phase 3.
 .
 ├── ROADMAP.md              restructure plan + per-phase results
 ├── external/HSGP4eDNA/     submodule: eDNA model, HSGP helpers, simulators
-├── R/                      drivers: fit_edna.r, functions_visual.R, fit_visual.r, validate_visual.r
+├── R/                      drivers: fit_edna.r, functions_visual.R, gp_priors.R, fit_visual.r, validate_visual.r
 ├── stan/                   hsgp_visual.stan; stan/include/visual_functions.stan
 ├── tests/smoke.R           fast end-to-end check of every model
 ├── data/                   real survey data (+ data/grpsz/ group-size pools)

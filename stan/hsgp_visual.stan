@@ -82,8 +82,10 @@ data {
   real<lower=0> prior_mu_sp_sig;
   real<lower=0> prior_gp_sigma_shape;
   real<lower=0> prior_gp_sigma_rate;
-  real<lower=0> prior_gp_raw_alpha;        // gp_l_raw (normalised units) ~ gamma
-  real<lower=0> prior_gp_raw_beta;
+  // gp_l_raw[d] (normalised units: ell / coord_scale) ~ inv_gamma(shape, scale),
+  // per axis; set by R/gp_priors.R gp_prior_from_design()
+  vector<lower=0>[D1] prior_gp_l_shape;
+  vector<lower=0>[D1] prior_gp_l_scale;
   real<lower=0> prior_beta_bathy_sig;
 }
 
@@ -132,7 +134,9 @@ model {
   // Field priors
   mu_sp ~ normal(prior_mu_sp_mu, prior_mu_sp_sig);
   gp_sigma ~ gamma(prior_gp_sigma_shape, prior_gp_sigma_rate);
-  to_vector(gp_l_raw) ~ gamma(prior_gp_raw_alpha, prior_gp_raw_beta);
+  for (g in 1:use_gp) {
+    gp_l_raw[g]' ~ inv_gamma(prior_gp_l_shape, prior_gp_l_scale);
+  }
   to_vector(z_beta) ~ std_normal();
   beta_bathy ~ normal(0, prior_beta_bathy_sig);
 

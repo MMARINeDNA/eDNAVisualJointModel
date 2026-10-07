@@ -380,6 +380,69 @@ since eDNA and visual data will share them. Options:
 - loosen them for the whale species;
 - make them species-specific data.
 
+**Resolved 2026-10-07: design-based GP priors** (`R/gp_priors.R`).
+
+*Principle (decided 2026-10-07):* priors depend only on the survey **design**
+(sample locations, domain extent) and the compute budget, never on observed
+outcomes. A version that also used detection counts, through an "information
+floor", was dropped for this reason. Species with the same design therefore
+get identical priors.
+
+*Length-scales.* Inverse-gamma on each axis, with 1% of mass below ℓ_min and
+1% above ℓ_max (Betancourt's boundary-avoiding construction). ℓ_max is the
+domain extent along the axis. ℓ_min is the larger of two floors:
+- the design floor, the median gap between distinct sample coordinates;
+- the compute floor, the shortest scale a basis of `GP_BASIS_BUDGET` = 400
+  functions can represent.
+
+When the design floor would need a bigger basis, both axes are scaled by a
+common factor. The basis is sized to ℓ_min, so it covers the whole prior.
+
+*Marginal SD.* `gp_sigma ~ gamma(4.05, 3.37)`, with 1% of mass below 0.25 and
+1% above 3.
+
+*Why a budget of 400.* It is a compute budget, not a statistical quantity.
+Uncapped, the design floor asks for 484–2178 basis functions. With 400, the
+floor stays below the 50 km simulation length-scale for every simulated data
+type (lx floor 23–33 km). A cap of 128, or HSGP4eDNA's "M well under the
+number of observations" rule (M = 100 for 200 eDNA stations), would put the
+floor at 41–66 km and exclude the truth. That rule came from overfitting
+under a gamma prior that allowed ℓ → 0, which the inverse-gamma floor
+prevents.
+
+For the transect design the rule gives ℓ_min = (23.5, 120) km and a basis of
+28×14 = 392 for both species.
+
+*Results* (`SEEDS=1:5 Rscript R/validate_visual.r`; the old-prior run is
+archived as `outputs/visual/validation_legacy_priors/`):
+
+| | Old (HSGP4eDNA) priors, M = 84 | Design priors, M = 392 |
+|---|---|---|
+| Humpback gp_sigma / lx / ly coverage | 3/5, 3/5, 4/5 | **5/5, 5/5, 5/5** |
+| Humpback gp_sigma / lx median bias | +40% / +17% | **+3% / −6%** |
+| PWSD gp_sigma / lx / ly coverage | 4/5, 2/5, 5/5 | **5/5, 4/5, 5/5** |
+| PWSD gp_sigma / lx / ly median bias | +38% / +99% / +24% | **+5% / +48% / −3%** |
+| Field R² humpback / PWSD | 0.84–0.93 / 0.59–0.75 | 0.87–0.93 / 0.60–0.79 |
+| Density coverage, bias | 10/10, −3 / −4% | 10/10, −3 / −3% |
+| Divergences | 1 each in 2 fits | 1 each in 2 fits |
+| Runtime per fit (humpback / PWSD) | 1.8–2.6 / 3.0–3.6 min | 2.1–4.8 / 5.2–7.9 min |
+
+*Floor check* (`floor_check()`, a truth-free basis-adequacy test). It flags a
+fit when P(ℓ < 1.25 ℓ_min) in the posterior exceeds max(3 × the prior's
+probability, 5%). It flagged 1 of 10 fits: PWSD seed 3, lx, with 11%
+posterior vs 3.6% prior. Refitting at M_max = 800 moved lx from 39 [25, 67]
+to 36 [22, 61] km and left field R² at 0.60. The flag cleared and runtime
+went from 6.7 to 11.6 min. So it was a false alarm for the field, but it
+shows that lx is mildly prior-sensitive with sparse data.
+
+Procedure for real data: on a flag, refit at 2× the budget, and keep the
+larger basis only if the field or density changes.
+
+*For the joint model.* Build the prior from the union of eDNA station and LT
+segment locations. Port `inv_gamma` length-scale priors into
+`hsgp_joint.stan`. HSGP4eDNA's own models still use the shared gamma prior;
+adopting this rule upstream is optional.
+
 ### Phase 4: Joint simulator
 
 `R/01_sim_<scenario>.r` draws **one** latent field per species and generates:

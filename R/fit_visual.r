@@ -97,7 +97,12 @@ summarise_visual <- function(fit, sim, sp, sd) {
   all_rhat <- fit$summary(c("mu_sp", "gp_sigma", "gp_l_raw", "beta_bathy", "log_sigma",
                             "beta_size", "mu_s", "phi_s", "mu_log_s", "sigma_log_s"),
                           "rhat")$rhat
-  list(recovery = recovery, field = field, n_det = sd$n,
+  # Truth-free check that the basis budget is not limiting the fit
+  gp_prior <- attr(sd, "gp_prior")
+  floor <- if (sd$use_gp == 1L && !is.null(gp_prior))
+    cbind(species = sp, floor_check(fit$draws(c("gp_l[1]", "gp_l[2]"), format = "draws_matrix"),
+                                    gp_prior)) else NULL
+  list(recovery = recovery, field = field, floor = floor, n_det = sd$n, M = sd$M,
        divergences = sum(diag$num_divergent),
        treedepth_hits = sum(diag$num_max_treedepth),
        ebfmi = diag$ebfmi, max_rhat = max(all_rhat, na.rm = TRUE))
@@ -133,6 +138,8 @@ if (sys.nframe() == 0L) {
                 paste(sprintf("%.2f", r$ebfmi), collapse = ", ")))
     print(r$recovery, digits = 3, row.names = FALSE)
     print(r$field, digits = 3, row.names = FALSE)
+    if (!is.null(r$floor)) print(r$floor, digits = 3, row.names = FALSE)
+    if (any(r$floor$flag)) cat("*** WARNING: length-scale posterior piles up at the basis-budget floor\n")
     if (r$max_rhat > 1.05 || r$divergences > 0)
       cat("*** WARNING: not converged / divergent transitions\n")
     r$fit <- NULL   # CmdStan CSVs live in a temp dir; keep the summaries only
