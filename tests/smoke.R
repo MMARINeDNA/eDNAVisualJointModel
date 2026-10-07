@@ -16,6 +16,7 @@
 #           R/fit_edna.r, on a small bathysp_surface-style simulation
 #   visual  stan/hsgp_visual.stan (2-D HSGP + bottom-depth spline, line
 #           transects) via R/fit_visual.r, both species of simulate_visual()
+#   joint_sim  simulate_joint() (no fits): one shared field, both formatters
 #
 # Logs and outputs go to outputs/smoke/ (git-ignored). Exit status is non-zero
 # if any check fails.
@@ -98,6 +99,30 @@ if (!is.null(vis$humpback)) {
   check("visual", "humpback field R2 > 0.5", r$field$R2 > 0.5, round(r$field$R2, 2))
   check("visual", "humpback sigma truth in 95% CI", isTRUE(sc$covered),
         sprintf("%.3g in [%.3g, %.3g]", sc$truth, sc$q025, sc$q975))
+}
+
+# -----------------------------------------------------------------------------
+# Case 3: joint simulator (no fits) - one field shared by both sources, and
+# both single-source formatters accept its halves
+# -----------------------------------------------------------------------------
+cat("=== [joint_sim] simulate_joint ===\n")
+source("R/functions_joint.R")
+jsim <- tryCatch(simulate_joint(seed = 1L),
+                 error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL })
+check("joint_sim", "ran", !is.null(jsim), if (is.null(jsim)) "error" else "ok")
+if (!is.null(jsim)) {
+  ag <- joint_field_agreement(jsim, 10)
+  check("joint_sim", "field cor at station/segment pairs < 10 km > 0.95",
+        min(ag$cor_gp_field) > 0.95, round(min(ag$cor_gp_field), 3))
+  same <- identical(jsim$edna$truth$gp_field_si,
+                    jsim$field$gp_field_si[jsim$edna$design$samples$station, ]) &&
+          identical(unname(jsim$visual$truth$log_lambda[, "pwsd"]),
+                    jsim$field$log_lambda_si[jsim$field$locations$source == "segment", 3])
+  check("joint_sim", "both halves index the same field", same, same)
+  ok_e <- !inherits(try(format_stan_data_gp2d_bathysp(jsim$edna, HSGP_M = c(6L, 4L)), silent = TRUE), "try-error")
+  ok_v <- !inherits(try(format_stan_data_visual(jsim$visual, "humpback"), silent = TRUE), "try-error")
+  check("joint_sim", "eDNA + visual formatters accept the halves", ok_e && ok_v,
+        sprintf("edna=%s visual=%s", ok_e, ok_v))
 }
 
 # -----------------------------------------------------------------------------

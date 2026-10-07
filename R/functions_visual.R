@@ -7,11 +7,11 @@
 #   sim <- simulate_visual(seed = 1)                    # one truth, both species
 #   sd  <- format_stan_data_visual(sim, "humpback")     # Stan data for one species
 #
-# The latent field matches HSGP4eDNA's `bathysp` truth exactly in structure:
+# The latent field is HSGP4eDNA's `bathysp` truth, drawn by its
+# simulate_field_bathysp():
 #   log lambda_s(x) = mu_s + f_s(X, Y) + B(Z_bathy) . beta_s     (animals / km^2)
-# with the same GP hyperparameters (default_gp_params()), the same bottom-depth
-# spline basis (bathy_spline_basis()) and the same true spline coefficients, so
-# visual and eDNA data can later be generated from ONE field (roadmap Phase 4).
+# (default_gp_params(), bathy_spline_basis(), BATHY_BETA_TRUE), so visual and
+# eDNA data can be generated from ONE field (R/functions_joint.R).
 #
 # The detection / group-size simulation is distance/00_distance_v4.1.R's,
 # unchanged: half-normal detection (PWSD with a group-size covariate), group
@@ -27,51 +27,24 @@ source("R/gp_priors.R")                                # gp_prior_from_design()
 # Study domain (km, UTM 10N offsets), as in HSGP4eDNA's simulators.
 LT_DOMAIN <- list(X_km_max = 500, Y_km_max = 1270)
 
-# True bottom-depth spline coefficients. MUST match beta_bathy_true inside
-# HSGP4eDNA's simulate_bathysp() (rows = hake, humpback, PWSD); duplicated here
-# because that function does not expose them separately.
-BATHY_BETA_TRUE <- rbind(
-  hake     = c( 1.2, -0.3, -1.0, -1.4),
-  humpback = c(-1.0,  1.3,  1.1, -0.9),
-  pwsd     = c(-1.3, -0.4,  0.7,  1.5)
-)
-
 # Bottom depth (m), drawn independently of (X, Y) as in simulate_bathysp(), so
 # the spline effect is identifiable separately from the spatial GP.
 draw_bathy <- function(n) pmax(50, 50 + 3150 * rbeta(n, 2, 2))
 
-# Squared-exponential covariance with separate (lx, ly), km.
-aniso_cov_2d <- function(coords, sigma, lx, ly, jitter = 1e-6) {
-  d2 <- outer(coords[, 1], coords[, 1], function(a, b) ((a - b) / lx)^2) +
-        outer(coords[, 2], coords[, 2], function(a, b) ((a - b) / ly)^2)
-  sigma^2 * exp(-0.5 * d2) + diag(jitter, nrow(coords))
-}
-
 # -----------------------------------------------------------------------------
-# simulate_field_bathysp(): the latent animal-density field at arbitrary
-# locations (data frame with X, Y, Z_bathy). `species` indexes
-# default_gp_params() by name. The spline setup (knots, centring) is built from
-# these locations unless one is supplied.
+# species_field(): HSGP4eDNA's simulate_field_bathysp() for the named species,
+# with species-named columns. One GP draw per species, in `species` order.
 # -----------------------------------------------------------------------------
-simulate_field_bathysp <- function(locs, species = c("humpback", "pwsd"),
-                                   gp_params = default_gp_params(), df = 4L,
-                                   spline_setup = NULL, bathy_scale = 1.0) {
-  coords <- as.matrix(locs[, c("X", "Y")])
-  bs <- bathy_spline_basis(locs$Z_bathy, df = df, setup = spline_setup)
-  n <- nrow(locs)
-  gp_field <- bathy_effect <- log_lambda <- matrix(NA_real_, n, length(species),
-                                                   dimnames = list(NULL, species))
-  for (sp in species) {
-    p <- gp_params[[sp]]
-    gp_field[, sp] <- as.vector(MASS::mvrnorm(1, rep(0, n),
-                                              aniso_cov_2d(coords, p$sigma, p$lx, p$ly)))
-    beta <- BATHY_BETA_TRUE[sp, seq_len(bs$setup$df)] * bathy_scale
-    bathy_effect[, sp] <- as.vector(bs$B %*% beta)
-    log_lambda[, sp]   <- p$mu + gp_field[, sp] + bathy_effect[, sp]
-  }
-  list(log_lambda = log_lambda, gp_field = gp_field, bathy_effect = bathy_effect,
-       spline_setup = bs$setup, gp_params = gp_params[species],
-       beta_bathy_true = BATHY_BETA_TRUE[species, seq_len(bs$setup$df), drop = FALSE] * bathy_scale)
+species_field <- function(locs, species = c("humpback", "pwsd"),
+                          gp_params = default_gp_params(), df = 4L,
+                          spline_setup = NULL, bathy_scale = 1.0) {
+  f <- simulate_field_bathysp(locs, gp_params[species], df = df,
+                              spline_setup = spline_setup, bathy_scale = bathy_scale)
+  nm <- function(m) { colnames(m) <- species; m }
+  list(log_lambda = nm(f$log_lambda_si), gp_field = nm(f$gp_field_si),
+       bathy_effect = nm(f$bathy_effect_si), spline_setup = f$bathy_spline,
+       gp_params = gp_params[species],
+       beta_bathy_true = `rownames<-`(f$beta_bathy_true, species))
 }
 
 # -----------------------------------------------------------------------------
@@ -162,7 +135,7 @@ simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
   set.seed(seed)
   segments <- lt_design(n_transects, seg_length)
   segments$Z_bathy <- draw_bathy(nrow(segments))
-  field <- simulate_field_bathysp(segments, species, gp_params = gp_params, df = df)
+  field <- species_field(segments, species, gp_params = gp_params, df = df)
   observed <- lapply(setNames(species, species), function(sp)
     simulate_lt_sightings(segments, exp(field$log_lambda[, sp]), sp_params[[sp]], w))
   list(meta = list(seed = seed, species = species, w = w, domain = LT_DOMAIN),

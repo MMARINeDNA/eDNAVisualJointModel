@@ -459,6 +459,55 @@ repo; the eDNA-only and visual-only fits use subsets of its output.
 `hsgp_visual.stan` each still recover the field. This proves the shared sim is
 consistent with both single-source models before any joint fitting.
 
+**Done 2026-10-07.**
+
+- *Upstream ([HSGP4eDNA#2](https://github.com/MMARINeDNA/HSGP4eDNA/pull/2), tag `v1.2`; submodule bumped).*
+  `simulate_bathysp()` is split into
+  `simulate_field_bathysp(locs, gp_params, df)`, which draws the field at any
+  locations, plus `simulate_edna_obs()` and `zsample_effect_matrix()`.
+  `BATHY_BETA_TRUE` and `aniso_cov_2d()` are now top level. Output is
+  **bit-identical** (`identical()`) for `bathysp_surface` (seeds 202, and 7
+  with 120 stations) and `bathysp_depthspref` (seed 203).
+- *Visual simulator.* It now calls the upstream field function through a thin
+  `species_field()` wrapper, so the duplicated `BATHY_BETA_TRUE` is gone.
+  `simulate_visual()` truth changed by ≤ 8.9e-16 (matrix × matrix vs per-species
+  matrix × vector products). Sightings are identical, so the Phase 3 and
+  design-prior validations stand.
+- *`R/functions_joint.R`.* `simulate_joint()` builds the eDNA stations (as in
+  `simulate_bathysp()`) and the LT segments. It draws **one** field over all
+  their locations, with the spline basis from all locations, then simulates
+  both observation types. Its `$edna` half has the shape of
+  `simulate_bathysp()` output and its `$visual` half the shape of
+  `simulate_visual()` output, so every single-source tool works unchanged.
+  `joint_field_agreement()` checks that the two halves share the field.
+- *`R/fit_edna.r`* accepts a pre-built `sim`.
+- *`R/validate_joint_sim.r`* is the check below.
+- *`tests/smoke.R`* gains a `joint_sim` case (no fits): field sharing and
+  both formatters. 16/16 checks pass.
+
+Check (`Rscript R/validate_joint_sim.r`, 2 seeds; 55 min):
+
+| | Seed 1 | Seed 2 | Single-source reference |
+|---|---|---|---|
+| GP field cor, station/segment pairs < 10 km (all species) | 0.995–0.996 | 0.995–0.997 | — |
+| eDNA (HSGP4eDNA 09, 17×6, df 4, 3 × 400/400) field R² hake / humpback / PWSD | 0.98 / 0.73 / 0.68 | 0.98 / 0.58 / 0.65 | 0.97 / 0.56 / 0.74 |
+| eDNA divergences, max Rhat | 0, 1.009 | 0, 1.027 | 0, 1.01 |
+| Visual humpback R² (detections) | 0.90 (688) | 0.87 (422) | 0.87–0.93 (549–917) |
+| Visual PWSD R² (detections) | 0.54 (37) | 0.58 (43) | 0.60–0.79 (41–100) |
+| Visual divergences, floor flags, D covered, GP hyperparameters covered | 0, 0, 2/2, 6/6 | 0, 0, 2/2, 6/6 (σ_det missed for PWSD) | — |
+
+The low PWSD visual R² tracks its few detections in these two draws. **What
+this sets up for Phase 5:** PWSD is weak in both sources (eDNA R² ≈ 0.65–0.68,
+visual ≈ 0.54–0.58), so it is where joint fitting should help most. Humpback
+is strong visually but only moderate in eDNA.
+
+Notes for Phase 5:
+- The eDNA formatter normalizes coordinates by the *data* range; the visual
+  formatter uses the *domain* extents. The joint formatter must use one
+  normalization (the domain) for stations and segments.
+- The design-based prior should be built from the union of station and
+  segment locations.
+
 ### Phase 5: Joint model
 
 1. Write `stan/hsgp_joint.stan`: one `gp2d_bathysp` field per species, then

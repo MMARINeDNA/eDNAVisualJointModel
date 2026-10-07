@@ -34,6 +34,8 @@ in_hsgp4edna <- function(expr) {
 #            HSGP4eDNA's 09 driver treats the fit as matched (spline truth).
 # sim_args : passed to simulate_bathysp(); defaults reproduce
 #            HSGP4eDNA's 01_sim_bathysp_surface.r.
+# sim      : a pre-built simulate_bathysp()-shaped object (e.g.
+#            simulate_joint()$edna); if given, sim_args is ignored.
 # basis    : HSGP basis per axis (MX, MY); df: spline df for Z_bathy.
 # log_file : where the fit's console output goes (NULL = this console).
 fit_edna <- function(scenario  = "bathysp_surface",
@@ -44,7 +46,8 @@ fit_edna <- function(scenario  = "bathysp_surface",
                      chains    = 3L,
                      warmup    = 400L,
                      sample    = 400L,
-                     log_file  = NULL) {
+                     log_file  = NULL,
+                     sim       = NULL) {
   stopifnot(grepl("^bathysp", scenario), length(basis) == 2L)
   # Resolve before changing directory into the submodule.
   # (normalizePath() leaves a not-yet-existing file relative, so resolve the
@@ -60,9 +63,11 @@ fit_edna <- function(scenario  = "bathysp_surface",
 
     # 1. Simulate in a clean environment so HSGP4eDNA's helpers do not leak
     #    into the caller's session.
-    env <- new.env()
-    sys.source("R/functions.R", envir = env)
-    sim <- do.call(env$simulate_bathysp, sim_args)
+    if (is.null(sim)) {
+      env <- new.env()
+      sys.source("R/functions.R", envir = env)
+      sim <- do.call(env$simulate_bathysp, sim_args)
+    }
     saveRDS(sim, file.path(out_dir, "sim.rds"))
 
     # 2. Fit in a subprocess, exactly as HSGP4eDNA runs it.
