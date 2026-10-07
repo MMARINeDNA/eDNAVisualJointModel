@@ -1,5 +1,5 @@
 # Build the empirical group-size pools used by the distance-sampling
-# simulators (distance/00_distance_v4.1*.R). Run from the project root.
+# simulator (R/functions_visual.R: lt_species_params()). Run from the project root.
 # Outputs are small and tracked: data/grpsz/{humpback,pwsd}.rds
 
 library(dplyr)

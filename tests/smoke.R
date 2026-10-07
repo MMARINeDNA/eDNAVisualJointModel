@@ -3,7 +3,7 @@
 #
 # Fast end-to-end check that every model in this repo still compiles, samples,
 # and recovers its simulated truth. Run from the repo root before committing
-# any change under R/, stan/, distance/, or a submodule bump:
+# any change under R/, stan/, or a submodule bump:
 #
 #   Rscript tests/smoke.R
 #
@@ -14,7 +14,8 @@
 # Cases:
 #   edna    HSGP4eDNA gp2d_bathysp (2-D HSGP + bottom-depth spline) via
 #           R/fit_edna.r, on a small bathysp_surface-style simulation
-#   visual  distance/00_distance_v4.1.R (non-spatial line-transect model)
+#   visual  stan/hsgp_visual.stan (2-D HSGP + bottom-depth spline, line
+#           transects) via R/fit_visual.r, both species of simulate_visual()
 #
 # Logs and outputs go to outputs/smoke/ (git-ignored). Exit status is non-zero
 # if any check fails.
@@ -66,38 +67,37 @@ if (!is.null(edna)) {
 }
 
 # -----------------------------------------------------------------------------
-# Case 2: visual (non-spatial distance sampling, v4.1)
+# Case 2: visual (hsgp_visual: 2-D HSGP + bottom-depth spline, line transects)
 # -----------------------------------------------------------------------------
-cat("=== [visual] distance v4.1 (non-spatial) ===\n")
-vis_dir <- file.path(SMOKE_DIR, "distance_v4.1")
-vis_log <- file.path(SMOKE_DIR, "visual.log")
-status <- NA
-mins <- timed(status <- system2(
-  "Rscript", "distance/00_distance_v4.1.R",
-  env = c(sprintf("OUTPUT_DIR=%s", vis_dir), "CHAINS=2",
-          "ITER_WARMUP=300", "ITER_SAMPLING=300"),
-  stdout = vis_log, stderr = vis_log))
-cat(sprintf("  %.1f min (log: %s)\n", mins, vis_log))
+cat("=== [visual] hsgp_visual ===\n")
+source("R/fit_visual.r")
+vis <- list()
+mins <- timed({
+  vsim <- simulate_visual(seed = 1L)
+  vmod <- tryCatch(compile_visual(quiet = TRUE),
+                   error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL })
+  if (!is.null(vmod)) for (sp in vsim$meta$species) {
+    vis[[sp]] <- tryCatch(
+      fit_visual(vsim, sp, mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
+                 HSGP_M = c(8L, 4L)),
+      error = function(e) { message("  ERROR (", sp, "): ", conditionMessage(e)); NULL })
+  }
+})
+cat(sprintf("  %.1f min\n", mins))
 
-check("visual", "ran", status == 0, status)
-if (status == 0) {
-  rec <- read_csv(file.path(vis_dir, "distance_v4.1_recovery.csv"),
-                  show_col_types = FALSE)
-  for (sp in c("humpback", "pwsd")) {
-    fit <- readRDS(file.path(vis_dir, sprintf("distance_v4.1_%s.rds", sp)))
-    ndiv <- sum(fit$diagnostics$num_divergent)
-    check("visual", sprintf("%s divergences == 0", sp), ndiv == 0, ndiv)
-    check("visual", sprintf("%s max Rhat < 1.1", sp), fit$max_rhat < 1.1,
-          round(fit$max_rhat, 3))
-  }
-  # Detection scale and animal density must cover their truths.
-  key <- rec[rec$param %in% c("sigma (km)", "D (animals/km^2)"), ]
-  for (i in seq_len(nrow(key))) {
-    r <- key[i, ]
-    check("visual", sprintf("%s: %s truth in 95%% CI", r$species, r$param),
-          r$truth >= r$q025 && r$truth <= r$q975,
-          sprintf("%.3g in [%.3g, %.3g]", r$truth, r$q025, r$q975))
-  }
+for (sp in c("humpback", "pwsd")) {
+  r <- vis[[sp]]
+  check("visual", sprintf("%s ran", sp), !is.null(r), if (is.null(r)) "error" else "ok")
+  if (is.null(r)) next
+  check("visual", sprintf("%s divergences == 0", sp), r$divergences == 0, r$divergences)
+  check("visual", sprintf("%s max Rhat < 1.1", sp), r$max_rhat < 1.1, round(r$max_rhat, 3))
+}
+if (!is.null(vis$humpback)) {
+  r  <- vis$humpback
+  sc <- r$recovery[r$recovery$param == "sigma_c", ]
+  check("visual", "humpback field R2 > 0.5", r$field$R2 > 0.5, round(r$field$R2, 2))
+  check("visual", "humpback sigma truth in 95% CI", isTRUE(sc$covered),
+        sprintf("%.3g in [%.3g, %.3g]", sc$truth, sc$q025, sc$q975))
 }
 
 # -----------------------------------------------------------------------------

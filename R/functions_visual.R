@@ -1,0 +1,222 @@
+# =============================================================================
+# functions_visual.R
+#
+# Simulation + Stan-data formatting for the spatial line-transect (visual)
+# model, stan/hsgp_visual.stan. Run from the repo root.
+#
+#   sim <- simulate_visual(seed = 1)                    # one truth, both species
+#   sd  <- format_stan_data_visual(sim, "humpback")     # Stan data for one species
+#
+# The latent field matches HSGP4eDNA's `bathysp` truth exactly in structure:
+#   log lambda_s(x) = mu_s + f_s(X, Y) + B(Z_bathy) . beta_s     (animals / km^2)
+# with the same GP hyperparameters (default_gp_params()), the same bottom-depth
+# spline basis (bathy_spline_basis()) and the same true spline coefficients, so
+# visual and eDNA data can later be generated from ONE field (roadmap Phase 4).
+#
+# The detection / group-size simulation is distance/00_distance_v4.1.R's,
+# unchanged: half-normal detection (PWSD with a group-size covariate), group
+# sizes resampled from the empirical pools in data/grpsz/.
+# =============================================================================
+
+HSGP4EDNA_DIR <- "external/HSGP4eDNA"
+source(file.path(HSGP4EDNA_DIR, "R", "functions.R"))   # default_gp_params(),
+                                                       # hsgp_basis_rule(),
+                                                       # bathy_spline_basis()
+
+# Study domain (km, UTM 10N offsets), as in HSGP4eDNA's simulators.
+LT_DOMAIN <- list(X_km_max = 500, Y_km_max = 1270)
+
+# True bottom-depth spline coefficients. MUST match beta_bathy_true inside
+# HSGP4eDNA's simulate_bathysp() (rows = hake, humpback, PWSD); duplicated here
+# because that function does not expose them separately.
+BATHY_BETA_TRUE <- rbind(
+  hake     = c( 1.2, -0.3, -1.0, -1.4),
+  humpback = c(-1.0,  1.3,  1.1, -0.9),
+  pwsd     = c(-1.3, -0.4,  0.7,  1.5)
+)
+
+# Bottom depth (m), drawn independently of (X, Y) as in simulate_bathysp(), so
+# the spline effect is identifiable separately from the spatial GP.
+draw_bathy <- function(n) pmax(50, 50 + 3150 * rbeta(n, 2, 2))
+
+# Squared-exponential covariance with separate (lx, ly), km.
+aniso_cov_2d <- function(coords, sigma, lx, ly, jitter = 1e-6) {
+  d2 <- outer(coords[, 1], coords[, 1], function(a, b) ((a - b) / lx)^2) +
+        outer(coords[, 2], coords[, 2], function(a, b) ((a - b) / ly)^2)
+  sigma^2 * exp(-0.5 * d2) + diag(jitter, nrow(coords))
+}
+
+# -----------------------------------------------------------------------------
+# simulate_field_bathysp(): the latent animal-density field at arbitrary
+# locations (data frame with X, Y, Z_bathy). `species` indexes
+# default_gp_params() by name. The spline setup (knots, centring) is built from
+# these locations unless one is supplied.
+# -----------------------------------------------------------------------------
+simulate_field_bathysp <- function(locs, species = c("humpback", "pwsd"),
+                                   gp_params = default_gp_params(), df = 4L,
+                                   spline_setup = NULL, bathy_scale = 1.0) {
+  coords <- as.matrix(locs[, c("X", "Y")])
+  bs <- bathy_spline_basis(locs$Z_bathy, df = df, setup = spline_setup)
+  n <- nrow(locs)
+  gp_field <- bathy_effect <- log_lambda <- matrix(NA_real_, n, length(species),
+                                                   dimnames = list(NULL, species))
+  for (sp in species) {
+    p <- gp_params[[sp]]
+    gp_field[, sp] <- as.vector(MASS::mvrnorm(1, rep(0, n),
+                                              aniso_cov_2d(coords, p$sigma, p$lx, p$ly)))
+    beta <- BATHY_BETA_TRUE[sp, seq_len(bs$setup$df)] * bathy_scale
+    bathy_effect[, sp] <- as.vector(bs$B %*% beta)
+    log_lambda[, sp]   <- p$mu + gp_field[, sp] + bathy_effect[, sp]
+  }
+  list(log_lambda = log_lambda, gp_field = gp_field, bathy_effect = bathy_effect,
+       spline_setup = bs$setup, gp_params = gp_params[species],
+       beta_bathy_true = BATHY_BETA_TRUE[species, seq_len(bs$setup$df), drop = FALSE] * bathy_scale)
+}
+
+# -----------------------------------------------------------------------------
+# lt_design(): systematic E-W transects split into segments (as v4.1).
+# -----------------------------------------------------------------------------
+lt_design <- function(n_transects = 25L, seg_length = 10, domain = LT_DOMAIN) {
+  n_seg_per <- floor(domain$X_km_max / seg_length)
+  transect_Y <- seq(domain$Y_km_max / (2 * n_transects),
+                    domain$Y_km_max - domain$Y_km_max / (2 * n_transects),
+                    length.out = n_transects)
+  seg <- expand.grid(transect_id = seq_len(n_transects), seg_idx = seq_len(n_seg_per))
+  data.frame(seg_id = seq_len(nrow(seg)), transect_id = seg$transect_id,
+             X = (seg$seg_idx - 0.5) * seg_length, Y = transect_Y[seg$transect_id],
+             seg_l = seg_length)
+}
+
+# -----------------------------------------------------------------------------
+# lt_species_params(): detection, group-size and prior settings per species,
+# from distance/00_distance_v4.1.R. Density/GP truths are NOT here - they come
+# from default_gp_params() so they are shared with the eDNA model.
+# -----------------------------------------------------------------------------
+lt_species_params <- function(grpsz_dir = "data/grpsz") {
+  pool_h <- as.integer(readRDS(file.path(grpsz_dir, "humpback.rds")))
+  pool_p <- as.integer(readRDS(file.path(grpsz_dir, "pwsd.rds")))
+  mean_h <- mean(pool_h); mean_p <- mean(pool_p)
+  cv2_p  <- (sd(pool_p) / mean_p)^2
+  pwsd_log_mu0    <- log(mean_p) - 0.5 * log(1 + cv2_p)   # log-normal MoM
+  pwsd_log_sigma0 <- sqrt(log(1 + cv2_p))
+  list(
+    humpback = list(
+      common_name = "Humpback whale", group_size_pool = pool_h, mean_group_size = mean_h,
+      sigma_det = 2.5, use_size_covar = 0L, beta_size_truth = 0.0, s_centre = mean_h,
+      model_group_dist = 0L, S_max = 50L,
+      log_sigma_prior_mean = log(2.5), log_sigma_prior_sd = 0.6,
+      beta_size_prior_mean = 0.0, beta_size_prior_sd = 0.05,
+      mu_s_prior_shape = 4, mu_s_prior_rate = 4 / mean_h,
+      phi_s_prior_shape = 1, phi_s_prior_rate = 0.1,
+      mu_log_prior_mean = log(mean_h), mu_log_prior_sd = 1.0,
+      sigma_log_prior_shape = 2, sigma_log_prior_rate = 2
+    ),
+    pwsd = list(
+      common_name = "Pacific white-sided dolphin", group_size_pool = pool_p, mean_group_size = mean_p,
+      sigma_det = 1.5, use_size_covar = 1L, beta_size_truth = 0.01, s_centre = mean_p,
+      model_group_dist = 1L, S_max = 1000L,
+      log_sigma_prior_mean = log(1.5), log_sigma_prior_sd = 0.6,
+      beta_size_prior_mean = 0.0, beta_size_prior_sd = 0.05,
+      mu_s_prior_shape = 4, mu_s_prior_rate = 4 / mean_p,
+      phi_s_prior_shape = 1, phi_s_prior_rate = 0.1,
+      mu_log_prior_mean = pwsd_log_mu0, mu_log_prior_sd = 0.5,
+      sigma_log_prior_shape = 4, sigma_log_prior_rate = 4 / pwsd_log_sigma0
+    )
+  )
+}
+
+# -----------------------------------------------------------------------------
+# simulate_lt_sightings(): groups in each segment's strip ~ Poisson, uniform
+# perpendicular distance, half-normal detection (v4.1 logic, unchanged).
+# lambda_animals: animals / km^2 per segment.
+# -----------------------------------------------------------------------------
+simulate_lt_sightings <- function(segments, lambda_animals, p, w) {
+  lambda_groups <- lambda_animals / p$mean_group_size
+  n_strip <- rpois(nrow(segments), lambda_groups * 2 * w * segments$seg_l)
+  rows <- vector("list", nrow(segments))
+  for (j in which(n_strip > 0)) {
+    x_true  <- runif(n_strip[j], 0, w)
+    s_strip <- sample(p$group_size_pool, n_strip[j], replace = TRUE)
+    sigma_g <- if (p$use_size_covar == 1L)
+      p$sigma_det * exp(p$beta_size_truth * (s_strip - p$s_centre)) else
+      rep(p$sigma_det, n_strip[j])
+    keep <- runif(n_strip[j]) < exp(-x_true^2 / (2 * sigma_g^2))
+    if (any(keep))
+      rows[[j]] <- data.frame(seg_id = segments$seg_id[j], distance = x_true[keep],
+                              size = as.integer(s_strip[keep]))
+  }
+  obs <- do.call(rbind, rows)
+  if (is.null(obs)) obs <- data.frame(seg_id = integer(), distance = numeric(), size = integer())
+  list(obs = obs, seg_count = tabulate(obs$seg_id, nbins = nrow(segments)),
+       n_groups_in_strip = n_strip)
+}
+
+# -----------------------------------------------------------------------------
+# simulate_visual(): one field over the segment design + sightings per species.
+# -----------------------------------------------------------------------------
+simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
+                            n_transects = 25L, seg_length = 10, w = 5.0, df = 4L,
+                            gp_params = default_gp_params(),
+                            sp_params = lt_species_params()) {
+  set.seed(seed)
+  segments <- lt_design(n_transects, seg_length)
+  segments$Z_bathy <- draw_bathy(nrow(segments))
+  field <- simulate_field_bathysp(segments, species, gp_params = gp_params, df = df)
+  observed <- lapply(setNames(species, species), function(sp)
+    simulate_lt_sightings(segments, exp(field$log_lambda[, sp]), sp_params[[sp]], w))
+  list(meta = list(seed = seed, species = species, w = w, domain = LT_DOMAIN),
+       design = list(segments = segments),
+       truth = c(field, list(sp_params = sp_params[species])),
+       observed = observed)
+}
+
+# -----------------------------------------------------------------------------
+# format_stan_data_visual(): Stan data for one species.
+#   HSGP_M    basis per axis; NULL = hsgp_basis_rule() at the shortest true
+#             length-scale (sized like HSGP4eDNA's fits)
+#   use_gp    0 = no spatial field
+#   use_bathy FALSE = no bottom-depth spline
+# Coordinates are normalised by the DOMAIN extents (not the data range), so the
+# same normalisation can serve eDNA stations and LT segments in the joint model.
+# -----------------------------------------------------------------------------
+format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5),
+                                    use_gp = 1L, use_bathy = TRUE,
+                                    prior_mu_sp = c(-5, 2)) {
+  seg <- sim$design$segments
+  ob  <- sim$observed[[sp]]
+  p   <- sim$truth$sp_params[[sp]]
+  dom <- sim$meta$domain
+  coord_centre <- c(dom$X_km_max, dom$Y_km_max) / 2
+  coord_scale  <- coord_centre
+  coords <- sweep(sweep(as.matrix(seg[, c("X", "Y")]), 2, coord_centre, "-"), 2, coord_scale, "/")
+  if (is.null(HSGP_M)) {
+    gp <- sim$truth$gp_params[[sp]]
+    HSGP_M <- hsgp_basis_rule(c(gp$lx, gp$ly), coord_scale, c = HSGP_C[1])
+  }
+  INDICES <- as.matrix(do.call(tidyr::expand_grid, lapply(HSGP_M, seq_len)))
+  B <- if (use_bathy) bathy_spline_basis(seg$Z_bathy, setup = sim$truth$spline_setup)$B else
+    matrix(0, nrow(seg), 0)
+
+  list(
+    n = nrow(ob$obs), x = ob$obs$distance, s = as.integer(ob$obs$size), w = sim$meta$w,
+    log_sigma_prior_mean = p$log_sigma_prior_mean, log_sigma_prior_sd = p$log_sigma_prior_sd,
+    use_size_covar = p$use_size_covar, s_centre = p$s_centre,
+    beta_size_prior_mean = p$beta_size_prior_mean, beta_size_prior_sd = p$beta_size_prior_sd,
+    S_max = p$S_max, group_size_dist = p$model_group_dist,
+    mu_s_prior_shape = p$mu_s_prior_shape, mu_s_prior_rate = p$mu_s_prior_rate,
+    phi_s_prior_shape = p$phi_s_prior_shape, phi_s_prior_rate = p$phi_s_prior_rate,
+    mu_log_prior_mean = p$mu_log_prior_mean, mu_log_prior_sd = p$mu_log_prior_sd,
+    sigma_log_prior_shape = p$sigma_log_prior_shape, sigma_log_prior_rate = p$sigma_log_prior_rate,
+    n_seg = nrow(seg), seg_count = as.integer(ob$seg_count), seg_l = as.numeric(seg$seg_l),
+    use_gp = as.integer(use_gp), D1 = 2L, M = as.integer(prod(HSGP_M)), INDICES = INDICES,
+    coords = coords, coord_scale = coord_scale, L_hsgp = HSGP_C,
+    K_bathy = ncol(B), B_bathy = B,
+    N_pred = 0L, pred_coords = matrix(0, 0, 2), B_bathy_pred = matrix(0, 0, ncol(B)),
+    # Field priors: HSGP4eDNA's (gp_sigma, gp_l_raw, beta_bathy); mu_sp is
+    # weakly informative on log animals / km^2 (-5 +/- 2 -> 1e-4 .. 0.4).
+    prior_mu_sp_mu = prior_mu_sp[1], prior_mu_sp_sig = prior_mu_sp[2],
+    prior_gp_sigma_shape = 8.0, prior_gp_sigma_rate = 4.0,
+    prior_gp_raw_alpha = 10, prior_gp_raw_beta = 16,
+    prior_beta_bathy_sig = 2.0
+  )
+}
