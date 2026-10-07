@@ -461,7 +461,8 @@ consistent with both single-source models before any joint fitting.
 
 **Done 2026-10-07.**
 
-- *Upstream (HSGP4eDNA).* `simulate_bathysp()` is split into
+- *Upstream ([HSGP4eDNA#2](https://github.com/MMARINeDNA/HSGP4eDNA/pull/2), tag `v1.2`; submodule bumped).*
+  `simulate_bathysp()` is split into
   `simulate_field_bathysp(locs, gp_params, df)`, which draws the field at any
   locations, plus `simulate_edna_obs()` and `zsample_effect_matrix()`.
   `BATHY_BETA_TRUE` and `aniso_cov_2d()` are now top level. Output is
