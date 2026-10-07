@@ -69,3 +69,6 @@ data/MV1_MURI_df.csv
 
 # Visual-model fits and validation (R/fit_visual.r, R/validate_visual.r)
 outputs/visual/
+
+# Joint-simulator validation (R/validate_joint_sim.r)
+outputs/joint_sim/

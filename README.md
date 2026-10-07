@@ -24,7 +24,8 @@ their outputs and notebooks).
 |---|---|---|
 | **eDNA** (2-D HSGP + bottom-depth spline) | [HSGP4eDNA](https://github.com/MMARINeDNA/HSGP4eDNA) submodule, `stan/hsgp_2d_bathysp.stan`; driven by `R/fit_edna.r` | ✅ Validated in HSGP4eDNA (see its README) |
 | **Visual** (2-D HSGP + bottom-depth spline, line transects) | `stan/hsgp_visual.stan`; driven by `R/fit_visual.r` | ✅ Validated over 5 replicates (see [Results](#results)) |
-| **Joint** eDNA + visual | `stan/hsgp_joint.stan` | 🚧 Roadmap Phases 4–5 |
+| Joint simulator | `R/functions_joint.R` (`simulate_joint()`) | ✅ One shared field; each half validated with its single-source model |
+| **Joint** eDNA + visual model | `stan/hsgp_joint.stan` | 🚧 Roadmap Phase 5 |
 
 ## Getting started
 
@@ -102,6 +103,19 @@ SEEDS=1:5 Rscript R/validate_visual.r
 `R/validate_visual.r` runs the multi-replicate recovery study. The development
 history of the detection model is in `docs/history/distance_v4.1_notebook.html`.
 
+### Joint simulator
+
+```r
+source("R/functions_joint.R")
+sim <- simulate_joint(seed = 1)   # one field; eDNA stations + transect segments
+sim$edna                          # shaped like HSGP4eDNA's simulate_bathysp() output
+sim$visual                        # shaped like simulate_visual() output
+```
+
+The joint model is not built yet (roadmap Phase 5). Until then, each half can
+be fitted with its single-source model. `Rscript R/validate_joint_sim.r` does
+exactly that, and is the Phase 4 check.
+
 ## Results
 
 **Visual model** (`R/validate_visual.r`, 5 replicates, 4 chains × 1000/1000,
@@ -147,7 +161,8 @@ domain extent and the basis budget. Observed outcomes never enter
 .
 ├── ROADMAP.md              restructure plan + per-phase results
 ├── external/HSGP4eDNA/     submodule: eDNA model, HSGP helpers, simulators
-├── R/                      drivers: fit_edna.r, functions_visual.R, gp_priors.R, fit_visual.r, validate_visual.r
+├── R/                      drivers: fit_edna.r, functions_visual.R, functions_joint.R, gp_priors.R,
+│                           fit_visual.r, validate_visual.r, validate_joint_sim.r
 ├── stan/                   hsgp_visual.stan; stan/include/visual_functions.stan
 ├── tests/smoke.R           fast end-to-end check of every model
 ├── data/                   real survey data (+ data/grpsz/ group-size pools)
