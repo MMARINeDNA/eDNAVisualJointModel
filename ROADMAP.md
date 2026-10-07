@@ -230,6 +230,31 @@ Smoke test (`Rscript tests/smoke.R`): **13/13 checks pass, 5.6 min**.
 fixed seed, or within MC error. Re-run at least the `nobathy_surface × gp2d`
 and `bathysp_surface × gp2d_bathysp` cells. Tag `v1.1` and bump the submodule.
 
+**Done 2026-10-07** ([HSGP4eDNA#1](https://github.com/MMARINeDNA/HSGP4eDNA/pull/1),
+tag `v1.1` = `a6aa2b5`; submodule bumped).
+
+- `stan/include/hsgp_functions.stan` provides `lambda_nD`, `spd_nD`,
+  `phi_nD`, `hsgp_phi()` and `hsgp_sqrt_spd()`.
+- `stan/include/edna_functions.stan` provides `zi_beta_binomial_lpmf`, the
+  per-observation `edna_qpcr_loglik()` / `edna_mb_loglik()`, and the MB
+  shape helpers.
+- Step 1's `edna_obs_lp` became two per-observation log-likelihood
+  functions. The model block uses `target += sum(...)` and generated
+  quantities uses the same calls for `log_lik_qpcr` / `log_lik_mb`, which
+  also covers step 3.
+- Step 2 (merging the two models) was not done; it is optional.
+- Consumers compile with
+  `include_paths = c(..., "external/HSGP4eDNA/stan/include")` and use
+  `#include hsgp_functions.stan` / `#include edna_functions.stan` inside
+  `functions { }`.
+
+| Check | Result |
+|---|---|
+| `log_prob` + `grad_log_prob`, old vs new, 20 random unconstrained points | ≤ 1.3e-14 relative for `gp2d`, `gp3d` (D1 = 3), `gp2d_bathysp` |
+| `nobathy_surface` × `gp2d` re-run | 0 divergences, 0 treedepth hits; posterior means match v1.0 within MC error. Four params at Rhat 1.01–1.02 (v1.0: none above 1.01), which is chain variation since the log density is identical |
+| `bathysp_surface` × `gp2d_bathysp` re-run | 0 divergences, max Rhat 1.01; field R² 0.974 / 0.563 / 0.739 (v1.0: 0.98 / 0.56 / 0.74) |
+| `log_lik` | All finite; `loo` runs (99% Pareto k good on a 60-station fit) |
+
 ### Phase 3: One visual model on the debugged machinery
 
 1. Move the LT simulator out of `00_distance_v4.1a.R` into
