@@ -60,24 +60,12 @@ stan/**
 !stan/**/
 !stan/**/*.stan
 
-# Same pattern for distance/ (Distance sampling Stan models live here).
-distance/*
-!distance/*.stan
-!distance/*.Rmd
-!distance/*.R
-
-# Distance sampling outputs — fit RDS and recovery CSV are regenerable
-# from 00_distance_v*.R, but the diagnostic PDFs are tracked.
-outputs/distance_*/*
-!outputs/distance_*/distance_v*_*.pdf
-!outputs/distance_*/distance_v*_recovery.csv
-!outputs/distance_*/distance_v*_notebook.qmd
-!outputs/distance_*/_notebook_figs/
-!outputs/distance_*/_notebook_figs/**
-
 # Big eDNA dataset — too large to track in git (30 MB). The smaller
 # qPCR file (data/hake_qPCR_MURI_df.csv) stays tracked.
 data/MV1_MURI_df.csv
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Visual-model fits and validation (R/fit_visual.r, R/validate_visual.r)
+outputs/visual/

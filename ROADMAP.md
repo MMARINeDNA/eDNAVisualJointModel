@@ -302,6 +302,84 @@ tag `v1.1` = `a6aa2b5`; submodule bumped).
 ✅ Check: the smoke test has the new visual case and the old case is removed.
 The validation row is recorded.
 
+**Done 2026-10-07.**
+
+New files:
+
+| File | Contents |
+|---|---|
+| `stan/include/visual_functions.stan` | `hn_sigma`, `hn_esw`, `group_size_pmf`, `esw_population`, and the per-observation `lt_detection_loglik` / `lt_segment_loglik` |
+| `stan/hsgp_visual.stan` | Single species. Field `log λ = μ + f(X, Y) + B(Z_bathy)·β`, in animals/km² like the eDNA model. Expected detected groups = λ / E[s] · 2L · ESW_pop, where E[s] is the mean of the modelled group-size pmf. Data switches `use_gp` and `K_bathy`. Emits `log_lik_det`, `log_lik_seg` and `pp_seg_count`. |
+| `R/functions_visual.R` | `simulate_field_bathysp()`, the field at any locations. It uses HSGP4eDNA's `default_gp_params()`, `bathy_spline_basis()` and the same true spline coefficients. Also `lt_design()`, `lt_species_params()` (v4.1 detection and priors), `simulate_lt_sightings()` (v4.1 logic), `simulate_visual()` and `format_stan_data_visual()`. Coordinates are normalized by the domain extents, so the joint model can share them. |
+| `R/fit_visual.r` | `fit_visual()`, recovery summaries, and script mode |
+| `R/validate_visual.r` | Multi-replicate recovery study |
+
+Removed: `distance/` and `outputs/distance_v4.1/`. The distance notebook HTML
+stays in `docs/history/`.
+
+Deviations from the plan:
+
+- **σ clamp kept.** The `log σ ≤ 30` clamp is kept in `hn_sigma`. It
+  engages only for σ > 1e13 km, where ESW is flat at w, and it prevents
+  `exp()` overflow in the S_max integration loop. The harmful v4.1a clamps
+  were on log λ; there are none here (`poisson_log_lpmf` is used).
+- **`mu_sp` prior.** It is `normal(-5, 2)` on log animals/km², weakly
+  informative and not centred on any truth. The other field priors are
+  HSGP4eDNA's (see the open issue below).
+- **Bottom depth in the simulation.** Z_bathy at segments is drawn
+  independently of (X, Y), as in HSGP4eDNA's `simulate_bathysp()`, so the
+  spline is identifiable. Real bathymetry is spatially smooth, which will
+  partly confound the spline with the GP. That is a Phase 6 concern.
+- **Duplicated truth coefficients.** `BATHY_BETA_TRUE` duplicates the true
+  spline coefficients hard-coded inside HSGP4eDNA's `simulate_bathysp()`.
+  Phase 4 needs one field shared with the eDNA observations, so it should
+  factor the field generation out of `simulate_bathysp()` upstream.
+
+**Check (a): non-spatial reduction vs v4.1, on the same data** (3 seeds × 2
+species, 4 × 1000/1000; the new model's `mu_sp` prior is matched to v4.1's
+group-density prior):
+
+| Quantity | Max \|relative difference\| in posterior median | CI width ratio new / v4.1 |
+|---|---|---|
+| σ at s_centre | 0.19% | 0.96–1.04 |
+| ESW_pop | 0.9% (PWSD consistently ~0.8% lower) | 0.95–1.04 |
+| group density | 1.1% | 0.94–1.05 |
+| β_size (PWSD) | 3.0% | 0.98–1.00 |
+
+There were 2 divergences for v4.1 and 1 for the new model, all on PWSD seed
+2. The small PWSD ESW shift comes from putting the density prior on animals
+rather than groups, which couples it weakly to the group-size parameters.
+
+**Check (b): spatial recovery** (`SEEDS=1:5 Rscript R/validate_visual.r`; basis
+14×6 = 84 from `hsgp_basis_rule()`, spline df 4; 4 × 1000/1000; 28 min total):
+
+| Species | Detections | Divergences | max Rhat | min E-BFMI | Field R² | Coverage D / σ / E[s] / μ | Median rel. bias D |
+|---|---|---|---|---|---|---|---|
+| Humpback | 549–917 | 0,1,0,0,0 | ≤ 1.007 | 0.70 | 0.84–0.93 | 5/5, 5/5, 5/5, 5/5 | −3% |
+| PWSD | 41–100 | 1,0,0,0,0 | ≤ 1.003 | 0.79 | 0.59–0.75 | 5/5, 4/5, 5/5, 4/5 | −4% |
+
+Smoke test: the visual case is now `hsgp_visual` (both species, basis 8×4, 2 ×
+300/300), replacing distance v4.1. **12/12 checks pass, 6.9 min.** It also
+caught a name-capture bug: `summarise_visual()` used a bare `rhat`, which a
+caller's variable could shadow. The fix namespaces it as `posterior::rhat`.
+
+**Open issue: GP hyperparameter priors.** HSGP4eDNA's field priors pull the
+GP hyperparameters for both whales:
+
+| Parameter | Prior | Truth | Result |
+|---|---|---|---|
+| `gp_sigma` | `gamma(8, 4)`, mean 2 | 1.0 / 1.3 | Median ~40% high; coverage 3/5 (humpback), 4/5 (PWSD) |
+| `lx` | `gp_l_raw ~ gamma(10, 16)`, mean ≈ 156 km | 50 km | +17% (humpback, 3/5), +99% (PWSD, 2/5) |
+| `ly` | same | 300 km | +21–24%; coverage 4/5, 5/5 |
+
+These priors were tuned on hake's dense eDNA data. In v3.2 the tight
+`gp_sigma` prior was introduced to escape a low-σ trap. Density and the field
+are still recovered, but the joint model should settle the priors first,
+since eDNA and visual data will share them. Options:
+- keep them for consistency;
+- loosen them for the whale species;
+- make them species-specific data.
+
 ### Phase 4: Joint simulator
 
 `R/01_sim_<scenario>.r` draws **one** latent field per species and generates:
