@@ -82,7 +82,12 @@ The model has these parts:
   (animals/km²), GP hyperparameters, spline basis and true spline
   coefficients. It is simulated over 25 E–W transects of 10 km segments.
 - **Detection.** Half-normal detection, with a group-size covariate for
-  PWSD.
+  PWSD and an optional **Beaufort sea-state covariate**:
+  log σ = log σ₀ + β_bft (Beaufort − 3). Segment Beaufort is binned to 0.5
+  steps, and the size-averaged ESW is computed once per level, so ESW differs
+  between segments. The formatter switches it on whenever the segments carry a
+  `bft` column (`use_bft`); `simulate_visual(sea_state = TRUE)` simulates
+  Beaufort with a spatial trend (rougher to the north and offshore).
 - **Group sizes.** Resampled from the empirical pools in `data/grpsz/`.
 - **Model structure.** The detection, population-average ESW and size-bias
   machinery is the former `distance/distance_hn_dens_v4.1.stan`, now in
@@ -99,8 +104,14 @@ Rscript R/fit_visual.r
 SEEDS=1:5 Rscript R/validate_visual.r
 ```
 
+```bash
+SEA_STATE=1 SEEDS=1:3 Rscript R/validate_visual.r
+```
+
 `R/fit_visual.r` fits one dataset and writes to `outputs/visual/<SCENARIO>/`.
-`R/validate_visual.r` runs the multi-replicate recovery study. The development
+`R/validate_visual.r` runs the multi-replicate recovery study; with
+`SEA_STATE=1` it simulates sea state and fits each species with and without
+the covariate. The development
 history of the detection model is in `docs/history/distance_v4.1_notebook.html`.
 
 ### Joint simulator
@@ -133,6 +144,26 @@ Median relative bias:
 
 The earlier HSGP4eDNA priors gave 2/5 to 5/5 coverage, `gp_sigma` +40% and
 PWSD `lx` +99%. See `ROADMAP.md`.
+
+**Sea-state covariate** (`SEA_STATE=1 SEEDS=1:3`; truth β_bft = −0.08
+humpback, −0.15 PWSD; segment Beaufort 0.6–5.4). Each species fitted with and
+without the covariate. With the switch off the model's log density matches
+the single-ESW model exactly.
+
+| Species | Covariate | Divergences | max Rhat | Field R² | β_bft covered | Field-error slope per Beaufort unit | Runtime |
+|---|---|---|---|---|---|---|---|
+| Humpback | with | 0 | ≤ 1.007 | 0.90–0.93 | 3/3 | +0.015 to +0.017 | 2.8–4.8 min |
+| Humpback | without | 0 | ≤ 1.004 | 0.90–0.93 | — | −0.034 to −0.018 | 2.8–4.2 min |
+| PWSD | with | 0 | ≤ 1.003 | 0.78–0.82 | 3/3 | −0.135 to −0.001 | 16–18 min |
+| PWSD | without | 2 in 1 fit | ≤ 1.010 | 0.73–0.80 | — | −0.250 to −0.041 | 6.5–7.9 min |
+
+Leaving the covariate out reads poor sighting conditions as low density. The
+fitted field shifts by −0.03 to −0.05 (humpback) and −0.04 to −0.12 (PWSD)
+log units per Beaufort unit, up to 0.58 log units across the survey. All other
+parameters keep their coverage either way. β_bft is weakly identified for
+PWSD (38–122 detections): covered, but shrunk toward zero (median relative
+bias −70%). The covariate makes PWSD fits about 2.5× slower (11 Beaufort
+levels × 1000 group sizes).
 
 ### GP priors
 

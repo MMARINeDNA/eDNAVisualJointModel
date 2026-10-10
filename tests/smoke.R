@@ -16,6 +16,8 @@
 #           R/fit_edna.r, on a small bathysp_surface-style simulation
 #   visual  stan/hsgp_visual.stan (2-D HSGP + bottom-depth spline, line
 #           transects) via R/fit_visual.r, both species of simulate_visual()
+#   visual_bft  the same model with the Beaufort sea-state covariate, humpback
+#           on simulate_visual(sea_state = TRUE)
 #   joint_sim  simulate_joint() (no fits): one shared field, both formatters
 #
 # Logs and outputs go to outputs/smoke/ (git-ignored). Exit status is non-zero
@@ -115,6 +117,29 @@ if (!is.null(vis$humpback)) {
   check("visual", "humpback field R2 > 0.5", r$field$R2 > 0.5, round(r$field$R2, 2))
   check("visual", "humpback sigma truth in 95% CI", isTRUE(sc$covered),
         sprintf("%.3g in [%.3g, %.3g]", sc$truth, sc$q025, sc$q975))
+}
+
+# -----------------------------------------------------------------------------
+# Case 2b: visual with sea state (segment Beaufort with a spatial trend, and
+# the Beaufort covariate on detection), humpback only
+# -----------------------------------------------------------------------------
+cat("=== [visual_bft] hsgp_visual + sea-state covariate ===\n")
+vb <- NULL
+mins <- timed({
+  bsim <- simulate_visual(seed = 1L, sea_state = TRUE)
+  if (!is.null(vmod)) vb <- tryCatch(
+    fit_visual(bsim, "humpback", mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
+               M_max = 32L),
+    error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL })
+})
+cat(sprintf("  %.1f min\n", mins))
+check("visual_bft", "ran", !is.null(vb), if (is.null(vb)) "error" else "ok")
+if (!is.null(vb)) {
+  bb <- vb$recovery[vb$recovery$param == "beta_bft[1]", ]
+  check("visual_bft", "divergences == 0", vb$divergences == 0, vb$divergences)
+  check("visual_bft", "max Rhat < 1.1", vb$max_rhat < 1.1, round(vb$max_rhat, 3))
+  check("visual_bft", "beta_bft truth in 95% CI", isTRUE(bb$covered),
+        sprintf("%.3g in [%.3g, %.3g]", bb$truth, bb$q025, bb$q975))
 }
 
 # -----------------------------------------------------------------------------
