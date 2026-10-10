@@ -26,9 +26,10 @@ for (seed in SEEDS) {
   sim <- simulate_joint(seed = seed)
   agree_rows[[length(agree_rows) + 1]] <- cbind(seed = seed, joint_field_agreement(sim))
 
-  # eDNA half: HSGP4eDNA's validated bathysp_surface settings, matched spline df
+  # eDNA half: HSGP4eDNA's gp2d_bathysp with its defaults (design priors,
+  # rule-sized basis), matched spline df
   scen <- sprintf("bathysp_joint_s%d", seed)
-  e <- fit_edna(scen, sim = sim$edna, basis = c(17L, 6L), df = 4L,
+  e <- fit_edna(scen, sim = sim$edna, df = 4L,
                 chains = 3L, warmup = 400L, sample = 400L,
                 log_file = file.path(OUT, sprintf("edna_s%d.log", seed)))
   edna_rows[[length(edna_rows) + 1]] <- data.frame(

@@ -21,8 +21,8 @@
 HSGP4EDNA_DIR <- "external/HSGP4eDNA"
 source(file.path(HSGP4EDNA_DIR, "R", "functions.R"))   # default_gp_params(),
                                                        # hsgp_basis_rule(),
-                                                       # bathy_spline_basis()
-source("R/gp_priors.R")                                # gp_prior_from_design()
+                                                       # bathy_spline_basis(),
+                                                       # gp_prior_from_design()
 
 # Study domain (km, UTM 10N offsets), as in HSGP4eDNA's simulators.
 LT_DOMAIN <- list(X_km_max = 500, Y_km_max = 1270)
@@ -164,7 +164,7 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
   coord_centre <- c(dom$X_km_max, dom$Y_km_max) / 2
   coord_scale  <- coord_centre
   coords <- sweep(sweep(as.matrix(seg[, c("X", "Y")]), 2, coord_centre, "-"), 2, coord_scale, "/")
-  # Design-based GP priors (R/gp_priors.R): segment locations only - no
+  # Design-based GP priors (HSGP4eDNA gp_prior_from_design()): segment locations only - no
   # truth and no detections are used. The basis is
   # sized to the prior's lower length-scale bound unless HSGP_M is given.
   gp_prior <- gp_prior_from_design(seg[, c("X", "Y")],

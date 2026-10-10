@@ -46,12 +46,23 @@ cat("=== [edna] HSGP4eDNA gp2d_bathysp ===\n")
 source("R/fit_edna.r")
 edna_log <- file.path(SMOKE_DIR, "edna.log")
 edna <- NULL
+# Longer true length-scales (lx 150, ly 600 km) than the validation scenarios,
+# so a small, fast basis (budget 64) can still represent the field. With the
+# between-bottle noise term, a basis that CANNOT represent the true scales
+# lets the noise absorb the field (hake theta -> 0.1, field R2 -> 0.3), so the
+# smoke truth must stay within the basis's reach.
+gp_smoke <- local({
+  e <- new.env(); sys.source(file.path(HSGP4EDNA_DIR, "R", "functions.R"), envir = e)
+  g <- e$default_gp_params()
+  for (k in names(g)) { g[[k]]$lx <- 150; g[[k]]$ly <- 600 }
+  g
+})
 mins <- timed(edna <- tryCatch(
   fit_edna("bathysp_smoke",
-           sim_args = list(seed = 1L, n_stations = 100L,
-                           sample_depths = 0, zsample_pref = NULL),
-           basis = c(8L, 4L), df = 4L,
-           chains = 2L, warmup = 200L, sample = 200L,
+           sim_args = list(seed = 1L, n_stations = 150L, sample_depths = 0,
+                           zsample_pref = NULL, gp_params = gp_smoke),
+           M_max = 64L, df = 4L,
+           chains = 2L, warmup = 250L, sample = 250L,
            log_file = edna_log),
   error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
 cat(sprintf("  %.1f min (log: %s)\n", mins, edna_log))
@@ -65,6 +76,11 @@ if (!is.null(edna)) {
   check("edna", "max Rhat (GP hypers) < 1.1", rhat < 1.1, round(rhat, 3))
   check("edna", "hake field R2 > 0.5", r2[["Pacific hake"]] > 0.5,
         round(r2[["Pacific hake"]], 2))
+  # Tripwire: the bottle-noise term must not absorb the field
+  th <- edna$theta_bottle
+  th_hake <- if (is.null(th)) NA else th$median[th$variable == "theta_bottle[1]"]
+  check("edna", "hake bottle theta > 1 (noise not absorbing the field)",
+        isTRUE(th_hake > 1), round(th_hake, 2))
 }
 
 # -----------------------------------------------------------------------------
