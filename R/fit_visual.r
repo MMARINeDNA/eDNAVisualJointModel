@@ -13,7 +13,8 @@
 # outputs/visual/<scenario>/:
 #   Rscript R/fit_visual.r
 # Env: SEED, SCENARIO (output dir name), MX, MY, CHAINS, WARMUP, SAMPLE,
-#      ADAPT_DELTA, TREEDEPTH, USE_GP (0/1), USE_BATHY (0/1)
+#      ADAPT_DELTA, TREEDEPTH, USE_GP (0/1), USE_BATHY (0/1),
+#      SEA_STATE (0/1: simulate segment Beaufort), USE_BFT (0/1; default = SEA_STATE)
 # =============================================================================
 
 suppressMessages({
@@ -32,7 +33,7 @@ compile_visual <- function(...) {
 visual_init <- function(sd) {
   M <- sd$M; G <- sd$use_gp
   rate0 <- max(sum(sd$seg_count) / sum(2 * sd$seg_l * 0.5 * sd$w), 1e-6)  # groups / km^2
-  # hazard-rate: sigma is where g falls to 1 - exp(-1); start a bit below w
+  # hazard-rate: start the scale at about w / 2
   ls0 <- if (sd$det_key == 1L) log(sd$w / 2) else sd$log_sigma_prior_mean
   function() {
     init <- list(
@@ -42,7 +43,7 @@ visual_init <- function(sd) {
     z_beta = matrix(0, G, M), beta_bathy = array(0, sd$K_bathy),
     log_sigma = ls0 + rnorm(1, 0, 0.2),
     beta_size = rnorm(1, 0, 0.005),
-    beta_det = array(rnorm(sd$K_det, 0, 0.05), sd$K_det),
+    beta_bft = array(rnorm(sd$use_bft_covar, 0, 0.02), sd$use_bft_covar),
     log_b = array(sd$log_b_prior_mean + rnorm(sd$det_key, 0, 0.1), sd$det_key),
     mu_s = sd$mu_s_prior_shape / sd$mu_s_prior_rate, phi_s = runif(1, 0.5, 2),
     mu_log_s = sd$mu_log_prior_mean + rnorm(1, 0, 0.1),
@@ -85,6 +86,11 @@ summarise_visual <- function(fit, sim, sp, sd) {
     vars  <- c(vars, "gp_sigma[1]", "gp_l[1]", "gp_l[2]")
     truth <- c(truth, gp$sigma, gp$lx, gp$ly)
   }
+  has_bft <- !is.null(sim$design$segments$bft)   # simulated sea state (truth exists)
+  if (sd$use_bft_covar == 1L) {
+    vars  <- c(vars, "beta_bft[1]")
+    truth <- c(truth, if (has_bft && !is.null(p$beta_bft_truth)) p$beta_bft_truth else NA)
+  }
   qs <- summarise_draws(fit$draws(vars), median = stats::median,
                         q025 = ~as.numeric(quantile(.x, 0.025)),
                         q975 = ~as.numeric(quantile(.x, 0.975)),
@@ -98,8 +104,14 @@ summarise_visual <- function(fit, sim, sp, sd) {
   field <- data.frame(species = sp, R2 = cor(post_ll, true_ll)^2,
                       rmse = sqrt(mean((post_ll - true_ll)^2)),
                       bias = mean(post_ll - true_ll))
+  # Sea-state signature: slope of the field error on segment Beaufort (log
+  # density per Beaufort unit). An unmodelled detection decline reads as low
+  # density in rough segments, a negative slope of about beta_bft x
+  # dlog(ESW)/dlog(sigma); with the covariate it should be ~0.
+  if (has_bft) field$err_bft_slope <- unname(coef(lm(I(post_ll - true_ll) ~ sim$design$segments$bft))[2])
   all_rhat <- fit$summary(c("mu_sp", "gp_sigma", "gp_l_raw", "beta_bathy", "log_sigma",
-                            "beta_size", "mu_s", "phi_s", "mu_log_s", "sigma_log_s"),
+                            "beta_size", "mu_s", "phi_s", "mu_log_s", "sigma_log_s",
+                            if (sd$use_bft_covar == 1L) "beta_bft"),
                           "rhat")$rhat
   # Truth-free check that the basis budget is not limiting the fit
   gp_prior <- attr(sd, "gp_prior")
@@ -107,6 +119,7 @@ summarise_visual <- function(fit, sim, sp, sd) {
     cbind(species = sp, floor_check(fit$draws(c("gp_l[1]", "gp_l[2]"), format = "draws_matrix"),
                                     gp_prior)) else NULL
   list(recovery = recovery, field = field, floor = floor, n_det = sd$n, M = sd$M,
+       post_log_lambda = post_ll,
        divergences = sum(diag$num_divergent),
        treedepth_hits = sum(diag$num_max_treedepth),
        ebfmi = diag$ebfmi, max_rhat = max(all_rhat, na.rm = TRUE))
@@ -124,7 +137,9 @@ if (sys.nframe() == 0L) {
   out_dir <- file.path("outputs", "visual", SCENARIO)
   dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
-  sim <- simulate_visual(seed = SEED)
+  SEA_STATE <- env_int("SEA_STATE", "0") == 1L
+  USE_BFT   <- env_int("USE_BFT", as.character(as.integer(SEA_STATE))) == 1L
+  sim <- simulate_visual(seed = SEED, sea_state = SEA_STATE)
   saveRDS(sim, file.path(out_dir, "sim.rds"))
   mod <- compile_visual()
   res <- list()
@@ -136,7 +151,7 @@ if (sys.nframe() == 0L) {
                     adapt_delta = as.numeric(Sys.getenv("ADAPT_DELTA", "0.9")),
                     max_treedepth = env_int("TREEDEPTH", "12"),
                     HSGP_M = HSGP_M, use_gp = env_int("USE_GP", "1"),
-                    use_bathy = env_int("USE_BATHY", "1") == 1L)
+                    use_bathy = env_int("USE_BATHY", "1") == 1L, use_bft = USE_BFT)
     cat(sprintf("runtime %.1f min | divergences %d | treedepth hits %d | max Rhat %.3f | E-BFMI %s\n",
                 r$runtime_min, r$divergences, r$treedepth_hits, r$max_rhat,
                 paste(sprintf("%.2f", r$ebfmi), collapse = ", ")))

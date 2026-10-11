@@ -440,8 +440,19 @@ larger basis only if the field or density changes.
 
 *For the joint model.* Build the prior from the union of eDNA station and LT
 segment locations. Port `inv_gamma` length-scale priors into
-`hsgp_joint.stan`. HSGP4eDNA's own models still use the shared gamma prior;
-adopting this rule upstream is optional.
+`hsgp_joint.stan`.
+
+*Upstream ([HSGP4eDNA#3](https://github.com/MMARINeDNA/HSGP4eDNA/pull/3),
+tag `v1.3`; submodule bumped).* The design-based prior is now HSGP4eDNA's
+default, and `R/gp_priors.R` is gone (both models use the upstream
+`gp_prior_from_design()` / `floor_check()`). v1.3 also adds reproducible fit
+seeds and two noise terms:
+- **Between-bottle noise:** exact negative binomial, one θ shared by all
+  species.
+- **Junk noise:** a per-sample junk term with its own θ_junk.
+
+With both, θ covers its truth of 10 in every matched cell. `hsgp_joint.stan`
+must carry both terms.
 
 ### Phase 4: Joint simulator
 
@@ -507,6 +518,65 @@ Notes for Phase 5:
   normalization (the domain) for stations and segments.
 - The design-based prior should be built from the union of station and
   segment locations.
+
+### Phase 4b: Sea-state detection covariate (visual model)
+
+The visual model's detection function has one half-normal scale per species,
+plus the PWSD group-size term, so ESW is the same on every segment. On real
+surveys Beaufort sea state is usually the strongest detection covariate,
+especially for small cetaceans like PWSD. If sea state is uneven across the
+area, one ESW reads poor conditions as low density, and that bias lands in the
+spatial field. This has to be in place before Phase 5 runs on real data.
+(Starts after the HSGP4eDNA junk-noise validation finishes.)
+
+1. **Model.** `log σ = log σ₀ + β_size·(s − s̄) + β_bft·(bft − b̄)`, with the
+   group-size term only for PWSD. Use segment-level Beaufort (`avgbft`) for
+   both the segment's ESW and its sightings' distances. Sighting-level Beaufort
+   is the alternative, and it could replace the segment value for the distance
+   term later. ESW becomes per segment: for PWSD, the size-averaged ESW is
+   computed once per binned Beaufort level (e.g. 0.5 steps), not per segment.
+   That keeps the cost at a handful of size-pmf loops.
+2. **Switch and prior.** Add a `use_bft_covar` switch (0 = current model,
+   exactly). β_bft gets a weakly informative prior, negative-leaning: detection
+   falls as sea state rises.
+3. **Simulator.** `simulate_visual()` draws segment Beaufort with a spatial
+   trend (e.g. rougher offshore and to the north), so leaving the covariate out
+   visibly biases the field. Detection uses the true β_bft.
+4. **Checks.**
+   - With the switch off, the log-density is identical to the current model.
+   - On the new simulator, the fit with the covariate recovers β_bft, σ₀, D
+     and the field.
+   - The fit without the covariate shows the expected bias, recorded as a
+     validation row.
+   - The smoke test gains a sea-state case.
+5. **Joint model.** Phase 5 carries the same detection function. The real-data
+   loader keeps `avgbft`, `avgvis` and swell on segments, and sighting-level
+   conditions on the observations.
+
+**Done.**
+- **Model and formatter.** `use_bft_covar` and the binned levels are in
+  `stan/hsgp_visual.stan`. The likelihood functions in `visual_functions.stan`
+  now take a per-detection log σ and per-detection / per-segment ESW.
+  `format_stan_data_visual()` switches the covariate on when the segments have
+  a `bft` column (0.5-step bins, centre Beaufort 3). β_bft ~ normal(−0.1, 0.2).
+- **Exactness.** With the switch off, log density and gradient match the
+  single-ESW model to 0 (both species, 3 random points). With it on and
+  β_bft = 0, the difference is exactly β_bft's prior term (−0.125).
+- **Simulator.** `simulate_visual(sea_state = TRUE)` draws Beaufort after the
+  field, so the field matches the default draw for the same seed. The default
+  draws are unchanged. Truths: β_bft = −0.08 (humpback), −0.15 (PWSD).
+- **Validation** (`SEA_STATE=1 SEEDS=1:3`, README results).
+  - β_bft is covered 3/3 for both species. It is weakly identified for PWSD.
+  - Without the covariate, the field shifts −0.03 to −0.12 log units per
+    Beaufort unit, in the expected direction.
+  - Everything else keeps its coverage.
+  - Cost: PWSD fits are about 2.5× slower.
+- **Smoke test.** New `visual_bft` case: humpback with the covariate, checking
+  that β_bft is covered.
+- **Side finding.** Loading Stan model methods into an R session
+  (`compile_model_methods = TRUE`) changes which field a seed simulates. The
+  draw is still valid, but not the same one. Simulate before loading model
+  methods in test scripts.
 
 ### Phase 5: Joint model
 

@@ -196,7 +196,7 @@ segments <- bind_cols(
          datetime_begin = ef$t_begin, datetime_end = ef$t_end, datetime_mid = ef$t_mid,
          cruise = ef$cruise, section_id = ef$section_id, segnum = ef$segnum, row_id = ef$row_id,
          mode = ef$mode, efftype = ef$efftype, eswsides = ef$eswsides,
-         speed_kph = ef$speed_kph, avgbft = ef$avgbft, avgvis = ef$avgvis,
+         speed_kph = ef$speed_kph, bft = ef$avgbft, avgbft = ef$avgbft, avgvis = ef$avgvis,
          avgswellhght = ef$avgswellhght)
 )
 stopifnot(all(in_domain(xy_seg$X, xy_seg$Y)), all(in_domain(samples$X, samples$Y)))
@@ -251,11 +251,13 @@ observed_vis <- lapply(SPECIES_CODE, function(code) {
 
 # Detection-function settings per species (exploratory AIC on this data set,
 # forward selection, segment-level covariates; see notes/muri_data_formatting.md):
-#   humpback  hazard-rate key; group size only
-#   pwsd      half-normal key; group size + visibility + Beaufort
+#   humpback  hazard-rate key; group size only (no Beaufort)
+#   pwsd      half-normal key; group size + Beaufort (visibility dropped by choice)
+# Beaufort is the segment-level `bft` column (segment mean, binned by the formatter).
 sp_params <- lt_species_params()[names(SPECIES_CODE)]
-sp_params$humpback$det_key    <- 1L
-sp_params$pwsd$det_covars     <- c("avgvis", "avgbft")
+sp_params$humpback$det_key  <- 1L
+sp_params$humpback$use_bft  <- FALSE
+sp_params$pwsd$use_bft      <- TRUE
 
 visual <- list(
   meta = list(seed = NA, species = names(SPECIES_CODE), w = W_SP,

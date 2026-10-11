@@ -16,6 +16,8 @@
 #           R/fit_edna.r, on a small bathysp_surface-style simulation
 #   visual  stan/hsgp_visual.stan (2-D HSGP + bottom-depth spline, line
 #           transects) via R/fit_visual.r, both species of simulate_visual()
+#   visual_bft  the same model with the Beaufort sea-state covariate, humpback
+#           on simulate_visual(sea_state = TRUE)
 #   joint_sim  simulate_joint() (no fits): one shared field, both formatters
 #
 # Logs and outputs go to outputs/smoke/ (git-ignored). Exit status is non-zero
@@ -46,12 +48,23 @@ cat("=== [edna] HSGP4eDNA gp2d_bathysp ===\n")
 source("R/fit_edna.r")
 edna_log <- file.path(SMOKE_DIR, "edna.log")
 edna <- NULL
+# Longer true length-scales (lx 150, ly 600 km) than the validation scenarios,
+# so a small, fast basis (budget 64) can still represent the field. With the
+# between-bottle noise term, a basis that CANNOT represent the true scales
+# lets the noise absorb the field (hake theta -> 0.1, field R2 -> 0.3), so the
+# smoke truth must stay within the basis's reach.
+gp_smoke <- local({
+  e <- new.env(); sys.source(file.path(HSGP4EDNA_DIR, "R", "functions.R"), envir = e)
+  g <- e$default_gp_params()
+  for (k in names(g)) { g[[k]]$lx <- 150; g[[k]]$ly <- 600 }
+  g
+})
 mins <- timed(edna <- tryCatch(
   fit_edna("bathysp_smoke",
-           sim_args = list(seed = 1L, n_stations = 100L,
-                           sample_depths = 0, zsample_pref = NULL),
-           basis = c(8L, 4L), df = 4L,
-           chains = 2L, warmup = 200L, sample = 200L,
+           sim_args = list(seed = 1L, n_stations = 150L, sample_depths = 0,
+                           zsample_pref = NULL, gp_params = gp_smoke),
+           M_max = 64L, df = 4L,
+           chains = 2L, warmup = 250L, sample = 250L,
            log_file = edna_log),
   error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
 cat(sprintf("  %.1f min (log: %s)\n", mins, edna_log))
@@ -65,6 +78,11 @@ if (!is.null(edna)) {
   check("edna", "max Rhat (GP hypers) < 1.1", rhat < 1.1, round(rhat, 3))
   check("edna", "hake field R2 > 0.5", r2[["Pacific hake"]] > 0.5,
         round(r2[["Pacific hake"]], 2))
+  # Tripwire: the bottle-noise term must not absorb the field
+  th <- edna$theta_bottle
+  th_hake <- if (is.null(th)) NA else th$median[th$variable == "theta_bottle[1]"]
+  check("edna", "hake bottle theta > 1 (noise not absorbing the field)",
+        isTRUE(th_hake > 1), round(th_hake, 2))
 }
 
 # -----------------------------------------------------------------------------
@@ -99,6 +117,29 @@ if (!is.null(vis$humpback)) {
   check("visual", "humpback field R2 > 0.5", r$field$R2 > 0.5, round(r$field$R2, 2))
   check("visual", "humpback sigma truth in 95% CI", isTRUE(sc$covered),
         sprintf("%.3g in [%.3g, %.3g]", sc$truth, sc$q025, sc$q975))
+}
+
+# -----------------------------------------------------------------------------
+# Case 2b: visual with sea state (segment Beaufort with a spatial trend, and
+# the Beaufort covariate on detection), humpback only
+# -----------------------------------------------------------------------------
+cat("=== [visual_bft] hsgp_visual + sea-state covariate ===\n")
+vb <- NULL
+mins <- timed({
+  bsim <- simulate_visual(seed = 1L, sea_state = TRUE)
+  if (!is.null(vmod)) vb <- tryCatch(
+    fit_visual(bsim, "humpback", mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
+               M_max = 32L),
+    error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL })
+})
+cat(sprintf("  %.1f min\n", mins))
+check("visual_bft", "ran", !is.null(vb), if (is.null(vb)) "error" else "ok")
+if (!is.null(vb)) {
+  bb <- vb$recovery[vb$recovery$param == "beta_bft[1]", ]
+  check("visual_bft", "divergences == 0", vb$divergences == 0, vb$divergences)
+  check("visual_bft", "max Rhat < 1.1", vb$max_rhat < 1.1, round(vb$max_rhat, 3))
+  check("visual_bft", "beta_bft truth in 95% CI", isTRUE(bb$covered),
+        sprintf("%.3g in [%.3g, %.3g]", bb$truth, bb$q025, bb$q975))
 }
 
 # -----------------------------------------------------------------------------

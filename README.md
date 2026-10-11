@@ -27,6 +27,45 @@ their outputs and notebooks).
 | Joint simulator | `R/functions_joint.R` (`simulate_joint()`) | ✅ One shared field; each half validated with its single-source model |
 | **Joint** eDNA + visual model | `stan/hsgp_joint.stan` | 🚧 Roadmap Phase 5 |
 
+## Simulated species
+
+The simulations use three species, chosen to span how informative each data
+source is:
+
+| Species | eDNA | Visual line transects | Baseline density exp(μ) | GP σ | Visual detection and group size |
+|---|---|---|---|---|---|
+| **Pacific hake** (*Merluccius productus*) | qPCR (detection + Ct) and metabarcoding | not surveyed | 15 /km² | 2.0 | — |
+| **Humpback whale** (*Megaptera novaeangliae*) | metabarcoding only | yes | 0.01 /km² | 1.0 | half-normal σ = 2.5 km; groups of 1–8 (mean 1.7) |
+| **Pacific white-sided dolphin** (*Lagenorhynchus obliquidens*, PWSD) | metabarcoding only | yes | 0.02 /km² | 1.3 | σ = 1.5 km at the mean group size, wider for larger groups; groups of 2–452 (mean 43) |
+
+- **Roles.**
+  - **Hake** is the abundant, eDNA-rich anchor. It is the only species with
+    qPCR, and it is not observed visually.
+  - **Humpback** is rare in eDNA but conspicuous visually: about 400–1,000
+    detections per simulated survey.
+  - **PWSD** is weak in both sources: about 40–120 visual detections. It is
+    where the joint model should help most.
+- **Shared field structure.** Every species has an anisotropic GP with
+  length-scales of 50 km (east–west) and 300 km (along the coast), plus a
+  smooth bottom-depth effect. The depth shapes (`BATHY_BETA_TRUE` in
+  HSGP4eDNA) are arbitrary test curves, not ecological estimates. Density is in
+  animals/km²; for hake the unit is nominal, since hake is seen only through
+  eDNA.
+- **eDNA.** Expected bottle copies = density × conversion factor (hake 10,
+  humpback 200, PWSD 110) × volume filtered, with negative-binomial
+  bottle-to-bottle noise (θ = 10). Reads also include a "junk" category for
+  all non-target DNA, which varies between samples. The whales sit near the
+  detection limit: about 0.04–0.08 expected copies in a typical aliquot, so
+  only about 10% of aliquots contain any whale DNA.
+- **Water column** (`bathysp_depthspref` only). Bottles are taken at 6
+  depths (0–500 m). Hake and humpback eDNA peak below the surface (~150 m);
+  PWSD eDNA is surface-associated.
+- **Visual surveys.** 25 east–west transects of 10 km segments, truncation
+  distance 5 km. Group sizes are resampled from the empirical pools in
+  `data/grpsz/`. With `sea_state = TRUE`, detection also declines with
+  Beaufort sea state: β_bft = −0.08 (humpback), −0.15 (PWSD) per Beaufort
+  unit.
+
 ## Getting started
 
 Clone with the submodule:
@@ -82,7 +121,12 @@ The model has these parts:
   (animals/km²), GP hyperparameters, spline basis and true spline
   coefficients. It is simulated over 25 E–W transects of 10 km segments.
 - **Detection.** Half-normal detection, with a group-size covariate for
-  PWSD.
+  PWSD and an optional **Beaufort sea-state covariate**:
+  log σ = log σ₀ + β_bft (Beaufort − 3). Segment Beaufort is binned to 0.5
+  steps, and the size-averaged ESW is computed once per level, so ESW differs
+  between segments. The formatter switches it on whenever the segments carry a
+  `bft` column (`use_bft`); `simulate_visual(sea_state = TRUE)` simulates
+  Beaufort with a spatial trend (rougher to the north and offshore).
 - **Group sizes.** Resampled from the empirical pools in `data/grpsz/`.
 - **Model structure.** The detection, population-average ESW and size-bias
   machinery is the former `distance/distance_hn_dens_v4.1.stan`, now in
@@ -99,8 +143,14 @@ Rscript R/fit_visual.r
 SEEDS=1:5 Rscript R/validate_visual.r
 ```
 
+```bash
+SEA_STATE=1 SEEDS=1:3 Rscript R/validate_visual.r
+```
+
 `R/fit_visual.r` fits one dataset and writes to `outputs/visual/<SCENARIO>/`.
-`R/validate_visual.r` runs the multi-replicate recovery study. The development
+`R/validate_visual.r` runs the multi-replicate recovery study; with
+`SEA_STATE=1` it simulates sea state and fits each species with and without
+the covariate. The development
 history of the detection model is in `docs/history/distance_v4.1_notebook.html`.
 
 ### Joint simulator
@@ -133,6 +183,26 @@ Median relative bias:
 
 The earlier HSGP4eDNA priors gave 2/5 to 5/5 coverage, `gp_sigma` +40% and
 PWSD `lx` +99%. See `ROADMAP.md`.
+
+**Sea-state covariate** (`SEA_STATE=1 SEEDS=1:3`; truth β_bft = −0.08
+humpback, −0.15 PWSD; segment Beaufort 0.6–5.4). Each species fitted with and
+without the covariate. With the switch off the model's log density matches
+the single-ESW model exactly.
+
+| Species | Covariate | Divergences | max Rhat | Field R² | β_bft covered | Field-error slope per Beaufort unit | Runtime |
+|---|---|---|---|---|---|---|---|
+| Humpback | with | 0 | ≤ 1.007 | 0.90–0.93 | 3/3 | +0.015 to +0.017 | 2.8–4.8 min |
+| Humpback | without | 0 | ≤ 1.004 | 0.90–0.93 | — | −0.034 to −0.018 | 2.8–4.2 min |
+| PWSD | with | 0 | ≤ 1.003 | 0.78–0.82 | 3/3 | −0.135 to −0.001 | 16–18 min |
+| PWSD | without | 2 in 1 fit | ≤ 1.010 | 0.73–0.80 | — | −0.250 to −0.041 | 6.5–7.9 min |
+
+Leaving the covariate out reads poor sighting conditions as low density. The
+fitted field shifts by −0.03 to −0.05 (humpback) and −0.04 to −0.12 (PWSD)
+log units per Beaufort unit, up to 0.58 log units across the survey. All other
+parameters keep their coverage either way. β_bft is weakly identified for
+PWSD (38–122 detections): covered, but shrunk toward zero (median relative
+bias −70%). The covariate makes PWSD fits about 2.5× slower (11 Beaufort
+levels × 1000 group sizes).
 
 ### GP priors
 

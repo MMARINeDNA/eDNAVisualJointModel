@@ -21,8 +21,8 @@ cat("eDNA: N =", fe$stan_data$N, " N_qpcr_long =", fe$stan_data$N_qpcr_long,
     " M =", fe$stan_data$M, "\n")
 for (sp in c("humpback", "pwsd")) {
   fv <- format_stan_data_visual(vis, sp)
-  cat(sp, ": w =", round(fv$w, 2), " det_key =", fv$det_key, " K_det =", fv$K_det,
-      " n_zc =", fv$n_zc, " | n_seg =", fv$n_seg, " n =", fv$n, " sum(seg_count) =", sum(fv$seg_count),
+  cat(sp, ": w =", round(fv$w, 2), " det_key =", fv$det_key, " use_bft =", fv$use_bft_covar,
+      " n_bft =", fv$n_bft, " | n_seg =", fv$n_seg, " n =", fv$n, " sum(seg_count) =", sum(fv$seg_count),
       " M =", fv$M, " K_bathy =", fv$K_bathy, " coords range =",
       paste(round(range(fv$coords), 2), collapse = " .. "), "\n")
 }

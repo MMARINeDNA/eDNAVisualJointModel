@@ -157,54 +157,49 @@ humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
 - `data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv` and `data/MV1_MURI_df.csv` are untracked in the main
   checkout; I copied them into this worktree's `data/` for the run and did not commit them.
 
-## Detection function (added after the first version)
+## Detection function
 
 Selection followed Len Thomas's CalCOFI recipe (forward selection by AIC with the Distance
 package, `nadj = 0`, candidates group size, Beaufort, visibility, swell, effort mode), run on the
 on-effort sightings truncated at the 95th percentile, using **segment-level** `avgbft`, `avgvis`,
-`avgswellhght`, `mode` (the values the Stan model has for every segment):
+`avgswellhght`, `mode`:
 
-| species | key | steps (AIC change) | selected |
-|---|---|---|---|
-| humpback (n=548) | hazard-rate (chosen; ~20 AIC better than half-normal at w = 5 km) | size -3.2 | group size |
-| pwsd (n=89) | half-normal (chosen) | visibility -6.8, Beaufort -1.9, size -1.2 | visibility + Beaufort + group size |
+| species | key | steps (AIC change) | AIC selection | used |
+|---|---|---|---|---|
+| humpback (n=548) | hazard-rate (~20 AIC better than half-normal at w = 5 km) | size -3.2 | group size | group size |
+| pwsd (n=89) | half-normal | visibility -6.8, Beaufort -1.9, size -1.2 | visibility + Beaufort + group size | **group size + Beaufort** (visibility dropped by choice) |
 
 Beaufort and group size for pwsd are marginal (< 2 AIC each); kept because the rule was "follow
-the AIC". Swell and effort mode were never selected. There is no ship / observer-height covariate
-(one DAS file, `CCES1651.das`). These are exploratory fits (small n for pwsd, mode and
-conditions pooled); per-species `det_key` and `det_covars` live in `truth$sp_params`.
+the AIC". In the sanity fit visibility was also weak (+0.10 per SD, 90% interval -0.02 to 0.21).
+Swell and effort mode were never selected. There is no ship / observer-height covariate (one DAS
+file, `CCES1651.das`). These are exploratory fits (small n for pwsd, modes and conditions pooled).
+Per-species settings live in `truth$sp_params`: `det_key` (humpback 1, pwsd 0) and `use_bft`
+(humpback FALSE, pwsd TRUE).
 
-Model support: `stan/hsgp_visual.stan` has `det_key` (0 half-normal, 1 hazard-rate
-`g(x) = 1 - exp(-(sigma/x)^b)`, ESW by a 400-cell midpoint rule) and detection covariates
-`Z_det` (centred, scaled; segment-level, rounded to Beaufort 1 and visibility 0.5 so the number of
-unique covariate rows stays small). The ESW, and so the encounter rate, is computed per covariate
-row. With `det_key = 0` and no covariates it is the original model.
+Model support (`stan/hsgp_visual.stan`, after merging main's Phase 4b):
+- **Beaufort** (main's mechanism): segments carry `bft` (here the segment mean `avgbft`), binned
+  to 0.5 steps; `log sigma = log sigma0 + beta_size (s - s_c) + beta_bft (bft - 3)`; the
+  size-averaged ESW is computed once per level and used for both detections and segments.
+- **Detection key** (`det_key`): 0 half-normal, 1 hazard-rate `g(x) = 1 - exp(-(sigma/x)^b)`,
+  ESW by a 400-cell midpoint rule, `log b ~ normal(log 3, 0.7)`.
+- **Binned group-size sum:** the ESW sum over group sizes uses sizes 1-30 individually then 10%
+  log bins (a 677-detection pwsd test fit went from 15 to 2 min, ESW error 4e-5).
+- With `det_key = 0` the model is main's model.
 
-### Validation of the new detection options
+### Validation
 
-- **Same model when switched off.** With `det_key = 0` and no covariates the log-posterior mode
-  matches the original model (humpback `lp__` identical to 7 digits; pwsd within 0.01, a flat surface).
-- **Recovery on simulated data** (`tests/visual_detection.R`, non-spatial): hazard-rate + size
-  (log sigma 0.98 vs 0.92 true, b 3.3 vs 3, size effect 0.08 vs 0.10) and half-normal + size +
-  two covariates (log sigma 0.402 vs 0.405, covariates 0.31 / -0.34 vs 0.3 / -0.3). Stan's
-  covariate-row ESW agrees with R's `integrate()` to 1e-7 (hazard-rate) and 4e-5 (binned size sum).
-- **Speed.** The group-size sum for the ESW is binned (sizes 1-30 individually, then 10% log bins),
-  which cut a 677-detection pwsd fit from 15 to 2 min with unchanged results.
-- **Real-data sanity fits** (non-spatial, 2 chains x 400, no divergences; NOT a final analysis):
-  - humpback: mean detection probability 0.44 (90% 0.36-0.52), consistent with `Distance`'s
-    hazard-rate fit (0.43 at w = 6.5 km). Hazard-rate shape b = 0.98 (90% 0.78-1.23), i.e. a
-    heavy tail, despite a prior centred on 3.
-  - pwsd: mean detection probability 0.49. Beaufort effect -0.55 per SD (90% -0.80 to -0.34);
-    visibility +0.10 per SD (90% -0.02 to 0.21), much weaker than its AIC ranking suggested.
+- `tests/visual_detection.R`: parameter recovery (99% intervals) and per-level ESW vs R's
+  `integrate()` for hazard-rate + size and half-normal + size + Beaufort on simulated data.
+- `tests/smoke.R` (includes main's visual_bft case).
+- **Real-data sanity fits** (before the merge, non-spatial, 2 chains x 400, no divergences; NOT a
+  final analysis): humpback mean detection probability 0.44 (90% 0.36-0.52), consistent with
+  `Distance`'s hazard-rate fit (0.43 at w = 6.5 km); hazard-rate shape b = 0.98 (90% 0.78-1.23),
+  i.e. a heavy tail despite a prior centred on 3. pwsd Beaufort effect about -0.55 per SD.
 
 ### Caveats
 
 - cmdstanr does not recompile when only `stan/include/*.stan` changes; pass `force_recompile = TRUE`.
-- Covariates are segment-level (not sighting-level) and rounded (Beaufort to 1, visibility to 0.5),
-  and centred / scaled by effort-weighted mean and SD over the segments in the object passed to the
-  formatter; `log_sigma` is the scale at the mean covariates. Subsetting segments changes that
-  reference point.
+- Beaufort is the segment mean, not the value at each sighting (the model needs it for every segment).
 - g(0) = 1 is still assumed (no availability or perception bias correction).
-- The loader asserts that every segment and bottle is inside the domain; if data are added,
-  the domain is recomputed from them.
-- The covariate centring is computed over all segments in the object passed to the formatter.
+- The loader asserts that every segment and bottle is inside the domain; if data are added, the
+  domain is recomputed from them.

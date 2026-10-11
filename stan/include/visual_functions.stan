@@ -2,12 +2,13 @@
 // visual_functions.stan
 //
 // Line-transect (visual survey) observation model: half-normal or hazard-rate
-// detection with an optional group-size covariate and optional segment-level
-// covariates (e.g. Beaufort, visibility), a group-size distribution, the
-// population-average effective strip half-width (ESW) per covariate row, and
-// the size-bias correction. The half-normal / group-size machinery is ported
-// from the validated distance/distance_hn_dens_v4.1.stan; with det_key = 0 and
-// no covariates the likelihood is unchanged. Included inside `functions { }`:
+// detection with an optional group-size covariate, a group-size distribution, the
+// population-average effective strip half-width (ESW), and the size-bias
+// correction. Ported (as functions) from the validated
+// distance/distance_hn_dens_v4.1.stan, generalised so the detection scale and
+// ESW can differ between observations (sea-state covariate): callers pass a
+// per-detection base log sigma and per-detection / per-segment ESW. With one
+// common value these reduce exactly to v4.1. Included inside `functions { }`:
 //
 //   functions {
 //   #include visual_functions.stan
@@ -15,9 +16,7 @@
 //
 // Detection key (det_key):
 //   0 = half-normal   g(x) = exp(-x^2 / (2 sigma^2))
-//   1 = hazard-rate   g(x) = 1 - exp(-(sigma / x)^b)         (ESW by midpoint rule)
-// log sigma_i = log_sigma + beta_size (s_i - s_centre) + eta_i, with
-// eta = Z_det * beta_det evaluated per unique covariate row.
+//   1 = hazard-rate   g(x) = 1 - exp(-(sigma / x)^b)    (ESW by a midpoint rule)
 //
 // Group-size distribution (group_size_dist):
 //   0 = zero-truncated NB(mu_s, phi_s)
@@ -71,21 +70,20 @@
     return hr_esw(log_sigma_c, b, w, log_xq);
   }
 
-  // Population-average ESW per covariate row r:
-  //   E_pop[ESW(sigma(s, eta_r))] over the group-size pmf.
-  // Without a size covariate sigma does not depend on s and this is just
-  // det_esw(). eta holds Z_det * beta_det, one entry per unique covariate row.
+  // Population-average ESW: E_pop[ESW(sigma(s))] over the group-size pmf.
+  // Without a size covariate sigma is constant and this is just det_esw().
   //
   // The sum over group sizes is done on kbin bins (each size k <= 30 its own
   // bin, larger sizes in log bins of width 10%): the bin's pmf mass at its
   // pmf-weighted mean size. ESW(s) is smooth in s, so this matches the full
-  // sum to ~1e-6 while cutting the ESW evaluations per row from S_max to ~70.
-  vector esw_by_row(vector pk, int use_size_covar, int det_key, real log_sigma,
-                    real beta_size, real s_centre, vector eta, real b, real w,
-                    vector log_xq, array[] int kbin, int nkb) {
-    int R = rows(eta);
+  // sum to ~1e-5 while cutting the ESW evaluations from S_max to ~70.
+  real esw_population(vector pk, int use_size_covar, int det_key, real log_sigma,
+                      real beta_size, real s_centre, real b, real w,
+                      vector log_xq, array[] int kbin, int nkb) {
+    if (use_size_covar == 0) {
+      return det_esw(log_sigma, det_key, b, w, log_xq);
+    }
     int K = rows(pk);
-    vector[R] esw;
     vector[nkb] pb = rep_vector(0, nkb);
     vector[nkb] kb = rep_vector(0, nkb);
     for (k in 1:K) {
@@ -93,64 +91,59 @@
       kb[kbin[k]] += pk[k] * k;
     }
     vector[nkb] dk = kb ./ fmax(pb, 1e-300) - s_centre;   // mean size in bin - s_centre
-    for (r in 1:R) {
-      if (use_size_covar == 0) {
-        esw[r] = det_esw(log_sigma + eta[r], det_key, b, w, log_xq);
-      } else if (det_key == 0) {
-        // half-normal: vectorised over bins
-        vector[nkb] sg = exp(fmin(log_sigma + eta[r] + beta_size * dk, 30.0));
-        esw[r] = dot_product(pb, sg * sqrt(pi() / 2) .* erf(w ./ (sqrt(2) * sg)));
-      } else {
-        real e = 0;
-        for (j in 1:nkb) {
-          e += pb[j] * det_esw(log_sigma + eta[r] + beta_size * dk[j], det_key, b, w, log_xq);
-        }
-        esw[r] = e;
-      }
+    if (det_key == 0) {
+      vector[nkb] sg = exp(fmin(log_sigma + beta_size * dk, 30.0));
+      return dot_product(pb, sg * sqrt(pi() / 2) .* erf(w ./ (sqrt(2) * sg)));
+    }
+    real esw = 0;
+    for (j in 1:nkb) {
+      esw += pb[j] * det_esw(log_sigma + beta_size * dk[j], det_key, b, w, log_xq);
     }
     return esw;
   }
 
   // Per-detection log-likelihood: perpendicular distance + group size with
-  // the size-bias correction. Given the segment's covariate row:
-  //   p(x, s | detected) = g(x | s, eta) f_pop(s) / ESW_pop(eta)
-  //   => log g(x_i) + log f_pop(s_i) - log esw_obs[i]
-  // eta_obs[i] and esw_obs[i] are that detection's covariate-row values.
+  // the size-bias correction. p(x, s | detected) = g(x | s) f_pop(s) / esw_pop,
+  // i.e. log g(x_i) + log f_pop(s_i) - log esw_pop_i (the per-detection ESW
+  // terms of v4.1's derivation cancel).
+  // log_sigma[i]: detection i's log sigma at s = s_centre (includes any
+  // sea-state term); esw_pop[i]: the population-average ESW at that log sigma.
   vector lt_detection_loglik(vector x, array[] int s, real w,
-                             int use_size_covar, int det_key, real log_sigma,
+                             int use_size_covar, int det_key, vector log_sigma,
                              real beta_size, real s_centre, real b,
-                             vector eta_obs, vector esw_obs,
                              int group_size_dist, real mu_s, real phi_s,
-                             real mu_log_s, real sigma_log_s) {
+                             real mu_log_s, real sigma_log_s, vector esw_pop) {
     int n = rows(x);
     vector[n] ll;
     real log_p0_trunc = group_size_dist == 0
                         ? log1m(neg_binomial_2_cdf(0 | mu_s, phi_s)) : 0;
     for (i in 1:n) {
-      real log_sigma_i = log_sigma + eta_obs[i]
-                         + (use_size_covar == 1 ? beta_size * (s[i] - s_centre) : 0.0);
-      real log_g = det_key == 0
-                   ? -square(x[i]) / (2.0 * square(hn_sigma(log_sigma_i)))
-                   : hr_log_g(x[i], log_sigma_i, b);
-      real log_fs = group_size_dist == 0
-                    ? neg_binomial_2_lpmf(s[i] | mu_s, phi_s) - log_p0_trunc
-                    : lognormal_lpdf(s[i] | mu_log_s, sigma_log_s);
-      ll[i] = log_g + log_fs - log(esw_obs[i]);
+      real log_sigma_i = use_size_covar == 1
+                         ? log_sigma[i] + beta_size * (s[i] - s_centre)
+                         : log_sigma[i];
+      real log_fs  = group_size_dist == 0
+                     ? neg_binomial_2_lpmf(s[i] | mu_s, phi_s) - log_p0_trunc
+                     : lognormal_lpdf(s[i] | mu_log_s, sigma_log_s);
+      real log_g   = det_key == 0
+                     ? -square(x[i]) / (2.0 * square(hn_sigma(log_sigma_i)))
+                     : hr_log_g(x[i], log_sigma_i, b);
+      ll[i] = log_g + log_fs - log(esw_pop[i]);
     }
     return ll;
   }
 
   // Per-segment Poisson encounter log-likelihood. log_lambda_animals is the
   // log ANIMAL density (animals / km^2, the field shared with eDNA);
-  // expected detected groups = lambda_animals / E[s] * 2 * L * esw_seg[j].
+  // expected detected groups = lambda_animals / E[s] * 2 * L * esw_pop[j]
+  // (esw_pop[j]: population-average ESW under segment j's conditions).
   vector lt_segment_loglik(array[] int seg_count, vector seg_l,
                            vector log_lambda_animals, real log_mean_group_size,
-                           vector esw_seg) {
+                           vector esw_pop) {
     int J = size(seg_count);
     vector[J] ll;
     for (j in 1:J) {
       ll[j] = poisson_log_lpmf(seg_count[j] | log_lambda_animals[j] - log_mean_group_size
-                                              + log(2 * seg_l[j] * esw_seg[j]));
+                                              + log(2 * seg_l[j] * esw_pop[j]));
     }
     return ll;
   }
