@@ -5,9 +5,12 @@
 //
 //   log lambda(x_j) = mu_sp + f(X_j, Y_j) + B_bathy_j . beta_bathy      animals / km^2
 //   f ~ GP(0, K_SE(lx, ly)),  2-D HSGP over normalised (X, Y)
-//   seg_count_j ~ Poisson(lambda_j / E[s] * 2 * L_j * esw_pop)
-//   x_i ~ half-normal(sigma_i) truncated at w,  log sigma_i = log_sigma + beta_size (s_i - s_centre)
+//   seg_count_j ~ Poisson(lambda_j / E[s] * 2 * L_j * esw_pop(b_j))
+//   x_i ~ half-normal(sigma_i) truncated at w,
+//         log sigma_i = log_sigma + beta_size (s_i - s_centre) + beta_bft (b_i - b_centre)
 //   s_i ~ group-size distribution, size-bias corrected for detection
+// b = Beaufort sea state of the segment (binned to levels; bft_level holds
+// b - b_centre per level), so ESW differs between segments.
 //
 // The latent field has the same structure and units as the eDNA model
 // (HSGP4eDNA stan/hsgp_2d_bathysp.stan), so the two can share it in the
@@ -17,6 +20,8 @@
 // Switches (data):
 //   use_gp  = 0  drops the spatial field (f = 0; GP parameters have size 0)
 //   K_bathy = 0  drops the bottom-depth spline
+//   use_bft_covar = 0  drops the sea-state term (n_bft = 1, bft_level = 0):
+//                      exactly the single-ESW model
 // With both off this is the non-spatial v4.1 model, re-parameterised on animal
 // density (lambda = exp(mu_sp)) instead of group density.
 //
@@ -44,6 +49,13 @@ data {
   real s_centre;
   real beta_size_prior_mean;
   real<lower=0> beta_size_prior_sd;
+  // Sea-state (Beaufort) covariate on log sigma. Segments are binned into
+  // n_bft levels; the size-averaged ESW is computed once per level.
+  int<lower=0, upper=1> use_bft_covar;
+  int<lower=1> n_bft;
+  vector[n_bft] bft_level;                 // Beaufort - centre, per level
+  real beta_bft_prior_mean;
+  real<lower=0> beta_bft_prior_sd;
 
   // ---- Group-size distribution ---------------------------------------------
   int<lower=1> S_max;                      // pmf support 1..S_max
@@ -61,6 +73,8 @@ data {
   int<lower=1> n_seg;
   array[n_seg] int<lower=0> seg_count;     // detected groups per segment
   vector<lower=0>[n_seg] seg_l;            // segment length (km)
+  array[n_seg] int<lower=1, upper=n_bft> seg_bft;  // sea-state level per segment
+  array[n] int<lower=1, upper=n_bft> det_bft;      // ... per detection (its segment's)
 
   // ---- Latent field ---------------------------------------------------------
   int<lower=0, upper=1> use_gp;
@@ -104,8 +118,9 @@ parameters {
   vector[K_bathy] beta_bathy;
 
   // Detection function
-  real log_sigma;                          // log(sigma) at s = s_centre
+  real log_sigma;                          // log(sigma) at s = s_centre, Beaufort = centre
   real beta_size;
+  vector[use_bft_covar] beta_bft;          // change in log sigma per Beaufort unit
 
   // Group size (both families sampled; only group_size_dist's enters the data
   // likelihood, the other sits at its prior - same convention as v4.1)
@@ -125,8 +140,13 @@ transformed parameters {
 
   vector[S_max] pk = group_size_pmf(S_max, group_size_dist, mu_s, phi_s,
                                     mu_log_s, sigma_log_s);
-  real<lower=0> esw_pop = esw_population(pk, use_size_covar, log_sigma,
-                                         beta_size, s_centre, w);
+  vector[n_bft] log_sigma_bft = rep_vector(log_sigma, n_bft);
+  if (use_bft_covar == 1) log_sigma_bft += beta_bft[1] * bft_level;
+  vector<lower=0>[n_bft] esw_bft;          // population-average ESW per sea-state level
+  for (b in 1:n_bft) {
+    esw_bft[b] = esw_population(pk, use_size_covar, log_sigma_bft[b],
+                                beta_size, s_centre, w);
+  }
   real<lower=1> mean_group_size = dot_product(k_support, pk);
 }
 
@@ -143,37 +163,38 @@ model {
   // Detection + group-size priors (as v4.1)
   log_sigma   ~ normal(log_sigma_prior_mean, log_sigma_prior_sd);
   beta_size   ~ normal(beta_size_prior_mean, beta_size_prior_sd);
+  beta_bft    ~ normal(beta_bft_prior_mean, beta_bft_prior_sd);
   mu_s        ~ gamma(mu_s_prior_shape, mu_s_prior_rate);
   phi_s       ~ gamma(phi_s_prior_shape, phi_s_prior_rate);
   mu_log_s    ~ normal(mu_log_prior_mean, mu_log_prior_sd);
   sigma_log_s ~ gamma(sigma_log_prior_shape, sigma_log_prior_rate);
 
   // Likelihood
-  target += sum(lt_detection_loglik(x, s, w, use_size_covar, log_sigma,
+  target += sum(lt_detection_loglik(x, s, w, use_size_covar, log_sigma_bft[det_bft],
                                     beta_size, s_centre, group_size_dist,
-                                    mu_s, phi_s, mu_log_s, sigma_log_s, esw_pop));
+                                    mu_s, phi_s, mu_log_s, sigma_log_s, esw_bft[det_bft]));
   target += sum(lt_segment_loglik(seg_count, seg_l, log_lambda,
-                                  log(mean_group_size), esw_pop));
+                                  log(mean_group_size), esw_bft[seg_bft]));
 }
 
 generated quantities {
   row_vector[D1] gp_l = rep_row_vector(0, D1);   // length-scales (km); 0 if use_gp = 0
   if (use_gp == 1) gp_l = gp_l_raw[1] .* coord_scale';
 
-  real p_det    = esw_pop / w;                     // mean detection prob. in strip
-  real sigma_c  = hn_sigma(log_sigma);             // HN scale at s = s_centre (km)
+  real p_det    = mean(esw_bft[seg_bft]) / w;      // mean detection prob. in strip (over segments)
+  real sigma_c  = hn_sigma(log_sigma);             // HN scale at s = s_centre, Beaufort centre (km)
   real D_mean   = mean(exp(log_lambda));           // mean animal density over segments
 
-  vector[n]     log_lik_det = lt_detection_loglik(x, s, w, use_size_covar, log_sigma,
-                                beta_size, s_centre, group_size_dist,
-                                mu_s, phi_s, mu_log_s, sigma_log_s, esw_pop);
+  vector[n]     log_lik_det = lt_detection_loglik(x, s, w, use_size_covar,
+                                log_sigma_bft[det_bft], beta_size, s_centre, group_size_dist,
+                                mu_s, phi_s, mu_log_s, sigma_log_s, esw_bft[det_bft]);
   vector[n_seg] log_lik_seg = lt_segment_loglik(seg_count, seg_l, log_lambda,
-                                log(mean_group_size), esw_pop);
+                                log(mean_group_size), esw_bft[seg_bft]);
 
   array[n_seg] int pp_seg_count;
   for (j in 1:n_seg) {
     pp_seg_count[j] = poisson_log_rng(log_lambda[j] - log(mean_group_size)
-                                      + log(2 * seg_l[j] * esw_pop));
+                                      + log(2 * seg_l[j] * esw_bft[seg_bft[j]]));
   }
 
   vector[N_pred] log_lambda_pred = mu_sp + B_bathy_pred * beta_bathy;

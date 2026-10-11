@@ -15,7 +15,7 @@
 #
 # Usage (from this repo's root):
 #   source("R/fit_edna.r")
-#   res <- fit_edna("bathysp_surface")             # full validation settings
+#   res <- fit_edna("bathysp_surface")             # design priors, rule-sized basis
 #   res$field                                      # latent-field R^2 per species
 # =============================================================================
 
@@ -36,19 +36,26 @@ in_hsgp4edna <- function(expr) {
 #            HSGP4eDNA's 01_sim_bathysp_surface.r.
 # sim      : a pre-built simulate_bathysp()-shaped object (e.g.
 #            simulate_joint()$edna); if given, sim_args is ignored.
-# basis    : HSGP basis per axis (MX, MY); df: spline df for Z_bathy.
+# basis    : HSGP basis per axis (MX, MY); NULL = sized by the design-based
+#            prior rule within M_max functions (HSGP4eDNA default).
+# gp_prior : "design" (default) or "gamma" (HSGP4eDNA v1.x shared prior).
+# df       : spline df for Z_bathy.
+# fit_seed : sampler + initial-value seed (reproducible fits).
 # log_file : where the fit's console output goes (NULL = this console).
 fit_edna <- function(scenario  = "bathysp_surface",
                      sim_args  = list(seed = 202L, sample_depths = 0,
                                       zsample_pref = NULL),
-                     basis     = c(17L, 6L),
+                     basis     = NULL,
+                     M_max     = NULL,
+                     gp_prior  = "design",
                      df        = 5L,
+                     fit_seed  = 42L,
                      chains    = 3L,
                      warmup    = 400L,
                      sample    = 400L,
                      log_file  = NULL,
                      sim       = NULL) {
-  stopifnot(grepl("^bathysp", scenario), length(basis) == 2L)
+  stopifnot(grepl("^bathysp", scenario), is.null(basis) || length(basis) == 2L)
   # Resolve before changing directory into the submodule.
   # (normalizePath() leaves a not-yet-existing file relative, so resolve the
   # directory and re-attach the file name.)
@@ -74,7 +81,9 @@ fit_edna <- function(scenario  = "bathysp_surface",
     status <- system2(
       "Rscript", "R/09_fit_gp2d_bathysp.r",
       env    = c(sprintf("SCENARIO=%s", scenario),
-                 sprintf("MX=%d", basis[1]), sprintf("MY=%d", basis[2]),
+                 if (!is.null(basis)) c(sprintf("MX=%d", basis[1]), sprintf("MY=%d", basis[2])),
+                 if (!is.null(M_max)) sprintf("M_MAX=%d", M_max),
+                 sprintf("GP_PRIOR=%s", gp_prior), sprintf("FIT_SEED=%d", fit_seed),
                  sprintf("DF=%d", df), sprintf("CHAINS=%d", chains),
                  sprintf("WARMUP=%d", warmup), sprintf("SAMPLE=%d", sample)),
       stdout = if (is.null(log_file)) "" else log_file,
