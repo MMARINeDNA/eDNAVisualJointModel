@@ -32,14 +32,18 @@ compile_visual <- function(...) {
 visual_init <- function(sd) {
   M <- sd$M; G <- sd$use_gp
   rate0 <- max(sum(sd$seg_count) / sum(2 * sd$seg_l * 0.5 * sd$w), 1e-6)  # groups / km^2
+  # hazard-rate: sigma is where g falls to 1 - exp(-1); start a bit below w
+  ls0 <- if (sd$det_key == 1L) log(sd$w / 2) else sd$log_sigma_prior_mean
   function() {
     init <- list(
     mu_sp = log(rate0 * exp(sd$mu_log_prior_mean)) + rnorm(1, 0, 0.2),
     gp_sigma = array(runif(G, 0.8, 1.2), G),
     gp_l_raw = matrix(runif(G * sd$D1, 0.2, 0.4), G, sd$D1),
     z_beta = matrix(0, G, M), beta_bathy = array(0, sd$K_bathy),
-    log_sigma = sd$log_sigma_prior_mean + rnorm(1, 0, 0.2),
+    log_sigma = ls0 + rnorm(1, 0, 0.2),
     beta_size = rnorm(1, 0, 0.005),
+    beta_det = array(rnorm(sd$K_det, 0, 0.05), sd$K_det),
+    log_b = array(sd$log_b_prior_mean + rnorm(sd$det_key, 0, 0.1), sd$det_key),
     mu_s = sd$mu_s_prior_shape / sd$mu_s_prior_rate, phi_s = runif(1, 0.5, 2),
     mu_log_s = sd$mu_log_prior_mean + rnorm(1, 0, 0.1),
     sigma_log_s = sd$sigma_log_prior_shape / sd$sigma_log_prior_rate)

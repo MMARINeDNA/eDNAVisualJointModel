@@ -77,6 +77,8 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
     humpback = list(
       common_name = "Humpback whale", group_size_pool = pool_h, mean_group_size = mean_h,
       sigma_det = 2.5, use_size_covar = 0L, beta_size_truth = 0.0, s_centre = mean_h,
+      det_key = 0L, hr_b_truth = 3, det_covars = character(0), beta_det_truth = numeric(0),
+      log_b_prior_mean = log(3), log_b_prior_sd = 0.7, beta_det_prior_sd = 0.5,
       model_group_dist = 0L, S_max = 50L,
       log_sigma_prior_mean = log(2.5), log_sigma_prior_sd = 0.6,
       beta_size_prior_mean = 0.0, beta_size_prior_sd = 0.05,
@@ -88,6 +90,8 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
     pwsd = list(
       common_name = "Pacific white-sided dolphin", group_size_pool = pool_p, mean_group_size = mean_p,
       sigma_det = 1.5, use_size_covar = 1L, beta_size_truth = 0.01, s_centre = mean_p,
+      det_key = 0L, hr_b_truth = 3, det_covars = character(0), beta_det_truth = numeric(0),
+      log_b_prior_mean = log(3), log_b_prior_sd = 0.7, beta_det_prior_sd = 0.5,
       model_group_dist = 1L, S_max = 1000L,
       log_sigma_prior_mean = log(1.5), log_sigma_prior_sd = 0.6,
       beta_size_prior_mean = 0.0, beta_size_prior_sd = 0.05,
@@ -100,6 +104,40 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
 }
 
 # -----------------------------------------------------------------------------
+# det_covar_design(): segment-level detection covariates for the visual model.
+# Columns of `seg` named in `covars` (e.g. "avgbft", "avgvis") are rounded to
+# DET_COVAR_ROUND (so the number of unique covariate rows, each needing its own
+# ESW in Stan, stays small), centred and scaled by their effort-weighted mean
+# and SD. Returns the unique-row design Z (n_zc x K), the row of each segment
+# (seg_zc), and the centre / scale used. K = 0 -> one all-zero row.
+# -----------------------------------------------------------------------------
+DET_COVAR_ROUND <- c(avgbft = 1, avgvis = 0.5, avgswellhght = 1)
+
+det_covar_design <- function(seg, covars, round_to = DET_COVAR_ROUND) {
+  n <- nrow(seg)
+  if (length(covars) == 0L)
+    return(list(Z = matrix(0, 1L, 0L), seg_zc = rep(1L, n), centre = numeric(0),
+                scale = numeric(0), covars = character(0)))
+  stopifnot(all(covars %in% names(seg)))
+  raw <- vapply(covars, function(cv) {
+    x <- as.numeric(seg[[cv]]); r <- round_to[cv]
+    if (!is.na(r)) x <- round(x / r) * r
+    x
+  }, numeric(n))
+  raw <- matrix(raw, n, length(covars), dimnames = list(NULL, covars))
+  stopifnot(!anyNA(raw))
+  wt <- seg$seg_l
+  centre <- apply(raw, 2, weighted.mean, w = wt)
+  scl <- apply(raw, 2, function(z) sqrt(weighted.mean((z - weighted.mean(z, wt))^2, wt)))
+  scl[scl == 0] <- 1
+  zs <- sweep(sweep(raw, 2, centre, "-"), 2, scl, "/")
+  key <- do.call(paste, c(as.data.frame(raw), sep = "|"))
+  first <- !duplicated(key)
+  list(Z = zs[first, , drop = FALSE], seg_zc = match(key, key[first]),
+       centre = centre, scale = scl, covars = covars)
+}
+
+# -----------------------------------------------------------------------------
 # simulate_lt_sightings(): groups in each segment's strip ~ Poisson, uniform
 # perpendicular distance, half-normal detection (v4.1 logic, unchanged).
 # lambda_animals: animals / km^2 per segment.
@@ -107,14 +145,20 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
 simulate_lt_sightings <- function(segments, lambda_animals, p, w) {
   lambda_groups <- lambda_animals / p$mean_group_size
   n_strip <- rpois(nrow(segments), lambda_groups * 2 * w * segments$seg_l)
+  dc  <- det_covar_design(segments, p$det_covars)
+  eta <- if (length(p$det_covars)) as.vector(dc$Z %*% p$beta_det_truth)[dc$seg_zc] else
+    rep(0, nrow(segments))
   rows <- vector("list", nrow(segments))
   for (j in which(n_strip > 0)) {
     x_true  <- runif(n_strip[j], 0, w)
     s_strip <- sample(p$group_size_pool, n_strip[j], replace = TRUE)
     sigma_g <- if (p$use_size_covar == 1L)
-      p$sigma_det * exp(p$beta_size_truth * (s_strip - p$s_centre)) else
-      rep(p$sigma_det, n_strip[j])
-    keep <- runif(n_strip[j]) < exp(-x_true^2 / (2 * sigma_g^2))
+      p$sigma_det * exp(p$beta_size_truth * (s_strip - p$s_centre) + eta[j]) else
+      rep(p$sigma_det * exp(eta[j]), n_strip[j])
+    g <- if (isTRUE(p$det_key == 1L))
+      -expm1(-(sigma_g / pmax(x_true, 1e-6))^p$hr_b_truth) else
+      exp(-x_true^2 / (2 * sigma_g^2))
+    keep <- runif(n_strip[j]) < g
     if (any(keep))
       rows[[j]] <- data.frame(seg_id = segments$seg_id[j], distance = x_true[keep],
                               size = as.integer(s_strip[keep]))
@@ -136,6 +180,12 @@ simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
   segments <- lt_design(n_transects, seg_length)
   segments$Z_bathy <- draw_bathy(nrow(segments))
   field <- species_field(segments, species, gp_params = gp_params, df = df)
+  # Synthetic sighting conditions, drawn (after the field, so default RNG
+  # streams are unchanged) only when some species has detection covariates.
+  if (any(lengths(lapply(sp_params[species], `[[`, "det_covars")) > 0L)) {
+    segments$avgbft <- sample(0:5, nrow(segments), replace = TRUE)
+    segments$avgvis <- sample(seq(2, 7.5, by = 0.5), nrow(segments), replace = TRUE)
+  }
   observed <- lapply(setNames(species, species), function(sp)
     simulate_lt_sightings(segments, exp(field$log_lambda[, sp]), sp_params[[sp]], w))
   list(meta = list(seed = seed, species = species, w = w, domain = LT_DOMAIN),
@@ -158,9 +208,19 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
                                     prior_mu_sp = c(-5, 2),
                                     M_max = GP_BASIS_BUDGET) {
   seg <- sim$design$segments
-  ob  <- sim$observed[[sp]]
   p   <- sim$truth$sp_params[[sp]]
   dom <- sim$meta$domain
+  `%||%` <- function(a, b) if (is.null(a)) b else a
+  # Truncation distance: one value, or named per species. Detections beyond it
+  # are dropped here and seg_count is rebuilt, so objects may carry all
+  # sightings (e.g. the real data) while each species gets its own w.
+  w_all <- sim$meta$w
+  w <- if (!is.null(names(w_all)) && sp %in% names(w_all)) w_all[[sp]] else as.numeric(w_all)[1]
+  ob_all <- sim$observed[[sp]]
+  o <- ob_all$obs[ob_all$obs$distance <= w, , drop = FALSE]
+  ob <- list(obs = o, seg_count = tabulate(o$seg_id, nbins = nrow(seg)))
+  # Detection covariates (segment-level), unique-row design
+  dc <- det_covar_design(seg, p$det_covars %||% character(0))
   coord_centre <- c(dom$X_km_max, dom$Y_km_max) / 2
   coord_scale  <- coord_centre
   coords <- sweep(sweep(as.matrix(seg[, c("X", "Y")]), 2, coord_centre, "-"), 2, coord_scale, "/")
@@ -177,7 +237,12 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
     matrix(0, nrow(seg), 0)
 
   sd <- list(
-    n = nrow(ob$obs), x = ob$obs$distance, s = as.integer(ob$obs$size), w = sim$meta$w,
+    n = nrow(ob$obs), x = ob$obs$distance, s = as.integer(ob$obs$size), w = w,
+    obs_zc = as.integer(dc$seg_zc[ob$obs$seg_id]),
+    det_key = as.integer(p$det_key %||% 0L),
+    log_b_prior_mean = p$log_b_prior_mean %||% log(3), log_b_prior_sd = p$log_b_prior_sd %||% 0.7,
+    K_det = ncol(dc$Z), n_zc = nrow(dc$Z), Z_det = dc$Z,
+    beta_det_prior_sd = p$beta_det_prior_sd %||% 0.5,
     log_sigma_prior_mean = p$log_sigma_prior_mean, log_sigma_prior_sd = p$log_sigma_prior_sd,
     use_size_covar = p$use_size_covar, s_centre = p$s_centre,
     beta_size_prior_mean = p$beta_size_prior_mean, beta_size_prior_sd = p$beta_size_prior_sd,
@@ -187,6 +252,7 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
     mu_log_prior_mean = p$mu_log_prior_mean, mu_log_prior_sd = p$mu_log_prior_sd,
     sigma_log_prior_shape = p$sigma_log_prior_shape, sigma_log_prior_rate = p$sigma_log_prior_rate,
     n_seg = nrow(seg), seg_count = as.integer(ob$seg_count), seg_l = as.numeric(seg$seg_l),
+    seg_zc = as.integer(dc$seg_zc),
     use_gp = as.integer(use_gp), D1 = 2L, M = as.integer(prod(HSGP_M)), INDICES = INDICES,
     coords = coords, coord_scale = coord_scale, L_hsgp = HSGP_C,
     K_bathy = ncol(B), B_bathy = B,
@@ -202,5 +268,6 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
     prior_beta_bathy_sig = 2.0
   )
   attr(sd, "gp_prior") <- gp_prior   # provenance (an attribute, so cmdstanr ignores it)
+  attr(sd, "det_covar") <- dc[c("covars", "centre", "scale")]
   sd
 }

@@ -21,7 +21,8 @@ cat("eDNA: N =", fe$stan_data$N, " N_qpcr_long =", fe$stan_data$N_qpcr_long,
     " M =", fe$stan_data$M, "\n")
 for (sp in c("humpback", "pwsd")) {
   fv <- format_stan_data_visual(vis, sp)
-  cat(sp, ": n_seg =", fv$n_seg, " n =", fv$n, " sum(seg_count) =", sum(fv$seg_count),
+  cat(sp, ": w =", round(fv$w, 2), " det_key =", fv$det_key, " K_det =", fv$K_det,
+      " n_zc =", fv$n_zc, " | n_seg =", fv$n_seg, " n =", fv$n, " sum(seg_count) =", sum(fv$seg_count),
       " M =", fv$M, " K_bathy =", fv$K_bathy, " coords range =",
       paste(round(range(fv$coords), 2), collapse = " .. "), "\n")
 }
@@ -32,9 +33,13 @@ cat(sprintf("eDNA   bottles %d | stations %d | qPCR reps %d | MB reps %d\n",
             nrow(sam), n_distinct(sam$station), length(ob$qpcr_detect), nrow(ob$mb_reads)))
 cat(sprintf("       hake qPCR detection rate %.3f | MB reps with reads: hake %.3f humpback %.3f pwsd %.3f\n",
             mean(ob$qpcr_detect), mbpos("hake"), mbpos("humpback"), mbpos("pwsd")))
-cat(sprintf("visual segments %d | transects(sections) %d | effort %.1f km | sightings humpback %d, pwsd %d\n",
-            nrow(seg), n_distinct(seg$transect_id), sum(seg$seg_l),
-            nrow(vis$observed$humpback$obs), nrow(vis$observed$pwsd$obs)))
+n_used <- sapply(names(vis$observed), function(sp)
+  sum(vis$observed[[sp]]$obs$distance <= vis$meta$w[[sp]]))
+cat(sprintf("visual segments %d | transects(sections) %d | effort %.1f km\n",
+            nrow(seg), n_distinct(seg$transect_id), sum(seg$seg_l)))
+cat(sprintf("       sightings (all on-effort with distance / within w): humpback %d / %d (w = %.2f km), pwsd %d / %d (w = %.2f km)\n",
+            nrow(vis$observed$humpback$obs), n_used[["humpback"]], vis$meta$w[["humpback"]],
+            nrow(vis$observed$pwsd$obs), n_used[["pwsd"]], vis$meta$w[["pwsd"]]))
 print(vis$meta$sight_flow)
 
 hdr("domain box")
@@ -47,8 +52,8 @@ print(seg |> mutate(side = case_when(X < 0 ~ "X<0 (west)", X > 500 ~ "X>500 (eas
                                      Y < 0 ~ "Y<0 (south)", Y > 1270 ~ "Y>1270 (north)",
                                      TRUE ~ "inside")) |> count(side))
 for (sp in names(vis$observed)) {
-  o <- vis$observed[[sp]]$obs
-  cat(sp, "sightings in segments outside box:", sum(!seg$in_domain[o$seg_id]), "of", nrow(o), "\n")
+  o <- vis$observed[[sp]]$obs; o <- o[o$distance <= vis$meta$w[[sp]], ]
+  cat(sp, "sightings (within w) in segments outside box:", sum(!seg$in_domain[o$seg_id]), "of", nrow(o), "\n")
 }
 
 hdr("bathymetry")
@@ -84,7 +89,8 @@ for (nm in c(humpback = 76, pwsd = 22)) {
 
 hdr("group sizes: data/grpsz pools vs real best group sizes (obs)")
 for (sp in c("humpback", "pwsd")) {
-  pool <- vis$truth$sp_params[[sp]]$group_size_pool; real <- vis$observed[[sp]]$obs$size
+  pool <- vis$truth$sp_params[[sp]]$group_size_pool
+  real <- with(vis$observed[[sp]]$obs, size[distance <= vis$meta$w[[sp]]])
   cat(sprintf("%-8s pool n=%d mean=%.2f median=%g q90=%g max=%g | real n=%d mean=%.2f median=%g q90=%g max=%g\n",
               sp, length(pool), mean(pool), median(pool), quantile(pool, .9), max(pool),
               length(real), mean(real), median(real), quantile(real, .9), max(real)))
@@ -92,7 +98,7 @@ for (sp in c("humpback", "pwsd")) {
 
 hdr("sighting conditions / mixed species")
 for (sp in names(vis$observed)) {
-  o <- vis$observed[[sp]]$obs
+  o <- vis$observed[[sp]]$obs; o <- o[o$distance <= vis$meta$w[[sp]], ]
   cat(sp, ": mixed =", sum(o$mixed %in% TRUE), "; bft NA =", sum(is.na(o$bft)),
       "; vis NA =", sum(is.na(o$vis)), "\n")
 }

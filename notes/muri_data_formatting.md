@@ -21,11 +21,12 @@ No models were fitted. All three formatter calls run on the full objects
 | qPCR replicates (hake) | 2663 (detection rate 0.776, 2066 detected) |
 | MB replicates | 1709 (reads in rep: hake 0.644, humpback 0.034, pwsd 0.048) |
 | Visual segments / sections / effort | 2779 / 1015 / 12,967 km |
-| Sightings used (humpback / pwsd) | 500 / 92 (w = 5 km) |
-| In-domain subset | 1132 segments, 5,273 km, 269 humpback + 51 pwsd sightings |
+| Truncation `w` (95th percentile, per species) | humpback 6.45 km, pwsd 4.64 km |
+| Sightings used within `w` (humpback / pwsd) | 548 / 89 (of 577 / 94 on effort with a distance) |
+| Detection function | humpback: hazard-rate + group size; pwsd: half-normal + group size + visibility + Beaufort |
 
-Sighting flow (all `sightings.csv` rows of the species -> on effort -> has pdist -> <= 5 km):
-humpback 683 -> 646 -> 577 -> 500; pwsd 112 -> 98 -> 94 -> 92.
+Sighting flow (all `sightings.csv` rows of the species -> on effort -> has pdist -> within `w`):
+humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
 
 ## Where each field comes from
 
@@ -36,14 +37,20 @@ humpback 683 -> 646 -> 577 -> 500; pwsd 112 -> 98 -> 94 -> 92.
   segment). Alternatives (per day, per leg) are possible; nothing in the model uses it yet.
 - Extra segment columns: `avgbft, avgvis, avgswellhght, mode, efftype, eswsides, speed_kph`,
   begin/end/mid times, `section_id, segnum, row_id, lat, lon, X_utm, Y_utm, in_domain`.
+- Truncation (decided): 5% of detections dropped per species, i.e. `w` = 95th percentile of the
+  on-effort perpendicular distances: **humpback 6.454 km, pwsd 4.644 km** (`meta$w`, a named
+  vector). `observed[[sp]]$obs` holds ALL on-effort sightings with a distance and group size, and
+  `seg_count` is `tabulate(obs$seg_id)` of that full set. `format_stan_data_visual()` drops
+  detections beyond `meta$w[[sp]]` and rebuilds `seg_count`. (The 5% rule applies to the two
+  visual species; hake has no visual data.)
 - Sightings: `sightings.csv` rows with `species_name` 76 (humpback) or 22 (pwsd). "On effort" =
   sighting time lies inside an effort segment's [begin, end] (`sightings.csv` has no on/off-effort
   flag; one sighting matched two segments, first taken). `seg_id` = that segment.
 - **Perpendicular distance** = `pdist` in `data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv`, joined on
   sighting number x species code. I did not derive distance from lat/lon. `sightings.csv` and
   `effort.csv` contain no radial distance or bearing, so I could not re-check `pdist`;
-  I assume it is the survey's own perpendicular distance, **in km**. SITEINFO lat/lon equal the
-  sightings' to 1e-6 deg. **Please confirm provenance and units.**
+  it is the survey's own perpendicular distance, **in km** (confirmed by the data owner; correct as is).
+  SITEINFO lat/lon equal the sightings' to 1e-6 deg.
 - `size` = `gsspbest` rounded to integer (identical to `group_size`; 2 NA rows are not among the
   used sightings). SITEINFO `Sppgs` has 50 fractional values (mean of observers); not used.
 - Sighting covariates kept in `obs`: `bft, vis, swellhght, mixed, nsp, sightno, datetime, lat, lon, row_id`.
@@ -122,9 +129,10 @@ humpback 683 -> 646 -> 577 -> 500; pwsd 112 -> 98 -> 94 -> 92.
 ## Other flags
 
 - **Truncation.** Perpendicular distance, km (SITEINFO, all rows): humpback n=577, quantiles
-  50/80/90/95/99/max = 2.15/4.5/5.31/6.45/8.4/9.77, 13% > 5 km; pwsd n=94 = 1.28/2.86/3.88/4.64/5.41/6.41,
-  2% > 5 km. w = 5 km (kept) drops 77 humpback + 2 pwsd; the 95th percentile suggests ~6.5 km for
-  humpback and ~4.6 km for pwsd (a single w could be 6.5).
+  50/80/90/95/99/max = 2.15/4.5/5.31/6.45/8.4/9.77; pwsd n=94 = 1.28/2.86/3.88/4.64/5.41/6.41.
+  Decision: drop the largest 5% per species (w = 6.454 / 4.644 km; 29 and 5 detections dropped).
+  This follows Len Thomas's CalCOFI analysis (https://rpubs.com/lenthomas/1268708), which truncates
+  per species at roughly the upper 5-10% of distances.
 - **Sightings without distance.** 69 humpback and 4 pwsd on-effort sightings have no `pdist`
   (not in SITEINFO; they span all Beaufort states and modes, so SITEINFO's filter is unknown).
   They are excluded, so counts may be biased low. 37 humpback and 14 pwsd sightings fall
@@ -143,3 +151,56 @@ humpback 683 -> 646 -> 577 -> 500; pwsd 112 -> 98 -> 94 -> 92.
   clone at the pinned commit e8d0432 outside the repo and did not touch the submodule.
 - `data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv` and `data/MV1_MURI_df.csv` are untracked in the main
   checkout; I copied them into this worktree's `data/` for the run and did not commit them.
+
+## Detection function (added after the first version)
+
+Selection followed Len Thomas's CalCOFI recipe (forward selection by AIC with the Distance
+package, `nadj = 0`, candidates group size, Beaufort, visibility, swell, effort mode), run on the
+on-effort sightings truncated at the 95th percentile, using **segment-level** `avgbft`, `avgvis`,
+`avgswellhght`, `mode` (the values the Stan model has for every segment):
+
+| species | key | steps (AIC change) | selected |
+|---|---|---|---|
+| humpback (n=548) | hazard-rate (chosen; ~20 AIC better than half-normal at w = 5 km) | size -3.2 | group size |
+| pwsd (n=89) | half-normal (chosen) | visibility -6.8, Beaufort -1.9, size -1.2 | visibility + Beaufort + group size |
+
+Beaufort and group size for pwsd are marginal (< 2 AIC each); kept because the rule was "follow
+the AIC". Swell and effort mode were never selected. There is no ship / observer-height covariate
+(one DAS file, `CCES1651.das`). These are exploratory fits (small n for pwsd, mode and
+conditions pooled); per-species `det_key` and `det_covars` live in `truth$sp_params`.
+
+Model support: `stan/hsgp_visual.stan` has `det_key` (0 half-normal, 1 hazard-rate
+`g(x) = 1 - exp(-(sigma/x)^b)`, ESW by a 400-cell midpoint rule) and detection covariates
+`Z_det` (centred, scaled; segment-level, rounded to Beaufort 1 and visibility 0.5 so the number of
+unique covariate rows stays small). The ESW, and so the encounter rate, is computed per covariate
+row. With `det_key = 0` and no covariates it is the original model.
+
+### Validation of the new detection options
+
+- **Same model when switched off.** With `det_key = 0` and no covariates the log-posterior mode
+  matches the original model (humpback `lp__` identical to 7 digits; pwsd within 0.01, a flat surface).
+- **Recovery on simulated data** (`tests/visual_detection.R`, non-spatial): hazard-rate + size
+  (log sigma 0.98 vs 0.92 true, b 3.3 vs 3, size effect 0.08 vs 0.10) and half-normal + size +
+  two covariates (log sigma 0.402 vs 0.405, covariates 0.31 / -0.34 vs 0.3 / -0.3). Stan's
+  covariate-row ESW agrees with R's `integrate()` to 1e-7 (hazard-rate) and 4e-5 (binned size sum).
+- **Speed.** The group-size sum for the ESW is binned (sizes 1-30 individually, then 10% log bins),
+  which cut a 677-detection pwsd fit from 15 to 2 min with unchanged results.
+- **Real-data sanity fits** (non-spatial, 2 chains x 400, no divergences; NOT a final analysis):
+  - humpback: mean detection probability 0.44 (90% 0.36-0.52), consistent with `Distance`'s
+    hazard-rate fit (0.43 at w = 6.5 km). Hazard-rate shape b = 0.98 (90% 0.78-1.23), i.e. a
+    heavy tail, despite a prior centred on 3.
+  - pwsd: mean detection probability 0.49. Beaufort effect -0.55 per SD (90% -0.80 to -0.34);
+    visibility +0.10 per SD (90% -0.02 to 0.21), much weaker than its AIC ranking suggested.
+
+### Caveats
+
+- cmdstanr does not recompile when only `stan/include/*.stan` changes; pass `force_recompile = TRUE`.
+- Covariates are segment-level (not sighting-level) and rounded (Beaufort to 1, visibility to 0.5),
+  and centred / scaled by effort-weighted mean and SD over the segments in the object passed to the
+  formatter; `log_sigma` is the scale at the mean covariates. Subsetting segments changes that
+  reference point.
+- g(0) = 1 is still assumed (no availability or perception bias correction).
+- The full objects still have 59% of effort outside the model box, so spatial fits should use the
+  `*_indomain.rds` objects (with `w` truncation applied by the formatter either way).
+- On the in-domain subset, `n_zc` and the covariate centring are recomputed; sighting counts within
+  `w` outside the box: humpback 248 of 548, pwsd 38 of 89.

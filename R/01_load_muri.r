@@ -26,7 +26,7 @@ suppressPackageStartupMessages({
 })
 source("R/functions_visual.R")   # LT_DOMAIN, lt_species_params(), HSGP4eDNA functions
 
-W_TRUNC      <- 5.0              # km; kept at the simulations' value until decided
+TRUNC_QUANTILE <- 0.95           # truncation: drop the largest 5% of distances, per species
 UTM_EPSG     <- 32610L
 X_OFFSET_M   <- 100000; Y_OFFSET_M <- 4180000
 OUT_DIR      <- "data/processed"
@@ -193,17 +193,27 @@ sg <- sg |> mutate(seg_id = seg_of) |>
   left_join(si, by = c("sightno", "sp_code")) |>
   mutate(size = as.integer(round(gsspbest)))
 
+# Truncation distance per species = 95th percentile of the on-effort
+# perpendicular distances that have a group size (5% of detections dropped).
+# `obs` holds ALL such sightings; format_stan_data_visual() truncates at
+# meta$w[[species]] and rebuilds seg_count.
+cand <- sg |> filter(!is.na(seg_id), !is.na(pdist), !is.na(size))
+W_SP <- vapply(SPECIES_CODE, function(code)
+  as.numeric(quantile(cand$pdist[cand$sp_code == code], TRUNC_QUANTILE)), numeric(1))
+
 sight_flow <- sg |> group_by(sp_code) |>
   summarise(n_all = n(), n_on_effort = sum(!is.na(seg_id)),
             n_on_effort_with_pdist = sum(!is.na(seg_id) & !is.na(pdist)),
             n_on_effort_pdist_missing = sum(!is.na(seg_id) & is.na(pdist)),
             n_size_missing = sum(!is.na(seg_id) & !is.na(pdist) & is.na(size)),
-            n_beyond_w = sum(!is.na(seg_id) & !is.na(pdist) & pdist > W_TRUNC),
-            .groups = "drop")
+            .groups = "drop") |>
+  mutate(w = W_SP[match(sp_code, SPECIES_CODE)],
+         n_used = n_on_effort_with_pdist - n_size_missing,
+         n_beyond_w = vapply(seq_len(n()), function(i)
+           sum(cand$pdist[cand$sp_code == sp_code[i]] > w[i]), integer(1)))
 
 make_obs <- function(code) {
-  d <- sg |> filter(sp_code == code, !is.na(seg_id), !is.na(pdist), !is.na(size),
-                    pdist <= W_TRUNC) |> arrange(seg_id, t)
+  d <- cand |> filter(sp_code == code) |> arrange(seg_id, t)
   data.frame(seg_id = as.integer(d$seg_id), distance = d$pdist, size = d$size,
              sightno = d$sightno, datetime = d$t, lat = d$latitude, lon = d$longitude,
              bft = d$bft, vis = d$vis, swellhght = d$swellhght,
@@ -214,14 +224,23 @@ observed_vis <- lapply(SPECIES_CODE, function(code) {
   list(obs = o, seg_count = tabulate(o$seg_id, nbins = nrow(segments)))
 })
 
+# Detection-function settings per species (exploratory AIC on this data set,
+# forward selection, segment-level covariates; see notes/muri_data_formatting.md):
+#   humpback  hazard-rate key; group size only
+#   pwsd      half-normal key; group size + visibility + Beaufort
+sp_params <- lt_species_params()[names(SPECIES_CODE)]
+sp_params$humpback$det_key    <- 1L
+sp_params$pwsd$det_covars     <- c("avgvis", "avgbft")
+
 visual <- list(
-  meta = list(seed = NA, species = names(SPECIES_CODE), w = W_TRUNC,
+  meta = list(seed = NA, species = names(SPECIES_CODE), w = W_SP,
+              trunc_quantile = TRUNC_QUANTILE,
               domain = LT_DOMAIN, bathy_source = BATHY_SOURCE,
               pdist_source = "data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv (pdist, km), joined on sightno x species",
               sight_flow = sight_flow),
   design = list(segments = as.data.frame(segments)),
   observed = observed_vis,
-  truth = list(sp_params = lt_species_params()[names(SPECIES_CODE)], spline_setup = NULL)
+  truth = list(sp_params = sp_params, spline_setup = NULL)
 )
 
 # ---- in-domain subsets (same structure; seg_id renumbered) ------------------
