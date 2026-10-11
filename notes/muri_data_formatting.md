@@ -7,11 +7,11 @@ formatter smoke test). Outputs in `data/processed/`:
 |---|---|
 | `muri_edna.rds` | all 551 bottles, `simulate_bathysp()` shape |
 | `muri_visual.rds` | all 2779 effort segments, `simulate_visual()` shape |
-| `muri_edna_indomain.rds`, `muri_visual_indomain.rds` | same, restricted to the model box (visual only changes; `seg_id` renumbered) |
 | `etopo2022_60s_cce.rds` | cached bathymetry grid (not committed) |
 
-No models were fitted. All three formatter calls run on the full objects
-(eDNA N=551; humpback/pwsd n_seg=2779) and on the in-domain subsets.
+No real-data analysis was run (only sanity fits, below). All three formatter calls run on the
+objects (eDNA N=551; humpback/pwsd n_seg=2779). Nothing is excluded for lying outside a box:
+the domain is built from the data (see Shared).
 
 ## Summary table
 
@@ -36,7 +36,7 @@ humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
   `transect_id` = `section_id` (the file's continuous-effort section, 1015 groups, many with one
   segment). Alternatives (per day, per leg) are possible; nothing in the model uses it yet.
 - Extra segment columns: `avgbft, avgvis, avgswellhght, mode, efftype, eswsides, speed_kph`,
-  begin/end/mid times, `section_id, segnum, row_id, lat, lon, X_utm, Y_utm, in_domain`.
+  begin/end/mid times, `section_id, segnum, row_id, lat, lon, X_utm, Y_utm`.
 - Truncation (decided): 5% of detections dropped per species, i.e. `w` = 95th percentile of the
   on-effort perpendicular distances: **humpback 6.454 km, pwsd 4.644 km** (`meta$w`, a named
   vector). `observed[[sp]]$obs` holds ALL on-effort sightings with a distance and group size, and
@@ -71,7 +71,15 @@ humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
   qpcr_inhibition, qpcr_plate, qpcr_sample_id, mb_pcr_replicate_id, mb_dilution, mb_rep`.
 
 **Shared**
-- UTM 10N (EPSG:32610), `X = (E-100000)/1000`, `Y = (N-4180000)/1000`.
+- UTM 10N (EPSG:32610). **Domain = bounding box of all effort and eDNA bottles** (segment begin,
+  middle and end points, and every bottle) plus a 10 km margin, rounded to 10 km:
+  `X = (E - E0)/1000`, `Y = (N - N0)/1000` with `(E0, N0) = (-10000, 3040000)` m (stored in
+  `meta$utm_origin`), giving **X in [0, 1360] km, Y in [0, 2600] km** (`meta$domain`, and
+  `X_km_max` / `Y_km_max` in the eDNA `meta`). The origin moved from the earlier (100000, 4180000)
+  so that the domain still starts at 0, which the downstream code assumes; `X_utm`, `Y_utm`
+  (metres) are unchanged. Margins to the edges are 12-16 km. Because the effort runs to
+  about -114.5 W, parts of it are 6-8 degrees from zone 10's central meridian, where UTM
+  distances are distorted by up to a few percent (not corrected).
 - `Z_bathy` (m, positive down) for bottles and segments = **NOAA ETOPO 2022 60-arc-second bedrock**
   (downloaded with `marmap::getNOAA.bathy`), bilinear. Check against `sightings.csv` BATH field at
   2326 sightings: r = 0.998, median |diff| 12 m vs the file's ETOPO1 value, 19 m vs S2004.
@@ -115,14 +123,11 @@ humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
    bottles). Each carries a template `Dilution` (1, 5, 10, 19, 20, 50, 100; fold convention, unlike
    the qPCR fraction) and `Rep` 1-6. 936 replicates are undiluted. Whether the `Nreads` are raw or
    filtered/rarefied is unknown; "junk" is relative to the 295 retained taxa only.
-5. **Domain box and dates.**
-   - eDNA: all 551 bottles inside (X 146-412, Y 14-1186).
-   - Visual: **1647 of 2779 segments (7,694 of 12,967 km) are outside the box**: 148 west
-     (X < 0, includes the ~128.8 W effort), 1144 east (X > 500), 325 south (Y < 0, south of
-     ~37.7 N), 30 north (Y > 1270). 231 of 500 humpback and 41 of 92 pwsd sightings are on
-     out-of-box segments. With the full object, `format_stan_data_visual()` runs but
-     `coords` span -2.8..3.9, outside [-1, 1] (HSGP is not valid there), so use the in-domain
-     subset or move the domain.
+5. **Domain and dates.**
+   - Domain: see Shared. All 551 bottles (X 256-522, Y 1154-2326 km) and all 2779 segments
+     (X 16-1344, Y 12-2586 km) are inside, so nothing is dropped. The domain is 1360 x 2600 km, so
+     the same HSGP basis budget (17 x 23 = 391 functions) covers the area more coarsely than
+     before, and most of the box has no eDNA data (bottles occupy about 20% of its width).
    - Dates: effort 2018-06-28 to 2018-12-03 (2018 CCES, cruise 1651); sightings 2018-07-01 to
      2018-10-16. eDNA: no dates. Not matched, as agreed (different cruises).
 
@@ -200,7 +205,6 @@ row. With `det_key = 0` and no covariates it is the original model.
   formatter; `log_sigma` is the scale at the mean covariates. Subsetting segments changes that
   reference point.
 - g(0) = 1 is still assumed (no availability or perception bias correction).
-- The full objects still have 59% of effort outside the model box, so spatial fits should use the
-  `*_indomain.rds` objects (with `w` truncation applied by the formatter either way).
-- On the in-domain subset, `n_zc` and the covariate centring are recomputed; sighting counts within
-  `w` outside the box: humpback 248 of 548, pwsd 38 of 89.
+- The loader asserts that every segment and bottle is inside the domain; if data are added,
+  the domain is recomputed from them.
+- The covariate centring is computed over all segments in the object passed to the formatter.

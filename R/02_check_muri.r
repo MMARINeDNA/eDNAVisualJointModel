@@ -42,19 +42,21 @@ cat(sprintf("       sightings (all on-effort with distance / within w): humpback
             nrow(vis$observed$pwsd$obs), n_used[["pwsd"]], vis$meta$w[["pwsd"]]))
 print(vis$meta$sight_flow)
 
-hdr("domain box")
-cat("eDNA bottles outside box:", sum(!sam$in_domain), "of", nrow(sam),
-    "| X range", paste(round(range(sam$X)), collapse = ".."),
-    "Y range", paste(round(range(sam$Y)), collapse = ".."), "\n")
-cat("segments outside box:", sum(!seg$in_domain), "of", nrow(seg), "(",
-    round(sum(seg$seg_l[!seg$in_domain])), "km of", round(sum(seg$seg_l)), "km )\n")
-print(seg |> mutate(side = case_when(X < 0 ~ "X<0 (west)", X > 500 ~ "X>500 (east)",
-                                     Y < 0 ~ "Y<0 (south)", Y > 1270 ~ "Y>1270 (north)",
-                                     TRUE ~ "inside")) |> count(side))
-for (sp in names(vis$observed)) {
-  o <- vis$observed[[sp]]$obs; o <- o[o$distance <= vis$meta$w[[sp]], ]
-  cat(sp, "sightings (within w) in segments outside box:", sum(!seg$in_domain[o$seg_id]), "of", nrow(o), "\n")
-}
+hdr("domain")
+dom <- vis$meta$domain
+cat(sprintf("domain: X in [0, %g], Y in [0, %g] km; UTM %d origin (E0, N0) = (%g, %g) m\n",
+            dom$X_km_max, dom$Y_km_max, vis$meta$utm_epsg, vis$meta$utm_origin[["E0"]],
+            vis$meta$utm_origin[["N0"]]))
+cat(sprintf("segments X %s, Y %s | bottles X %s, Y %s (km)\n",
+            paste(round(range(seg$X)), collapse = ".."), paste(round(range(seg$Y)), collapse = ".."),
+            paste(round(range(sam$X)), collapse = ".."), paste(round(range(sam$Y)), collapse = "..")))
+stopifnot(all(seg$X >= 0 & seg$X <= dom$X_km_max & seg$Y >= 0 & seg$Y <= dom$Y_km_max),
+          all(sam$X >= 0 & sam$X <= dom$X_km_max & sam$Y >= 0 & sam$Y <= dom$Y_km_max),
+          identical(unlist(edna$meta[c("X_km_max", "Y_km_max")], use.names = FALSE),
+                    unlist(dom[c("X_km_max", "Y_km_max")], use.names = FALSE)))
+cat("all segments and bottles inside the domain; margin to edges (km): W",
+    round(min(seg$X, sam$X)), " E", round(dom$X_km_max - max(seg$X, sam$X)),
+    " S", round(min(seg$Y, sam$Y)), " N", round(dom$Y_km_max - max(seg$Y, sam$Y)), "\n")
 
 hdr("bathymetry")
 cat("segments Z_bathy NA:", sum(is.na(seg$Z_bathy)), " range:",
@@ -90,7 +92,8 @@ for (nm in c(humpback = 76, pwsd = 22)) {
 hdr("group sizes: data/grpsz pools vs real best group sizes (obs)")
 for (sp in c("humpback", "pwsd")) {
   pool <- vis$truth$sp_params[[sp]]$group_size_pool
-  real <- with(vis$observed[[sp]]$obs, size[distance <= vis$meta$w[[sp]]])
+  ob_sp <- vis$observed[[sp]]$obs
+  real <- ob_sp$size[ob_sp$distance <= vis$meta$w[[sp]]]
   cat(sprintf("%-8s pool n=%d mean=%.2f median=%g q90=%g max=%g | real n=%d mean=%.2f median=%g q90=%g max=%g\n",
               sp, length(pool), mean(pool), median(pool), quantile(pool, .9), max(pool),
               length(real), mean(real), median(real), quantile(real, .9), max(real)))

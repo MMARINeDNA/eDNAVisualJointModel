@@ -24,23 +24,48 @@
 suppressPackageStartupMessages({
   library(dplyr); library(tibble); library(sf); library(data.table)
 })
-source("R/functions_visual.R")   # LT_DOMAIN, lt_species_params(), HSGP4eDNA functions
+source("R/functions_visual.R")   # lt_species_params(), HSGP4eDNA functions
 
 TRUNC_QUANTILE <- 0.95           # truncation: drop the largest 5% of distances, per species
 UTM_EPSG     <- 32610L
-X_OFFSET_M   <- 100000; Y_OFFSET_M <- 4180000
+DOMAIN_BUFFER_KM <- 10           # margin around the data (km)
+DOMAIN_ROUND_KM  <- 10           # origin and extent are multiples of this (km)
 OUT_DIR      <- "data/processed"
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # ---- helpers ----------------------------------------------------------------
-lonlat_to_model <- function(lon, lat) {
+lonlat_to_utm <- function(lon, lat) {
   pts <- sf::st_transform(sf::st_as_sf(data.frame(lon = lon, lat = lat),
                                        coords = c("lon", "lat"), crs = 4326), UTM_EPSG)
   xy <- sf::st_coordinates(pts)
-  tibble(X_utm = xy[, 1], Y_utm = xy[, 2],
-         X = (xy[, 1] - X_OFFSET_M) / 1000, Y = (xy[, 2] - Y_OFFSET_M) / 1000)
+  cbind(E = xy[, 1], N = xy[, 2])
 }
-in_domain <- function(X, Y) X >= 0 & X <= LT_DOMAIN$X_km_max & Y >= 0 & Y <= LT_DOMAIN$Y_km_max
+
+# ---- model domain: bounding box of ALL survey effort and eDNA bottles -------
+# X = (easting - E0)/1000, Y = (northing - N0)/1000 (km), with (E0, N0) the
+# south-west corner of the box (rounded down), so the domain is
+# [0, X_km_max] x [0, Y_km_max] as the downstream code assumes. The box covers
+# every effort segment (begin, middle and end points) and every eDNA bottle,
+# plus DOMAIN_BUFFER_KM.
+.q    <- read.csv("data/hake_qPCR_MURI_df.csv", stringsAsFactors = FALSE)
+.ef   <- read.csv("data/effort.csv", stringsAsFactors = FALSE)
+.pts  <- rbind(lonlat_to_utm(.q$lon, .q$lat),
+               lonlat_to_utm(.ef$longitude_begin, .ef$latitude_begin),
+               lonlat_to_utm(.ef$longitude_end,   .ef$latitude_end),
+               lonlat_to_utm(.ef$mlon,            .ef$mlat))
+.step <- DOMAIN_ROUND_KM * 1000; .buf <- DOMAIN_BUFFER_KM * 1000
+E0 <- floor((min(.pts[, "E"]) - .buf) / .step) * .step
+N0 <- floor((min(.pts[, "N"]) - .buf) / .step) * .step
+DOMAIN <- list(X_km_max = ceiling((max(.pts[, "E"]) + .buf - E0) / .step) * DOMAIN_ROUND_KM,
+               Y_km_max = ceiling((max(.pts[, "N"]) + .buf - N0) / .step) * DOMAIN_ROUND_KM)
+rm(.q, .ef, .pts)
+
+lonlat_to_model <- function(lon, lat) {
+  en <- lonlat_to_utm(lon, lat)
+  tibble(X_utm = en[, "E"], Y_utm = en[, "N"],
+         X = (en[, "E"] - E0) / 1000, Y = (en[, "N"] - N0) / 1000)
+}
+in_domain <- function(X, Y) X >= 0 & X <= DOMAIN$X_km_max & Y >= 0 & Y <= DOMAIN$Y_km_max
 
 # Bottom depth (m, positive down), bilinear from ETOPO 2022 60s; NA on land.
 BATHY_SOURCE <- "NOAA ETOPO 2022 v1 60-arc-second bedrock elevation (via marmap::getNOAA.bathy), bilinear"
@@ -84,11 +109,10 @@ samples <- bottle |>
   mutate(Z_bathy   = bottom_depth(lon, lat),
          depth_idx = match(Z_sample, sample_depths),
          sample_id = row_number(),
-         in_domain = in_domain(X, Y),
          cruise = NA_character_, datetime = as.POSIXct(NA)) |>   # not in the files
   left_join(qsamp, by = "location_id") |>
   select(station, X, Y, X_utm, Y_utm, Z_bathy, Z_sample, depth_idx, sample_id,
-         location_id, qpcr_sample_ids, n_qpcr_sample_ids, lat, lon, datetime, cruise, in_domain)
+         location_id, qpcr_sample_ids, n_qpcr_sample_ids, lat, lon, datetime, cruise)
 N <- nrow(samples)
 
 # ---- qPCR (hake): one entry per replicate row of hake_qPCR_MURI_df.csv ------
@@ -120,7 +144,8 @@ edna <- list(
     vol_aliquot  = 2,      # PLACEHOLDER (simulator): uL template; real value not in the data
     vol_elution  = NA_real_,  # uL; model assumes 100
     N = N, N_qpcr_long = nrow(q), N_mb_long = nrow(mbrep),
-    X_km_max = LT_DOMAIN$X_km_max, Y_km_max = LT_DOMAIN$Y_km_max,
+    X_km_max = DOMAIN$X_km_max, Y_km_max = DOMAIN$Y_km_max,
+    utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
     placeholders = c("conv_factor", "vol_filtered", "vol_aliquot",
                      "truth$qpcr_params (all NA: no Ct / standard curve available)"),
     ct_available = FALSE,
@@ -172,9 +197,9 @@ segments <- bind_cols(
          cruise = ef$cruise, section_id = ef$section_id, segnum = ef$segnum, row_id = ef$row_id,
          mode = ef$mode, efftype = ef$efftype, eswsides = ef$eswsides,
          speed_kph = ef$speed_kph, avgbft = ef$avgbft, avgvis = ef$avgvis,
-         avgswellhght = ef$avgswellhght,
-         in_domain = in_domain(xy_seg$X, xy_seg$Y))
+         avgswellhght = ef$avgswellhght)
 )
+stopifnot(all(in_domain(xy_seg$X, xy_seg$Y)), all(in_domain(samples$X, samples$Y)))
 
 # ---- sightings --------------------------------------------------------------
 sg <- read.csv("data/sightings.csv", stringsAsFactors = FALSE) |>
@@ -235,7 +260,8 @@ sp_params$pwsd$det_covars     <- c("avgvis", "avgbft")
 visual <- list(
   meta = list(seed = NA, species = names(SPECIES_CODE), w = W_SP,
               trunc_quantile = TRUNC_QUANTILE,
-              domain = LT_DOMAIN, bathy_source = BATHY_SOURCE,
+              domain = DOMAIN, utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
+              bathy_source = BATHY_SOURCE,
               pdist_source = "data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv (pdist, km), joined on sightno x species",
               sight_flow = sight_flow),
   design = list(segments = as.data.frame(segments)),
@@ -243,38 +269,7 @@ visual <- list(
   truth = list(sp_params = sp_params, spline_setup = NULL)
 )
 
-# ---- in-domain subsets (same structure; seg_id renumbered) ------------------
-subset_visual <- function(v) {
-  seg <- v$design$segments; keep <- which(seg$in_domain)
-  map <- setNames(seq_along(keep), keep)
-  v$design$segments <- transform(seg[keep, ], seg_id = seq_along(keep))
-  for (sp in names(v$observed)) {
-    o <- v$observed[[sp]]$obs; o <- o[o$seg_id %in% keep, , drop = FALSE]
-    o$seg_id <- as.integer(map[as.character(o$seg_id)])
-    v$observed[[sp]] <- list(obs = o, seg_count = tabulate(o$seg_id, nbins = length(keep)))
-  }
-  v
-}
-subset_edna <- function(e) {
-  s <- e$design$samples; keep <- which(s$in_domain)
-  map <- setNames(seq_along(keep), keep)
-  e$design$samples <- transform(s[keep, ], sample_id = seq_along(keep))
-  ob <- e$observed
-  qk <- ob$qpcr_sample_idx %in% keep; mk <- ob$mb_sample_idx %in% keep
-  for (nm in grep("^qpcr_", names(ob), value = TRUE)) ob[[nm]] <- ob[[nm]][qk]
-  for (nm in grep("^mb_", names(ob), value = TRUE))
-    ob[[nm]] <- if (is.matrix(ob[[nm]])) ob[[nm]][mk, , drop = FALSE] else ob[[nm]][mk]
-  ob$qpcr_sample_idx <- as.integer(map[as.character(ob$qpcr_sample_idx)])
-  ob$mb_sample_idx   <- as.integer(map[as.character(ob$mb_sample_idx)])
-  e$observed <- ob
-  e$truth$zsample_effect <- e$truth$zsample_effect[keep, , drop = FALSE]
-  e$meta$N <- length(keep); e$meta$N_qpcr_long <- length(ob$qpcr_sample_idx)
-  e$meta$N_mb_long <- length(ob$mb_sample_idx)
-  e
-}
-
 saveRDS(edna,   file.path(OUT_DIR, "muri_edna.rds"))
 saveRDS(visual, file.path(OUT_DIR, "muri_visual.rds"))
-saveRDS(subset_edna(edna),     file.path(OUT_DIR, "muri_edna_indomain.rds"))
-saveRDS(subset_visual(visual), file.path(OUT_DIR, "muri_visual_indomain.rds"))
-message("wrote ", OUT_DIR, "/muri_{edna,visual}{,_indomain}.rds")
+message("wrote ", OUT_DIR, "/muri_{edna,visual}.rds; domain ", DOMAIN$X_km_max, " x ",
+        DOMAIN$Y_km_max, " km, origin (E0, N0) = (", E0, ", ", N0, ")")
