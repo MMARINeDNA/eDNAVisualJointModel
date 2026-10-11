@@ -94,6 +94,7 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
       common_name = "Humpback whale", group_size_pool = pool_h, mean_group_size = mean_h,
       sigma_det = 2.5, use_size_covar = 0L, beta_size_truth = 0.0, s_centre = mean_h,
       beta_bft_truth = -0.08,
+      det_key = 0L, hr_b_truth = 3, log_b_prior_mean = log(3), log_b_prior_sd = 0.7,
       model_group_dist = 0L, S_max = 50L,
       log_sigma_prior_mean = log(2.5), log_sigma_prior_sd = 0.6,
       beta_size_prior_mean = 0.0, beta_size_prior_sd = 0.05,
@@ -107,6 +108,7 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
       common_name = "Pacific white-sided dolphin", group_size_pool = pool_p, mean_group_size = mean_p,
       sigma_det = 1.5, use_size_covar = 1L, beta_size_truth = 0.01, s_centre = mean_p,
       beta_bft_truth = -0.15,
+      det_key = 0L, hr_b_truth = 3, log_b_prior_mean = log(3), log_b_prior_sd = 0.7,
       model_group_dist = 1L, S_max = 1000L,
       log_sigma_prior_mean = log(1.5), log_sigma_prior_sd = 0.6,
       beta_size_prior_mean = 0.0, beta_size_prior_sd = 0.05,
@@ -138,7 +140,10 @@ simulate_lt_sightings <- function(segments, lambda_animals, p, w) {
       rep(p$sigma_det, n_strip[j])
     if (!is.null(segments$bft))
       sigma_g <- sigma_g * exp(p$beta_bft_truth * (segments$bft[j] - BFT_CENTRE))
-    keep <- runif(n_strip[j]) < exp(-x_true^2 / (2 * sigma_g^2))
+    g <- if (isTRUE(p$det_key == 1L))
+      -expm1(-(sigma_g / pmax(x_true, 1e-6))^p$hr_b_truth) else
+      exp(-x_true^2 / (2 * sigma_g^2))
+    keep <- runif(n_strip[j]) < g
     if (any(keep))
       rows[[j]] <- data.frame(seg_id = segments$seg_id[j], distance = x_true[keep],
                               size = as.integer(s_strip[keep]))
@@ -178,9 +183,14 @@ simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
 #             (gp_prior_from_design(), within the M_max basis budget)
 #   use_gp    0 = no spatial field
 #   use_bathy FALSE = no bottom-depth spline
-#   use_bft   TRUE = sea-state covariate on detection (default: whenever the
+#   use_bft   TRUE = sea-state covariate on detection (default: the species'
+#             `use_bft` setting in sp_params if present, else whenever the
 #             segments carry a `bft` column). Beaufort is binned to bft_bin
 #             steps; the size-averaged ESW is computed once per level.
+#   Detection key: sp_params$det_key (0 half-normal, 1 hazard-rate).
+#   Truncation: sim$meta$w, one value or named per species. Detections beyond
+#   it are dropped here and seg_count is rebuilt, so objects may carry all
+#   sightings while each species gets its own w.
 # Coordinates are normalised by the DOMAIN extents (not the data range), so the
 # same normalisation can serve eDNA stations and LT segments in the joint model.
 # -----------------------------------------------------------------------------
@@ -188,12 +198,20 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
                                     use_gp = 1L, use_bathy = TRUE,
                                     prior_mu_sp = c(-5, 2),
                                     M_max = GP_BASIS_BUDGET,
-                                    use_bft = !is.null(sim$design$segments$bft),
+                                    use_bft = {
+                                      ub <- sim$truth$sp_params[[sp]]$use_bft
+                                      if (is.null(ub)) !is.null(sim$design$segments$bft) else isTRUE(ub)
+                                    },
                                     bft_bin = 0.5, bft_centre = BFT_CENTRE) {
   seg <- sim$design$segments
-  ob  <- sim$observed[[sp]]
   p   <- sim$truth$sp_params[[sp]]
   dom <- sim$meta$domain
+  `%||%` <- function(a, b) if (is.null(a)) b else a
+  w_all <- sim$meta$w
+  w <- if (!is.null(names(w_all)) && sp %in% names(w_all)) w_all[[sp]] else as.numeric(w_all)[1]
+  ob_all <- sim$observed[[sp]]
+  o <- ob_all$obs[ob_all$obs$distance <= w, , drop = FALSE]
+  ob <- list(obs = o, seg_count = tabulate(o$seg_id, nbins = nrow(seg)))
   coord_centre <- c(dom$X_km_max, dom$Y_km_max) / 2
   coord_scale  <- coord_centre
   coords <- sweep(sweep(as.matrix(seg[, c("X", "Y")]), 2, coord_centre, "-"), 2, coord_scale, "/")
@@ -220,7 +238,9 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
   det_bft <- seg_bft[match(ob$obs$seg_id, seg$seg_id)]
 
   sd <- list(
-    n = nrow(ob$obs), x = ob$obs$distance, s = as.integer(ob$obs$size), w = sim$meta$w,
+    n = nrow(ob$obs), x = ob$obs$distance, s = as.integer(ob$obs$size), w = w,
+    det_key = as.integer(p$det_key %||% 0L),
+    log_b_prior_mean = p$log_b_prior_mean %||% log(3), log_b_prior_sd = p$log_b_prior_sd %||% 0.7,
     log_sigma_prior_mean = p$log_sigma_prior_mean, log_sigma_prior_sd = p$log_sigma_prior_sd,
     use_size_covar = p$use_size_covar, s_centre = p$s_centre,
     beta_size_prior_mean = p$beta_size_prior_mean, beta_size_prior_sd = p$beta_size_prior_sd,

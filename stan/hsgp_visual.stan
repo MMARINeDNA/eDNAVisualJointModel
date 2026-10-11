@@ -6,7 +6,7 @@
 //   log lambda(x_j) = mu_sp + f(X_j, Y_j) + B_bathy_j . beta_bathy      animals / km^2
 //   f ~ GP(0, K_SE(lx, ly)),  2-D HSGP over normalised (X, Y)
 //   seg_count_j ~ Poisson(lambda_j / E[s] * 2 * L_j * esw_pop(b_j))
-//   x_i ~ half-normal(sigma_i) truncated at w,
+//   x_i ~ half-normal or hazard-rate (det_key) detection, scale sigma_i, truncated at w,
 //         log sigma_i = log_sigma + beta_size (s_i - s_centre) + beta_bft (b_i - b_centre)
 //   s_i ~ group-size distribution, size-bias corrected for detection
 // b = Beaufort sea state of the segment (binned to levels; bft_level holds
@@ -49,6 +49,9 @@ data {
   real s_centre;
   real beta_size_prior_mean;
   real<lower=0> beta_size_prior_sd;
+  int<lower=0, upper=1> det_key;           // 0 = half-normal, 1 = hazard-rate
+  real log_b_prior_mean;                   // hazard-rate shape b, log scale
+  real<lower=0> log_b_prior_sd;
   // Sea-state (Beaufort) covariate on log sigma. Segments are binned into
   // n_bft levels; the size-averaged ESW is computed once per level.
   int<lower=0, upper=1> use_bft_covar;
@@ -107,6 +110,14 @@ transformed data {
   matrix[n_seg, M]  PHI      = hsgp_phi(L_hsgp, INDICES, coords);
   matrix[N_pred, M] PHI_pred = hsgp_phi(L_hsgp, INDICES, pred_coords);
   vector[S_max] k_support    = linspaced_vector(S_max, 1, S_max);
+  int Q_hr = 400;                          // midpoint cells for the hazard-rate ESW
+  vector[Q_hr] log_xq = log((linspaced_vector(Q_hr, 1, Q_hr) - 0.5) * w / Q_hr);
+  // Group-size bins for the ESW sum: sizes 1..30 individually, then 10% log bins
+  array[S_max] int ksz_bin;
+  for (k in 1:S_max) {
+    ksz_bin[k] = k <= 30 ? k : 31 + to_int(floor(log(k) / log(1.1))) - to_int(floor(log(31) / log(1.1)));
+  }
+  int n_kbin = ksz_bin[S_max];
 }
 
 parameters {
@@ -121,6 +132,7 @@ parameters {
   real log_sigma;                          // log(sigma) at s = s_centre, Beaufort = centre
   real beta_size;
   vector[use_bft_covar] beta_bft;          // change in log sigma per Beaufort unit
+  vector[det_key] log_b;                   // hazard-rate shape (size 0 if half-normal)
 
   // Group size (both families sampled; only group_size_dist's enters the data
   // likelihood, the other sits at its prior - same convention as v4.1)
@@ -140,12 +152,14 @@ transformed parameters {
 
   vector[S_max] pk = group_size_pmf(S_max, group_size_dist, mu_s, phi_s,
                                     mu_log_s, sigma_log_s);
+  real b_hr = 1.0;
+  if (det_key == 1) b_hr = exp(log_b[1]);
   vector[n_bft] log_sigma_bft = rep_vector(log_sigma, n_bft);
   if (use_bft_covar == 1) log_sigma_bft += beta_bft[1] * bft_level;
   vector<lower=0>[n_bft] esw_bft;          // population-average ESW per sea-state level
   for (b in 1:n_bft) {
-    esw_bft[b] = esw_population(pk, use_size_covar, log_sigma_bft[b],
-                                beta_size, s_centre, w);
+    esw_bft[b] = esw_population(pk, use_size_covar, det_key, log_sigma_bft[b],
+                                beta_size, s_centre, b_hr, w, log_xq, ksz_bin, n_kbin);
   }
   real<lower=1> mean_group_size = dot_product(k_support, pk);
 }
@@ -164,14 +178,15 @@ model {
   log_sigma   ~ normal(log_sigma_prior_mean, log_sigma_prior_sd);
   beta_size   ~ normal(beta_size_prior_mean, beta_size_prior_sd);
   beta_bft    ~ normal(beta_bft_prior_mean, beta_bft_prior_sd);
+  log_b       ~ normal(log_b_prior_mean, log_b_prior_sd);
   mu_s        ~ gamma(mu_s_prior_shape, mu_s_prior_rate);
   phi_s       ~ gamma(phi_s_prior_shape, phi_s_prior_rate);
   mu_log_s    ~ normal(mu_log_prior_mean, mu_log_prior_sd);
   sigma_log_s ~ gamma(sigma_log_prior_shape, sigma_log_prior_rate);
 
   // Likelihood
-  target += sum(lt_detection_loglik(x, s, w, use_size_covar, log_sigma_bft[det_bft],
-                                    beta_size, s_centre, group_size_dist,
+  target += sum(lt_detection_loglik(x, s, w, use_size_covar, det_key, log_sigma_bft[det_bft],
+                                    beta_size, s_centre, b_hr, group_size_dist,
                                     mu_s, phi_s, mu_log_s, sigma_log_s, esw_bft[det_bft]));
   target += sum(lt_segment_loglik(seg_count, seg_l, log_lambda,
                                   log(mean_group_size), esw_bft[seg_bft]));
@@ -182,11 +197,12 @@ generated quantities {
   if (use_gp == 1) gp_l = gp_l_raw[1] .* coord_scale';
 
   real p_det    = mean(esw_bft[seg_bft]) / w;      // mean detection prob. in strip (over segments)
-  real sigma_c  = hn_sigma(log_sigma);             // HN scale at s = s_centre, Beaufort centre (km)
+  real sigma_c  = hn_sigma(log_sigma);             // key scale at s = s_centre, Beaufort centre (km)
+  real b_shape  = b_hr;                            // hazard-rate shape (1, unused, if half-normal)
   real D_mean   = mean(exp(log_lambda));           // mean animal density over segments
 
-  vector[n]     log_lik_det = lt_detection_loglik(x, s, w, use_size_covar,
-                                log_sigma_bft[det_bft], beta_size, s_centre, group_size_dist,
+  vector[n]     log_lik_det = lt_detection_loglik(x, s, w, use_size_covar, det_key,
+                                log_sigma_bft[det_bft], beta_size, s_centre, b_hr, group_size_dist,
                                 mu_s, phi_s, mu_log_s, sigma_log_s, esw_bft[det_bft]);
   vector[n_seg] log_lik_seg = lt_segment_loglik(seg_count, seg_l, log_lambda,
                                 log(mean_group_size), esw_bft[seg_bft]);
