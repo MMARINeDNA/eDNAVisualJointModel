@@ -15,10 +15,11 @@
 //      (own theta_junk)
 //
 // Visual (the L line-transect species, lt_species_idx maps them into 1..S;
-// the hsgp_visual.stan observation model with a single ESW per species):
+// the hsgp_visual.stan observation model with a single ESW per species, i.e.
+// no sea-state covariate):
 //   seg_count_lj ~ Poisson(lambda_l(x_j) / E[s_l] * 2 L_j * esw_l)
-//   detections: half-normal distances (optional group-size covariate) +
-//   size-bias-corrected group sizes
+//   detections: half-normal or hazard-rate distances (det_key; optional
+//   group-size covariate) + size-bias-corrected group sizes
 //
 // Switches (data):
 //   use_edna = 0    drop the eDNA likelihood (visual-only fit)
@@ -125,6 +126,9 @@ data {
   vector[L] s_centre;
   vector[L] beta_size_prior_mean;
   vector<lower=0>[L] beta_size_prior_sd;
+  array[L] int<lower=0, upper=1> det_key;  // 0 = half-normal, 1 = hazard-rate
+  vector[L] log_b_prior_mean;              // hazard-rate shape b, log scale
+  vector<lower=0>[L] log_b_prior_sd;
   array[L] int<lower=1> S_max;
   array[L] int<lower=0, upper=1> group_size_dist;
   vector<lower=0>[L] mu_s_prior_shape;
@@ -146,6 +150,27 @@ transformed data {
   {
     int pos = 1;
     for (l in 1:L) { det_start[l] = pos; pos += n_det[l]; }
+  }
+  // Detection-function quadrature and group-size bins, as hsgp_visual.stan:
+  // midpoint cells for the hazard-rate ESW, and sizes 1..30 individually then
+  // 10% log bins for the size-averaged ESW sum.
+  int Q_hr = 400;
+  array[L] vector[Q_hr] log_xq;
+  int S_max_all = L > 0 ? max(S_max) : 1;
+  array[L, S_max_all] int ksz_bin = rep_array(1, L, S_max_all);
+  array[L] int n_kbin;
+  for (l in 1:L) {
+    log_xq[l] = log((linspaced_vector(Q_hr, 1, Q_hr) - 0.5) * w[l] / Q_hr);
+    for (k in 1:S_max[l])
+      ksz_bin[l, k] = k <= 30 ? k : 31 + to_int(floor(log(k) / log(1.1))) - to_int(floor(log(31) / log(1.1)));
+    n_kbin[l] = ksz_bin[l, S_max[l]];
+  }
+  // Hazard-rate species get a shape parameter
+  int n_hr = sum(det_key);
+  array[L] int hr_pos = rep_array(0, L);
+  {
+    int j = 0;
+    for (l in 1:L) if (det_key[l] == 1) { j += 1; hr_pos[l] = j; }
   }
 }
 
@@ -170,6 +195,7 @@ parameters {
   // Visual observation model, per line-transect species
   vector[L] log_sigma;
   vector[L] beta_size;
+  vector[n_hr] log_b;                      // hazard-rate shape (hazard-rate species only)
   vector<lower=0>[L] mu_s;
   vector<lower=0>[L] phi_s;
   vector[L] mu_log_s;
@@ -201,13 +227,16 @@ transformed parameters {
     log_lambda_edna[, S + 1] += bottle_dist_log_g(g_junk_raw, cv_junk[1], bottle_noise_dist);
 
   // Visual: population-average ESW and mean group size per species
+  vector[L] b_hr = rep_vector(1.0, L);     // hazard-rate shape (1, unused, if half-normal)
+  for (l in 1:L) if (det_key[l] == 1) b_hr[l] = exp(log_b[hr_pos[l]]);
   vector[L] esw_pop;
   vector[L] mean_group_size;
   for (l in 1:L) {
     vector[S_max[l]] pk = group_size_pmf(S_max[l], group_size_dist[l], mu_s[l], phi_s[l],
                                          mu_log_s[l], sigma_log_s[l]);
-    esw_pop[l] = esw_population(pk, use_size_covar[l], log_sigma[l], beta_size[l],
-                                s_centre[l], w[l]);
+    esw_pop[l] = esw_population(pk, use_size_covar[l], det_key[l], log_sigma[l], beta_size[l],
+                                s_centre[l], b_hr[l], w[l], log_xq[l],
+                                ksz_bin[l, 1:S_max[l]], n_kbin[l]);
     mean_group_size[l] = dot_product(linspaced_vector(S_max[l], 1, S_max[l]), pk);
   }
 }
@@ -243,6 +272,7 @@ model {
   // ---- Visual priors ----
   log_sigma   ~ normal(log_sigma_prior_mean, log_sigma_prior_sd);
   beta_size   ~ normal(beta_size_prior_mean, beta_size_prior_sd);
+  for (l in 1:L) if (det_key[l] == 1) log_b[hr_pos[l]] ~ normal(log_b_prior_mean[l], log_b_prior_sd[l]);
   mu_s        ~ gamma(mu_s_prior_shape, mu_s_prior_rate);
   phi_s       ~ gamma(phi_s_prior_shape, phi_s_prior_rate);
   mu_log_s    ~ normal(mu_log_prior_mean, mu_log_prior_sd);
@@ -266,8 +296,8 @@ model {
       if (n_l > 0)
         target += sum(lt_detection_loglik(
           segment(det_x, det_start[l], n_l), segment(det_s, det_start[l], n_l), w[l],
-          use_size_covar[l], rep_vector(log_sigma[l], n_l), beta_size[l], s_centre[l],
-          group_size_dist[l], mu_s[l], phi_s[l], mu_log_s[l], sigma_log_s[l],
+          use_size_covar[l], det_key[l], rep_vector(log_sigma[l], n_l), beta_size[l],
+          s_centre[l], b_hr[l], group_size_dist[l], mu_s[l], phi_s[l], mu_log_s[l], sigma_log_s[l],
           rep_vector(esw_pop[l], n_l)));
       target += sum(lt_segment_loglik(seg_count[l], seg_l,
                                       log_lambda_seg[, lt_species_idx[l]],
@@ -284,7 +314,8 @@ generated quantities {
       ? 1 ./ square(cv_bottle) : 1 ./ (exp(square(cv_bottle)) - 1);
   vector[use_junk_noise] theta_junk = bottle_noise_dist == 1
       ? 1 ./ square(cv_junk) : 1 ./ (exp(square(cv_junk)) - 1);
-  vector[L] sigma_c = exp(log_sigma);      // HN scale at s = s_centre (km)
+  vector[L] sigma_c = exp(log_sigma);      // key scale at s = s_centre (km)
+  vector[L] b_shape = b_hr;                // hazard-rate shape (1 if half-normal)
   vector[L] p_det;                         // mean detection prob. in the strip
   for (l in 1:L) p_det[l] = esw_pop[l] / w[l];
 }

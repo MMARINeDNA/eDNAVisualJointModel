@@ -42,8 +42,11 @@ joint_init <- function(sd) {
       cv_bottle = rep(0.3, sd$use_bottle_noise * (if (sd$bottle_theta_shared == 1L) 1L else S)),
       g_junk_raw = rep(0, sd$N * sd$use_junk_noise), cv_junk = rep(0.3, sd$use_junk_noise),
       log_conv_free = sd$prior_log_conv_mu,
-      log_sigma = sd$log_sigma_prior_mean + rnorm(L, 0, 0.1),
+      # hazard-rate species start their scale at about w / 2 (as fit_visual.r)
+      log_sigma = ifelse(sd$det_key == 1L, log(unlist(sd$w) / 2), sd$log_sigma_prior_mean) +
+                  rnorm(L, 0, 0.1),
       beta_size = rnorm(L, 0, 0.005),
+      log_b = (sd$log_b_prior_mean + rnorm(L, 0, 0.1))[sd$det_key == 1L],
       mu_s = sd$mu_s_prior_shape / sd$mu_s_prior_rate, phi_s = runif(L, 0.5, 2),
       mu_log_s = sd$mu_log_prior_mean + rnorm(L, 0, 0.1),
       sigma_log_s = sd$sigma_log_prior_shape / sd$sigma_log_prior_rate)

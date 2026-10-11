@@ -138,7 +138,8 @@ joint_field_agreement <- function(sim, max_km = 10) {
 # design-based GP prior is built from the union of station and segment
 # locations (sample locations only - no detections).
 # The eDNA observation data come from HSGP4eDNA's format_stan_data_gp2d_bathysp()
-# and the visual data from format_stan_data_visual() (single ESW: no sea state).
+# and the visual data from format_stan_data_visual() (single ESW: no sea state;
+# its detection key, hazard-rate prior and per-species truncation carry over).
 # -----------------------------------------------------------------------------
 format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
                                    conv_free = character(0),
@@ -166,7 +167,12 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
   if (is.null(HSGP_M)) HSGP_M <- gp_prior$HSGP_M
   INDICES <- as.matrix(do.call(tidyr::expand_grid, lapply(HSGP_M, seq_len)))
 
-  # Visual data per line-transect species (single ESW)
+  # Visual data per line-transect species (single ESW). The sea-state
+  # covariate is not in the joint model yet (roadmap Phase 6).
+  wants_bft <- vapply(lt, function(sp) isTRUE(sim$visual$truth$sp_params[[sp]]$use_bft), logical(1))
+  if (any(wants_bft))
+    warning("the joint model has no sea-state covariate yet; ignoring use_bft for: ",
+            paste(lt[wants_bft], collapse = ", "), call. = FALSE)
   vd <- lapply(setNames(lt, lt), function(sp)
     format_stan_data_visual(sim$visual, sp, HSGP_M = HSGP_M, use_bft = FALSE))
   stopifnot(isTRUE(all.equal(vd[[1]]$B_bathy, vd[[length(vd)]]$B_bathy)),
@@ -233,6 +239,9 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     use_size_covar = as.array(picki("use_size_covar")), s_centre = as.array(pick("s_centre")),
     beta_size_prior_mean = as.array(pick("beta_size_prior_mean")),
     beta_size_prior_sd = as.array(pick("beta_size_prior_sd")),
+    det_key = as.array(picki("det_key")),
+    log_b_prior_mean = as.array(pick("log_b_prior_mean")),
+    log_b_prior_sd = as.array(pick("log_b_prior_sd")),
     S_max = as.array(picki("S_max")), group_size_dist = as.array(picki("group_size_dist")),
     mu_s_prior_shape = as.array(pick("mu_s_prior_shape")),
     mu_s_prior_rate = as.array(pick("mu_s_prior_rate")),
