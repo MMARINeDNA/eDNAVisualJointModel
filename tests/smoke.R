@@ -19,6 +19,8 @@
 #   visual_bft  the same model with the Beaufort sea-state covariate, humpback
 #           on simulate_visual(sea_state = TRUE)
 #   joint_sim  simulate_joint() (no fits): one shared field, both formatters
+#   joint   stan/hsgp_joint.stan (one field, eDNA + visual likelihoods) via
+#           R/fit_joint.r on a small simulate_joint() dataset
 #
 # Logs and outputs go to outputs/smoke/ (git-ignored). Exit status is non-zero
 # if any check fails.
@@ -164,6 +166,30 @@ if (!is.null(jsim)) {
   ok_v <- !inherits(try(format_stan_data_visual(jsim$visual, "humpback"), silent = TRUE), "try-error")
   check("joint_sim", "eDNA + visual formatters accept the halves", ok_e && ok_v,
         sprintf("edna=%s visual=%s", ok_e, ok_v))
+}
+
+# -----------------------------------------------------------------------------
+# Case 4: joint model (hsgp_joint: one field, eDNA + visual likelihoods) on a
+# small joint simulation. Same long length-scales as the eDNA case so the
+# small basis can represent the field.
+# -----------------------------------------------------------------------------
+cat("=== [joint] hsgp_joint ===\n")
+source("R/fit_joint.r")
+jt <- NULL
+mins <- timed(jt <- tryCatch({
+  jsm <- simulate_joint(seed = 2L, n_stations = 120L, n_transects = 12L, gp_params = gp_smoke)
+  fit_joint(jsm, "joint", chains = 2L, warmup = 250L, sample = 250L, M_max = 64L)
+}, error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
+cat(sprintf("  %.1f min\n", mins))
+check("joint", "ran", !is.null(jt), if (is.null(jt)) "error" else "ok")
+if (!is.null(jt)) {
+  r2 <- setNames(jt$field$R2, jt$field$species)
+  th <- jt$recovery$median[jt$recovery$variable == "theta_bottle[1]"]
+  check("joint", "divergences == 0", jt$divergences == 0, jt$divergences)
+  check("joint", "max Rhat (hyperparameters) < 1.1", jt$max_rhat < 1.1, round(jt$max_rhat, 3))
+  check("joint", "hake and humpback field R2 > 0.5", min(r2[c("hake", "humpback")]) > 0.5,
+        sprintf("%.2f / %.2f", r2[["hake"]], r2[["humpback"]]))
+  check("joint", "bottle theta > 1 (noise not absorbing the field)", isTRUE(th > 1), round(th, 2))
 }
 
 # -----------------------------------------------------------------------------

@@ -72,3 +72,6 @@ outputs/visual/
 
 # Joint-simulator validation (R/validate_joint_sim.r)
 outputs/joint_sim/
+
+# Joint-model comparison fits (R/compare_joint.r)
+outputs/joint/
