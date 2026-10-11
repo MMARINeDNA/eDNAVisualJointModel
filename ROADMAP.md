@@ -440,8 +440,19 @@ larger basis only if the field or density changes.
 
 *For the joint model.* Build the prior from the union of eDNA station and LT
 segment locations. Port `inv_gamma` length-scale priors into
-`hsgp_joint.stan`. HSGP4eDNA's own models still use the shared gamma prior;
-adopting this rule upstream is optional.
+`hsgp_joint.stan`.
+
+*Upstream ([HSGP4eDNA#3](https://github.com/MMARINeDNA/HSGP4eDNA/pull/3),
+tag `v1.3`; submodule bumped).* The design-based prior is now HSGP4eDNA's
+default, and `R/gp_priors.R` is gone (both models use the upstream
+`gp_prior_from_design()` / `floor_check()`). v1.3 also adds reproducible fit
+seeds and two noise terms:
+- **Between-bottle noise:** exact negative binomial, one θ shared by all
+  species.
+- **Junk noise:** a per-sample junk term with its own θ_junk.
+
+With both, θ covers its truth of 10 in every matched cell. `hsgp_joint.stan`
+must carry both terms.
 
 ### Phase 4: Joint simulator
 
