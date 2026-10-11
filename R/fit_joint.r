@@ -61,7 +61,7 @@ fit_joint <- function(sim, mode = c("joint", "edna", "visual"), conv_free = char
                       stan_data = NULL, mod = NULL,
                       chains = 3L, warmup = 800L, sample = 800L,
                       adapt_delta = 0.85, max_treedepth = 12L, seed = 42L,
-                      refresh = 0L, ...) {
+                      refresh = 0L, output_dir = NULL, ...) {
   mode <- match.arg(mode)
   sw <- MODE_SWITCHES[[mode]]
   sd <- if (is.null(stan_data))
@@ -73,7 +73,7 @@ fit_joint <- function(sim, mode = c("joint", "edna", "visual"), conv_free = char
                     iter_warmup = warmup, iter_sampling = sample,
                     adapt_delta = adapt_delta, max_treedepth = max_treedepth,
                     seed = seed, init = joint_init(sd), refresh = refresh,
-                    show_messages = FALSE)
+                    show_messages = FALSE, output_dir = output_dir)
   runtime_min <- as.numeric(Sys.time() - t0, units = "mins")
   c(list(fit = fit, stan_data = sd, mode = mode, runtime_min = runtime_min),
     summarise_joint(fit, sim, sd, mode))
