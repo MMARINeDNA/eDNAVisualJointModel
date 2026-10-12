@@ -273,12 +273,14 @@ observed_vis <- lapply(SPECIES_CODE, function(code) {
 
 # Detection-function settings per species (exploratory AIC on this data set,
 # forward selection, segment-level covariates; see notes/muri_data_formatting.md):
-#   humpback  hazard-rate key; group size only (no Beaufort)
+#   humpback  hazard-rate key; group size only (no Beaufort); use_size_covar must be set here because
+#             lt_species_params() has it off for humpback (the simulation truth)
 #   pwsd      half-normal key; group size + Beaufort (visibility dropped by choice)
 # Beaufort is the segment-level `bft` column (segment mean, binned by the formatter).
 sp_params <- lt_species_params()[names(SPECIES_CODE)]
-sp_params$humpback$det_key  <- 1L
-sp_params$humpback$use_bft  <- FALSE
+sp_params$humpback$det_key        <- 1L
+sp_params$humpback$use_size_covar <- 1L   # group size selected by AIC (the simulator's humpback truth has none)
+sp_params$humpback$use_bft        <- FALSE
 sp_params$pwsd$use_bft      <- TRUE
 
 visual <- list(
