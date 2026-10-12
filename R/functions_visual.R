@@ -26,8 +26,10 @@ source(file.path(HSGP4EDNA_DIR, "R", "functions.R"))   # default_gp_params(),
                                                        # bathy_spline_basis(),
                                                        # gp_prior_from_design()
 
-# Study domain (km, UTM 10N offsets), as in HSGP4eDNA's simulators.
-LT_DOMAIN <- list(X_km_max = 500, Y_km_max = 1270)
+# Study domain (km from the south-west corner, UTM 10N): HSGP4eDNA's
+# STUDY_DOMAIN, the MURI study area north of 35°N (690 x 1770 km). Shared by
+# the eDNA, visual and joint simulators and the real-data loader.
+LT_DOMAIN <- list(X_km_max = STUDY_DOMAIN$X_km_max, Y_km_max = STUDY_DOMAIN$Y_km_max)
 
 # Bottom depth (m), drawn independently of (X, Y) as in simulate_bathysp(), so
 # the spline effect is identifiable separately from the spatial GP.
@@ -66,7 +68,7 @@ species_field <- function(locs, species = c("humpback", "pwsd"),
 # -----------------------------------------------------------------------------
 # lt_design(): systematic E-W transects split into segments (as v4.1).
 # -----------------------------------------------------------------------------
-lt_design <- function(n_transects = 25L, seg_length = 10, domain = LT_DOMAIN) {
+lt_design <- function(n_transects = 35L, seg_length = 10, domain = LT_DOMAIN) {
   n_seg_per <- floor(domain$X_km_max / seg_length)
   transect_Y <- seq(domain$Y_km_max / (2 * n_transects),
                     domain$Y_km_max - domain$Y_km_max / (2 * n_transects),
@@ -160,7 +162,7 @@ simulate_lt_sightings <- function(segments, lambda_animals, p, w) {
 # field, so the field matches the sea_state = FALSE draw for the same seed).
 # -----------------------------------------------------------------------------
 simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
-                            n_transects = 25L, seg_length = 10, w = 5.0, df = 4L,
+                            n_transects = 35L, seg_length = 10, w = 5.0, df = 4L,
                             gp_params = default_gp_params(),
                             sp_params = lt_species_params(),
                             sea_state = FALSE) {

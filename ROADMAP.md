@@ -650,15 +650,141 @@ eDNA / visual / joint rows, and the comparison figure is produced.
   merged. The binned sum matches the exact one to ~1e-5, far below anything
   compared here.
 
-### Phase 6: Extend and tidy
+### Phase 6: Real data and extensions
 
-- Add the remaining scenarios to the joint model: `bathysp_depthspref` (water
-  column + depth preference). Also add a `bathygp_*` truth as a deliberate
+The real-data loader (`R/01_load_muri.r`, `R/02_check_muri.r`), the visual
+model's hazard-rate key, detection covariates and per-species truncation, and
+the explainer (`docs/explainer.md`) came in from a parallel session (#78, #80,
+#81). The explainer's real-data fits set most of the agenda below.
+
+#### 6.0 Study domain: north of 35°N (code done; re-runs pending)
+
+Every analysis is restricted to the MURI study area north of 35°N.
+
+- **One domain everywhere.** HSGP4eDNA's `STUDY_DOMAIN` (UTM 10N, south-west
+  corner (−10, 3870) km, 690 × 1770 km, southern edge on 35°N) is used by:
+  - every HSGP4eDNA simulator (`simulate_bathysp()`,
+    `simulate_nobathy()`, the `bathygp_*` / `nobathy` scenario
+    scripts);
+  - this repo's visual and joint simulators (`LT_DOMAIN` points at it);
+  - the real-data loader, which rebuilds the box from the data and stops if
+    it differs.
+- **Real data.**
+  - All 551 eDNA bottles (37.9–48.4°N) are kept.
+  - Effort is kept where the segment midpoint is at or north of 35°N: 1,641
+    of 2,779 segments, 7,561 of 12,967 km. Sightings on dropped segments are
+    removed and counted in `sight_flow`.
+  - The domain shrinks from 1360 × 2600 km to 690 × 1770 km.
+- **Simulations.** The box grows from 500 × 1270 km (about 37.7–49.2°N) to
+  690 × 1770 km. There are still 200 uniform stations; the visual design is
+  now 35 transects of 69 segments (2,415 segments, was 25 × 50 = 1,250).
+- **Length-scales and basis budget (decided 2026-10-12).** The domain is
+  1.9× larger in area. At the old 400-function budget, the design floor for
+  200 stations would rise to about 43 × 130 km.
+  - **Truths:** now 50 km east–west × 150 km north–south for every species.
+    Was 50 × 300 km, with PWSD 40 km east–west in the `bathygp` scenarios.
+    150 km is closer to the real visual fits (85–130 km north–south).
+  - **Budget:** `GP_BASIS_BUDGET` 400 → 800.
+
+  Floors at 800, with the margin below the truths:
+
+  | Design | Floor (east–west × north–south) | Margin |
+  |---|---|---|
+  | eDNA | 30 × 93 km | about 1.6× |
+  | joint | 30 × 94 km | about 1.6× |
+  | visual | 23 × 117 km | 2.2×, but only **1.28×** north–south |
+
+  The visual north–south floor is limited by the transect spacing, so the
+  simulated visual design now has 35 east–west transects (about 51 km apart,
+  2,415 segments; was 25). Runtime grows roughly in proportion to the budget:
+  expect eDNA and joint fits of about 4–6 h. The 800 budget also applies to
+  the real-data fits.
+  - **Why the budget matters.** The budget is a compute choice, but it sets
+    the prior's lower length-scale bound wherever the design is denser than
+    the basis, which is every set-up so far. So it acts as the resolution
+    limit. A squared-exponential length-scale ℓ means correlation 0.61 at
+    distance ℓ and about 0.05 at 2.45 ℓ, so hot spots about 2ℓ across.
+    Resolving 50 × 50 km everywhere would take about 900 functions;
+    25 × 25 km about 3,400.
+
+**Re-run list (nothing re-run yet), in order:**
+
+1. **Real data objects.** `Rscript R/01_load_muri.r` (needs
+   `data/MV1_MURI_df.csv` and `data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv`, which
+   are git-ignored), then `R/02_check_muri.r`. The committed
+   `data/processed/muri_{edna,visual}.rds` still hold the unrestricted data.
+   - Per-species truncation (95th percentile) is recomputed on the kept
+     sightings.
+   - The detection-function choices (hazard-rate humpback; half-normal +
+     Beaufort PWSD) came from AIC on all effort; re-check them on the kept
+     set.
+2. **Smoke test** (`tests/smoke.R`) and `tests/visual_detection.R`.
+3. **HSGP4eDNA 2-D validation** (HSGP4eDNA#4 merged and tagged v1.4 first):
+   - `nobathy_surface` × gp2d and `bathysp_surface` / `bathysp_depthspref` /
+     `bathygp_surface` × gp2d_bathysp, giving a new README §4 table;
+   - the §5 noise-term and §6 junk tables if they are to be kept current;
+   - release a v1.4.x with the updated tables.
+
+   The §2 basis sweep and the 3-D cells are v1.x history; mark them as on
+   the old box rather than re-run.
+4. **Visual validation.** `SEEDS=1:5 Rscript R/validate_visual.r` and
+   `SEA_STATE=1 SEEDS=1:3 Rscript R/validate_visual.r`.
+5. **Joint simulator check.** `Rscript R/validate_joint_sim.r`.
+6. **Joint comparison.** `R/compare_joint.r`, seeds 1 and 2, with
+   `joint_conv`. This rebuilds the README Phase 5 table and
+   `docs/figures/joint_compare_s1.png`.
+7. **Explainer.** `docs/explainer/01`–`09`: simulated and real fits (eDNA,
+   visual at 391 and 792 functions) and all figures. Then regenerate
+   `docs/explainer.{md,html}`; several quoted numbers change, e.g. the eDNA
+   region's share of the domain, now about 39% of the width and 66% of the
+   height.
+
+#### 6.1 Data needed (from collaborators; blocks a real eDNA analysis)
+
+- qPCR Ct values and the standard curve (slope, intercept, detection
+  efficiency κ, Ct-noise parameters). The real eDNA fit currently drops all
+  hake qPCR.
+- Volumes filtered, aliquot and elution volumes, and whether filtered volume
+  varies by bottle (the model takes one value).
+- Template dilution factors. About 1,160 qPCR replicates were run at 0.1–0.5×
+  and metabarcoding at 1–100×, and they are not yet in the likelihood.
+- Dates and cruises for the eDNA samples. They and the visual survey are
+  treated as one snapshot.
+- *(Decision.)* How to treat the 19 sampling depths: an offset, a covariate,
+  or separate surfaces.
+
+#### 6.2 Model work (in order)
+
+1. **HSGP4eDNA posterior predictive reads.** `pp_mb_reads` draws
+   beta-binomial reads without the zero-inflation (presence) step, so it
+   over-predicts reads for rare species. Fix as a v1.x patch.
+2. **Priors.**
+   - **Intercepts:** per-species intercept priors in the eDNA formatter.
+     HSGP4eDNA's normal(2, 1.5) suits hake but pulls the whale intercepts up;
+     the joint formatter already uses normal(−5, 2) for the cetaceans.
+   - **GP marginal SD:** the prior's 99% bound (3) is below the real visual
+     fits (2.8–3.6). *(Decision: new upper bound, e.g. 5.)*
+3. **Junk-noise mixing.** One Phase 5 chain stuck at θ_junk ≈ 2. Try a
+   non-centred (lognormal) junk term, and make 4 chains the default for joint
+   fits, before the long real-data runs.
+4. **Overdispersion for visual segment counts.**
+   - First simulate clustered sightings (negative-binomial counts) and check
+     whether the Poisson model reproduces the real fits' floor-following short
+     length-scales, and whether a negative-binomial count term removes them.
+   - Then carry it into the joint model.
+5. **Beaufort covariate in the joint model.** PWSD needs it on real data;
+   `format_stan_data_joint()` currently warns and ignores `use_bft`.
+
+#### 6.3 Real joint fit and extensions
+
+- **Joint model on the real data**, with the explainer's predictive checks.
+  Needs 6.0's re-runs, 6.2, and ideally 6.1. Joint fits only borrow strength
+  where the eDNA bottles are.
+- **Remaining scenarios in the joint model.** `bathysp_depthspref` (water
+  column + depth preference), and a `bathygp_*` truth as a deliberate
   mis-specification check.
-- Add the real-data entry point (`01_load_muri.r`) that produces the same
-  object shape as the simulator.
-- Write a final README results table. Re-render or retire presentations that
-  reference v-numbers.
+- **Wrap-up.** Write a final README results table. Re-render or retire
+  presentations that reference v-numbers.
 
 ## 5. Decisions for you
 
