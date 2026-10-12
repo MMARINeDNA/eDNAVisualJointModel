@@ -122,7 +122,7 @@ plot_visual_set <- function(res, tag, sp) {
          title = sprintf("%s: posterior predictive counts", lab), subtitle = "blue: replicated (90%); red x: observed") + theme_expl()
   d <- res$ppc_dist
   p2 <- ggplot() + geom_histogram(data = tibble(x = d$obs), aes(x, after_stat(density)), binwidth = max(d$x) / 10,
-          fill = "grey80", colour = "white") +
+          boundary = 0, closed = "left", fill = "grey80", colour = "white") +
     geom_ribbon(data = tibble(x = d$x, lo = d$lo, hi = d$hi), aes(x, ymin = lo, ymax = hi), fill = "#2166ac", alpha = 0.3) +
     geom_line(data = tibble(x = d$x, m = d$med), aes(x, m), colour = "#2166ac", linewidth = 1) +
     labs(x = "perpendicular distance (km)", y = "density", title = sprintf("%s: detection function", lab),

@@ -32,7 +32,7 @@ for (sp in c("humpback", "pwsd")) {
 dd <- bind_rows(rows); cv <- bind_rows(curves); ac <- bind_rows(aic)
 ac$delta <- ac$AIC - ave(ac$AIC, ac$species, FUN = min)
 saveRDS(ac, file.path(EXPL_OUT, "visual_key_choice.rds"))
-p <- ggplot(dd, aes(distance, after_stat(density))) + geom_histogram(binwidth = 0.5, fill = "grey80", colour = "white") +
+p <- ggplot(dd, aes(distance, after_stat(density))) + geom_histogram(binwidth = 0.5, boundary = 0, closed = "left", fill = "grey80", colour = "white") +
   geom_line(data = cv, aes(x, dens, colour = key), linewidth = 1) +
   scale_colour_manual(values = c("half-normal" = "#2166ac", "hazard-rate" = "#b2182b"), name = NULL) +
   facet_wrap(~species, scales = "free") + labs(x = "perpendicular distance (km)", y = "density",
