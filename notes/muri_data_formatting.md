@@ -71,15 +71,19 @@ humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
   qpcr_inhibition, qpcr_plate, qpcr_sample_id, mb_pcr_replicate_id, mb_dilution, mb_rep`.
 
 **Shared**
-- UTM 10N (EPSG:32610). **Domain = bounding box of all effort and eDNA bottles** (segment begin,
-  middle and end points, and every bottle) plus a 10 km margin, rounded to 10 km:
-  `X = (E - E0)/1000`, `Y = (N - N0)/1000` with `(E0, N0) = (-10000, 3040000)` m (stored in
-  `meta$utm_origin`), giving **X in [0, 1360] km, Y in [0, 2600] km** (`meta$domain`, and
-  `X_km_max` / `Y_km_max` in the eDNA `meta`). The origin moved from the earlier (100000, 4180000)
-  so that the domain still starts at 0, which the downstream code assumes; `X_utm`, `Y_utm`
-  (metres) are unchanged. Margins to the edges are 12-16 km. Because the effort runs to
-  about -114.5 W, parts of it are 6-8 degrees from zone 10's central meridian, where UTM
-  distances are distorted by up to a few percent (not corrected).
+- UTM 10N (EPSG:32610). **Study area: north of 35°N** (`LAT_MIN`). Effort segments whose
+  midpoint is south of 35°N, and their sightings, are dropped; every eDNA bottle is north of it.
+  **Domain = bounding box of the kept effort and all eDNA bottles** (segment begin, middle and end
+  points, and every bottle) plus a 10 km margin to the west, east and north, rounded to 10 km; the
+  southern edge is 35°N at the central meridian (rounded down: N0 = 3870 km, ~34.96°N).
+  `X = (E - E0)/1000`, `Y = (N - N0)/1000` with `(E0, N0) = (-10000, 3870000)` m (stored in
+  `meta$utm_origin`), giving **X in [0, 690] km, Y in [0, 1770] km** (`meta$domain`, and
+  `X_km_max` / `Y_km_max` in the eDNA `meta`). This box is HSGP4eDNA's `STUDY_DOMAIN`, which the
+  simulators also use; the loader stops if the data give a different box. (Before the 35°N
+  restriction the box was 1360 x 2600 km with N0 = 3040000, covering all effort down to 27.4°N.)
+  `X_utm`, `Y_utm` (metres) are unchanged. The kept effort reaches about -121°W, so the UTM
+  distortion far from zone 10's central meridian that the full effort had (to -114.5°W) is
+  mostly gone.
 - `Z_bathy` (m, positive down) for bottles and segments = **NOAA ETOPO 2022 60-arc-second bedrock**
   (downloaded with `marmap::getNOAA.bathy`), bilinear. Check against `sightings.csv` BATH field at
   2326 sightings: r = 0.998, median |diff| 12 m vs the file's ETOPO1 value, 19 m vs S2004.
@@ -124,10 +128,12 @@ humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
    the qPCR fraction) and `Rep` 1-6. 936 replicates are undiluted. Whether the `Nreads` are raw or
    filtered/rarefied is unknown; "junk" is relative to the 295 retained taxa only.
 5. **Domain and dates.**
-   - Domain: see Shared. All 551 bottles (X 256-522, Y 1154-2326 km) and all 2779 segments
-     (X 16-1344, Y 12-2586 km) are inside, so nothing is dropped. The domain is 1360 x 2600 km, so
-     the same HSGP basis budget (17 x 23 = 391 functions) covers the area more coarsely than
-     before, and most of the box has no eDNA data (bottles occupy about 20% of its width).
+   - Domain: see Shared. All 551 bottles (X 256-522, Y 324-1496 km) are kept. Of the 2779 effort
+     segments (12,967 km), 1641 (7,561 km) have midpoints north of 35°N and are kept (X 13-680,
+     Y 2-1758 km); sightings on the dropped segments are counted in `sight_flow`
+     (`n_south_of_lat_min`). The bottles span about 39% of the domain's width and 66% of its
+     height. **The processed objects in data/processed/ still hold the pre-restriction data until
+     the loader is re-run** (see ROADMAP Phase 6).
    - Dates: effort 2018-06-28 to 2018-12-03 (2018 CCES, cruise 1651); sightings 2018-07-01 to
      2018-10-16. eDNA: no dates. Not matched, as agreed (different cruises).
 

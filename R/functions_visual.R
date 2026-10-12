@@ -26,8 +26,10 @@ source(file.path(HSGP4EDNA_DIR, "R", "functions.R"))   # default_gp_params(),
                                                        # bathy_spline_basis(),
                                                        # gp_prior_from_design()
 
-# Study domain (km, UTM 10N offsets), as in HSGP4eDNA's simulators.
-LT_DOMAIN <- list(X_km_max = 500, Y_km_max = 1270)
+# Study domain (km from the south-west corner, UTM 10N): HSGP4eDNA's
+# STUDY_DOMAIN, the MURI study area north of 35°N (690 x 1770 km). Shared by
+# the eDNA, visual and joint simulators and the real-data loader.
+LT_DOMAIN <- list(X_km_max = STUDY_DOMAIN$X_km_max, Y_km_max = STUDY_DOMAIN$Y_km_max)
 
 # Bottom depth (m), drawn independently of (X, Y) as in simulate_bathysp(), so
 # the spline effect is identifiable separately from the spatial GP.

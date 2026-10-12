@@ -27,6 +27,23 @@ their outputs and notebooks).
 | Joint simulator | `R/functions_joint.R` (`simulate_joint()`) | ✅ One shared field; each half validated with its single-source model |
 | **Joint** eDNA + visual model | `stan/hsgp_joint.stan`; driven by `R/fit_joint.r` | ✅ One shared field; beats the best single source for the cetaceans and recovers their eDNA conversion factors (see [Results](#results)) |
 
+## Study domain
+
+Every analysis, simulated or real, is restricted to the MURI study area
+**north of 35°N**. This is HSGP4eDNA's `STUDY_DOMAIN`: a 690 × 1770 km box in
+UTM zone 10N, with its south-west corner at (E, N) = (−10, 3870) km and its
+southern edge on 35°N.
+
+- **Real eDNA:** all 551 bottles (37.9–48.4°N) are inside it.
+- **Real visual effort:** only segments whose midpoint is at or north of 35°N
+  are used. That is 1,641 of 2,779 segments, or 7,561 of 12,967 km.
+- **Simulations:** the eDNA, visual and joint simulators all use the same box,
+  so simulated and real fits share coordinates and prior extents.
+
+> **Re-run pending.** The results below were produced on the earlier
+> simulation box (500 × 1270 km, about 37.7–49.2°N) and on the unrestricted
+> real data. ROADMAP Phase 6 lists what has to be re-run on the 35°N domain.
+
 ## Simulated species
 
 The simulations use three species, chosen to span how informative each data
@@ -60,7 +77,7 @@ source is:
 - **Water column** (`bathysp_depthspref` only). Bottles are taken at 6
   depths (0–500 m). Hake and humpback eDNA peak below the surface (~150 m);
   PWSD eDNA is surface-associated.
-- **Visual surveys.** 25 east–west transects of 10 km segments, truncation
+- **Visual surveys.** 25 east–west transects across the study domain, cut into 10 km segments, truncation
   distance 5 km. Group sizes are resampled from the empirical pools in
   `data/grpsz/`. With `sea_state = TRUE`, detection also declines with
   Beaufort sea state: β_bft = −0.08 (humpback), −0.15 (PWSD) per Beaufort
@@ -203,6 +220,9 @@ In both cases the spread is ≤ 3e-11 over random draws.
 writes the tables and the figure below to `outputs/joint/compare_s<SEED>/`.
 
 ## Results
+
+*All results in this section are from the earlier 500 × 1270 km simulation
+box; see [Study domain](#study-domain).*
 
 **Visual model** (`R/validate_visual.r`, 5 replicates, 4 chains × 1000/1000,
 design-based GP priors, basis 28×14 = 392, spline df 4):

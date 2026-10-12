@@ -12,6 +12,10 @@
 # Every assumption and every value that could not be filled is listed in
 # notes/muri_data_formatting.md. NO model is fitted here.
 #
+# Study area: north of 35°N (LAT_MIN). Effort segments with a midpoint south of
+# it, and their sightings, are dropped; all eDNA bottles are north of it. The
+# domain box is HSGP4eDNA's STUDY_DOMAIN (checked against the data).
+#
 # Inputs (data/):
 #   hake_qPCR_MURI_df.csv          qPCR, hake, copies/uL per replicate
 #   MV1_MURI_df.csv                metabarcoding reads, long (taxon x PCR rep)
@@ -27,7 +31,8 @@ suppressPackageStartupMessages({
 source("R/functions_visual.R")   # lt_species_params(), HSGP4eDNA functions
 
 TRUNC_QUANTILE <- 0.95           # truncation: drop the largest 5% of distances, per species
-UTM_EPSG     <- 32610L
+UTM_EPSG     <- STUDY_DOMAIN$utm_epsg   # 32610 (HSGP4eDNA R/functions.R)
+LAT_MIN      <- STUDY_DOMAIN$lat_min    # 35°N: every analysis is restricted to north of this
 DOMAIN_BUFFER_KM <- 10           # margin around the data (km)
 DOMAIN_ROUND_KM  <- 10           # origin and extent are multiples of this (km)
 OUT_DIR      <- "data/processed"
@@ -41,23 +46,33 @@ lonlat_to_utm <- function(lon, lat) {
   cbind(E = xy[, 1], N = xy[, 2])
 }
 
-# ---- model domain: bounding box of ALL survey effort and eDNA bottles -------
+# ---- model domain: the study area north of LAT_MIN ----------------------------
 # X = (easting - E0)/1000, Y = (northing - N0)/1000 (km), with (E0, N0) the
-# south-west corner of the box (rounded down), so the domain is
-# [0, X_km_max] x [0, Y_km_max] as the downstream code assumes. The box covers
-# every effort segment (begin, middle and end points) and every eDNA bottle,
-# plus DOMAIN_BUFFER_KM.
+# south-west corner of the box, so the domain is [0, X_km_max] x [0, Y_km_max]
+# as the downstream code assumes. Only effort segments whose midpoint is at or
+# north of LAT_MIN are used (and their sightings); every eDNA bottle is north of
+# it. The box covers the kept segments (begin, middle and end points) and every
+# bottle, plus DOMAIN_BUFFER_KM to the west, east and north; its southern edge
+# is LAT_MIN at the zone's central meridian (123°W), rounded down to the
+# DOMAIN_ROUND_KM grid. It must equal HSGP4eDNA's STUDY_DOMAIN, which the
+# simulators use, so simulated and real fits share one domain.
 .q    <- read.csv("data/hake_qPCR_MURI_df.csv", stringsAsFactors = FALSE)
 .ef   <- read.csv("data/effort.csv", stringsAsFactors = FALSE)
+stopifnot(all(.q$lat >= LAT_MIN))                      # all bottles are north of 35°N
+.ef   <- .ef[.ef$mlat >= LAT_MIN, ]
 .pts  <- rbind(lonlat_to_utm(.q$lon, .q$lat),
                lonlat_to_utm(.ef$longitude_begin, .ef$latitude_begin),
                lonlat_to_utm(.ef$longitude_end,   .ef$latitude_end),
                lonlat_to_utm(.ef$mlon,            .ef$mlat))
 .step <- DOMAIN_ROUND_KM * 1000; .buf <- DOMAIN_BUFFER_KM * 1000
 E0 <- floor((min(.pts[, "E"]) - .buf) / .step) * .step
-N0 <- floor((min(.pts[, "N"]) - .buf) / .step) * .step
+N0 <- floor(min(.pts[, "N"], lonlat_to_utm(-123, LAT_MIN)[, "N"]) / .step) * .step
 DOMAIN <- list(X_km_max = ceiling((max(.pts[, "E"]) + .buf - E0) / .step) * DOMAIN_ROUND_KM,
                Y_km_max = ceiling((max(.pts[, "N"]) + .buf - N0) / .step) * DOMAIN_ROUND_KM)
+if (!isTRUE(all.equal(c(E0, N0, DOMAIN$X_km_max, DOMAIN$Y_km_max),
+                      unlist(STUDY_DOMAIN[c("E0", "N0", "X_km_max", "Y_km_max")], use.names = FALSE))))
+  stop("the data's domain (E0 ", E0, ", N0 ", N0, ", ", DOMAIN$X_km_max, " x ", DOMAIN$Y_km_max,
+       " km) differs from HSGP4eDNA's STUDY_DOMAIN; update STUDY_DOMAIN there")
 rm(.q, .ef, .pts)
 
 lonlat_to_model <- function(lon, lat) {
@@ -144,7 +159,7 @@ edna <- list(
     vol_aliquot  = 2,      # PLACEHOLDER (simulator): uL template; real value not in the data
     vol_elution  = NA_real_,  # uL; model assumes 100
     N = N, N_qpcr_long = nrow(q), N_mb_long = nrow(mbrep),
-    X_km_max = DOMAIN$X_km_max, Y_km_max = DOMAIN$Y_km_max,
+    X_km_max = DOMAIN$X_km_max, Y_km_max = DOMAIN$Y_km_max, lat_min = LAT_MIN,
     utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
     placeholders = c("conv_factor", "vol_filtered", "vol_aliquot",
                      "truth$qpcr_params (all NA: no Ct / standard curve available)"),
@@ -180,12 +195,14 @@ stopifnot(!anyNA(edna$observed$mb_sample_idx))
 # =============================================================================
 SPECIES_CODE <- c(humpback = 76L, pwsd = 22L)   # SWFSC species codes (Mn, Lo)
 
-ef <- read.csv("data/effort.csv", stringsAsFactors = FALSE) |>
+ef_all <- read.csv("data/effort.csv", stringsAsFactors = FALSE) |>
   mutate(t_begin = as.POSIXct(datetime_begin, tz = "UTC"),
          t_end   = as.POSIXct(datetime_end,   tz = "UTC"),
          t_mid   = as.POSIXct(mdatetime,      tz = "UTC")) |>
   arrange(t_begin)
-stopifnot(all(ef$ds_type == "lneff"))   # on-effort line-transect rows only
+stopifnot(all(ef_all$ds_type == "lneff"))   # on-effort line-transect rows only
+# Study area: segments whose midpoint is at or north of LAT_MIN
+ef <- ef_all |> filter(mlat >= LAT_MIN)
 
 xy_seg <- lonlat_to_model(ef$mlon, ef$mlat)
 segments <- bind_cols(
@@ -211,10 +228,14 @@ si <- read.csv("data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv", stringsAsFactors = FALSE) 
 stopifnot(!anyDuplicated(si[, c("sightno", "sp_code")]))
 
 # On effort := sighting time lies inside an effort segment's [begin, end].
-seg_of <- vapply(sg$t, function(x) {
-  w <- which(ef$t_begin <= x & x <= ef$t_end); if (length(w)) w[1] else NA_integer_
+# Matched against ALL effort, then sightings on segments south of LAT_MIN are
+# dropped (counted in sight_flow as n_south_of_lat_min).
+seg_of_all <- vapply(sg$t, function(x) {
+  w <- which(ef_all$t_begin <= x & x <= ef_all$t_end); if (length(w)) w[1] else NA_integer_
 }, integer(1))
-sg <- sg |> mutate(seg_id = seg_of) |>
+south <- !is.na(seg_of_all) & ef_all$mlat[seg_of_all] < LAT_MIN
+seg_of <- match(ef_all$row_id[seg_of_all], ef$row_id)      # index among kept segments
+sg <- sg |> mutate(seg_id = seg_of, south_of_lat_min = south) |>
   left_join(si, by = c("sightno", "sp_code")) |>
   mutate(size = as.integer(round(gsspbest)))
 
@@ -227,7 +248,8 @@ W_SP <- vapply(SPECIES_CODE, function(code)
   as.numeric(quantile(cand$pdist[cand$sp_code == code], TRUNC_QUANTILE)), numeric(1))
 
 sight_flow <- sg |> group_by(sp_code) |>
-  summarise(n_all = n(), n_on_effort = sum(!is.na(seg_id)),
+  summarise(n_all = n(), n_south_of_lat_min = sum(south_of_lat_min),
+            n_on_effort = sum(!is.na(seg_id)),
             n_on_effort_with_pdist = sum(!is.na(seg_id) & !is.na(pdist)),
             n_on_effort_pdist_missing = sum(!is.na(seg_id) & is.na(pdist)),
             n_size_missing = sum(!is.na(seg_id) & !is.na(pdist) & is.na(size)),
@@ -262,7 +284,8 @@ sp_params$pwsd$use_bft      <- TRUE
 visual <- list(
   meta = list(seed = NA, species = names(SPECIES_CODE), w = W_SP,
               trunc_quantile = TRUNC_QUANTILE,
-              domain = DOMAIN, utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
+              domain = DOMAIN, lat_min = LAT_MIN,
+              utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
               bathy_source = BATHY_SOURCE,
               pdist_source = "data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv (pdist, km), joined on sightno x species",
               sight_flow = sight_flow),
