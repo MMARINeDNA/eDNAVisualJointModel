@@ -3145,13 +3145,20 @@ window.Quarto = {
   <ul class="collapse">
   <li><a href="#background-what-a-line-transect-analysis-does" id="toc-background-what-a-line-transect-analysis-does" class="nav-link" data-scroll-target="#background-what-a-line-transect-analysis-does"><span class="header-section-number">4.1</span> Background: what a line-transect analysis does</a></li>
   <li><a href="#structure-of-the-visual-model" id="toc-structure-of-the-visual-model" class="nav-link" data-scroll-target="#structure-of-the-visual-model"><span class="header-section-number">4.2</span> Structure of the visual model</a></li>
-  <li><a href="#test-on-simulated-data-1" id="toc-test-on-simulated-data-1" class="nav-link" data-scroll-target="#test-on-simulated-data-1"><span class="header-section-number">4.3</span> Test on simulated data</a>
+  <li><a href="#group-size-where-it-comes-from-how-it-enters-and-how-it-is-biased" id="toc-group-size-where-it-comes-from-how-it-enters-and-how-it-is-biased" class="nav-link" data-scroll-target="#group-size-where-it-comes-from-how-it-enters-and-how-it-is-biased"><span class="header-section-number">4.3</span> Group size: where it comes from, how it enters, and how it is biased</a>
   <ul class="collapse">
-  <li><a href="#replicated-validation" id="toc-replicated-validation" class="nav-link" data-scroll-target="#replicated-validation"><span class="header-section-number">4.3.1</span> Replicated validation</a></li>
+  <li><a href="#where-the-group-sizes-come-from" id="toc-where-the-group-sizes-come-from" class="nav-link" data-scroll-target="#where-the-group-sizes-come-from"><span class="header-section-number">4.3.1</span> Where the group sizes come from</a></li>
+  <li><a href="#how-group-size-enters-the-model" id="toc-how-group-size-enters-the-model" class="nav-link" data-scroll-target="#how-group-size-enters-the-model"><span class="header-section-number">4.3.2</span> How group size enters the model</a></li>
+  <li><a href="#is-it-biased" id="toc-is-it-biased" class="nav-link" data-scroll-target="#is-it-biased"><span class="header-section-number">4.3.3</span> Is it biased?</a></li>
+  <li><a href="#what-the-real-data-fits-show" id="toc-what-the-real-data-fits-show" class="nav-link" data-scroll-target="#what-the-real-data-fits-show"><span class="header-section-number">4.3.4</span> What the real-data fits show</a></li>
   </ul></li>
-  <li><a href="#real-data-the-muri-line-transect-survey" id="toc-real-data-the-muri-line-transect-survey" class="nav-link" data-scroll-target="#real-data-the-muri-line-transect-survey"><span class="header-section-number">4.4</span> Real data: the MURI line-transect survey</a>
+  <li><a href="#test-on-simulated-data-1" id="toc-test-on-simulated-data-1" class="nav-link" data-scroll-target="#test-on-simulated-data-1"><span class="header-section-number">4.4</span> Test on simulated data</a>
   <ul class="collapse">
-  <li><a href="#fit-to-the-real-data" id="toc-fit-to-the-real-data" class="nav-link" data-scroll-target="#fit-to-the-real-data"><span class="header-section-number">4.4.1</span> Fit to the real data</a></li>
+  <li><a href="#replicated-validation" id="toc-replicated-validation" class="nav-link" data-scroll-target="#replicated-validation"><span class="header-section-number">4.4.1</span> Replicated validation</a></li>
+  </ul></li>
+  <li><a href="#real-data-the-muri-line-transect-survey" id="toc-real-data-the-muri-line-transect-survey" class="nav-link" data-scroll-target="#real-data-the-muri-line-transect-survey"><span class="header-section-number">4.5</span> Real data: the MURI line-transect survey</a>
+  <ul class="collapse">
+  <li><a href="#fit-to-the-real-data" id="toc-fit-to-the-real-data" class="nav-link" data-scroll-target="#fit-to-the-real-data"><span class="header-section-number">4.5.1</span> Fit to the real data</a></li>
   </ul></li>
   </ul></li>
   <li><a href="#the-joint-edna-and-visual-spatial-model" id="toc-the-joint-edna-and-visual-spatial-model" class="nav-link" data-scroll-target="#the-joint-edna-and-visual-spatial-model"><span class="header-section-number">5</span> The joint eDNA and visual spatial model</a>
@@ -3993,8 +4000,219 @@ b = 3 + 1.0\left(\frac{2Y}{Y_\max} - 1\right) + 0.75\left(1 - \frac{2X}{X_\max}\
 </figure>
 </div>
 </section>
-<section id="test-on-simulated-data-1" class="level2" data-number="4.3">
-<h2 data-number="4.3" class="anchored" data-anchor-id="test-on-simulated-data-1"><span class="header-section-number">4.3</span> Test on simulated data</h2>
+<section id="group-size-where-it-comes-from-how-it-enters-and-how-it-is-biased" class="level2" data-number="4.3">
+<h2 data-number="4.3" class="anchored" data-anchor-id="group-size-where-it-comes-from-how-it-enters-and-how-it-is-biased"><span class="header-section-number">4.3</span> Group size: where it comes from, how it enters, and how it is biased</h2>
+<p>Group size matters twice in a line-transect model. It sets how many animals sit behind each detected <em>group</em>, and (when larger groups are easier to see) it changes how far out a group is detected. Both go through one parametric distribution of group sizes and the effective strip half-width.</p>
+<section id="where-the-group-sizes-come-from" class="level3" data-number="4.3.1">
+<h3 data-number="4.3.1" class="anchored" data-anchor-id="where-the-group-sizes-come-from"><span class="header-section-number">4.3.1</span> Where the group sizes come from</h3>
+<table class="table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Stage</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Real data</strong></td>
+<td>The observers’ best estimate of group size (<code>gsspbest</code>) for each <em>detected</em> group: on effort, with a perpendicular distance, within the truncation distance</td>
+</tr>
+<tr class="even">
+<td><strong>Simulator truth</strong></td>
+<td>The empirical pools in <code>data/grpsz/</code> (all of the survey’s sightings of the species: 683 humpback, 110 PWSD), resampled <strong>as the population</strong> of groups present</td>
+</tr>
+<tr class="odd">
+<td><strong>Model</strong></td>
+<td>A parametric population distribution fitted to the detected sizes: zero-truncated negative binomial (humpback) or log-normal (PWSD), on sizes <span class="math inline">\(1,\dots,S_\max\)</span></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="how-group-size-enters-the-model" class="level3" data-number="4.3.2">
+<h3 data-number="4.3.2" class="anchored" data-anchor-id="how-group-size-enters-the-model"><span class="header-section-number">4.3.2</span> How group size enters the model</h3>
+<p>Let <span class="math inline">\(p_k\)</span> be the population probability of a group of size <span class="math inline">\(k\)</span>, and let <span class="math inline">\(\sigma_k\)</span> be the detection scale for such a group in sea state <span class="math inline">\(b\)</span>:</p>
+<p><span class="math display">\[
+E[s] \;=\; \sum_{k=1}^{S_\max} k\,p_k ,
+\qquad
+\sigma_k \;=\; \sigma_0\, e^{\beta_\text{size}(k-\bar s)}\, e^{\beta_\text{bft}(b-3)} ,
+\qquad
+\text{ESW}(\sigma_k) \;=\; \int_0^w g(x \mid \sigma_k)\,dx .
+\]</span></p>
+<p>The strip width is <strong>averaged over the population of group sizes</strong>, not evaluated at the average size:</p>
+<p><span class="math display">\[
+\overline{\text{ESW}}(b) \;=\; \sum_{k=1}^{S_\max} p_k \,\text{ESW}\big(\sigma_k(b)\big).
+\]</span></p>
+<p>Segment counts then follow</p>
+<p><span class="math display">\[
+E[\text{detected groups}_j] \;=\; \frac{\lambda_j}{E[s]} \;\times\; 2L_j \;\times\; \overline{\text{ESW}}(b_j),
+\]</span></p>
+<p>where <span class="math inline">\(\lambda_j\)</span> is animal density (animals per km²), so <span class="math inline">\(\lambda_j / E[s]\)</span> is the density of <em>groups</em>. Each detected group contributes its distance <span class="math inline">\(x_i\)</span> and size <span class="math inline">\(s_i\)</span> through</p>
+<p><span class="math display">\[
+p(x_i, s_i \mid \text{detected}) \;=\; \frac{g(x_i \mid s_i)\, f(s_i)}{\overline{\text{ESW}}(b_i)},
+\]</span></p>
+<p>so the sizes of detected groups inform both the population distribution <span class="math inline">\(f\)</span> and the size effect <span class="math inline">\(\beta_\text{size}\)</span>.</p>
+<p><strong>Segments with no detections.</strong> <span class="math inline">\(\overline{\text{ESW}}\)</span> does not use a segment’s own detections. It depends only on the segment’s covariate level (its binned Beaufort, where used) and on the global parameters (<span class="math inline">\(\sigma_0\)</span>, <span class="math inline">\(\beta_\text{size}\)</span>, <span class="math inline">\(\beta_\text{bft}\)</span>, the hazard-rate shape, the group-size parameters). All segments at the same sea-state level share the same value, whether or not anything was seen, and a zero count is evidence of low density in proportion to that expected count.</p>
+<p><strong>Without a size effect on detection</strong> (<span class="math inline">\(\beta_\text{size}\)</span> off), <span class="math inline">\(\text{ESW}(\sigma_k)\)</span> is the same for every <span class="math inline">\(k\)</span>, group size drops out of the strip width, and <span class="math inline">\(E[s]\)</span> is simply the mean of the detected sizes (the model has no way to know detected groups are unrepresentative).</p>
+<p><strong>With a size effect</strong>, larger groups have a wider strip, so the <em>detected</em> groups have a mean size above the population mean:</p>
+<p><span class="math display">\[
+\text{mean size of detected groups} \;=\; \frac{\sum_k k\,p_k\,\text{ESW}_k}{\sum_k p_k\,\text{ESW}_k} \;&gt;\; E[s],
+\qquad
+\text{effective strip width per animal} \;=\; \frac{\overline{\text{ESW}}}{E[s]} .
+\]</span></p>
+<p>The model estimates <span class="math inline">\(E[s]\)</span> from the detected sizes by undoing that weighting.</p>
+<p><em>Implementation.</em> The sum over <span class="math inline">\(k\)</span> is binned (sizes 1 to 30 individually, then 10% log bins; it agrees with the full sum to about <span class="math inline">\(10^{-5}\)</span>), the hazard-rate integral is a 400-cell midpoint rule, and the half-normal integral is closed-form.</p>
+</section>
+<section id="is-it-biased" class="level3" data-number="4.3.3">
+<h3 data-number="4.3.3" class="anchored" data-anchor-id="is-it-biased"><span class="header-section-number">4.3.3</span> Is it biased?</h3>
+<p>Yes, in several ways. The first three are the important ones.</p>
+<table class="table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Source of bias</th>
+<th>What happens</th>
+<th>Handled?</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Size-biased detection</strong></td>
+<td>Larger groups are seen farther out, so detected groups over-represent large ones</td>
+<td>Only through <span class="math inline">\(\beta_\text{size}\)</span>, and only if that term is in the model and its log-linear form is adequate (an extrapolation for the largest dolphin schools)</td>
+</tr>
+<tr class="even">
+<td><strong>No size effect assumed</strong></td>
+<td>If <span class="math inline">\(\beta_\text{size}\)</span> is off, <span class="math inline">\(E[s]\)</span> equals the detected mean by construction</td>
+<td>Not corrected; use the size effect where the data support it</td>
+</tr>
+<tr class="odd">
+<td><strong>Simulator truth is a detected sample</strong></td>
+<td>The pools are made of detected groups, then used as the population</td>
+<td>Simulation tests consistency, not realism</td>
+</tr>
+<tr class="even">
+<td><strong>Observer error</strong></td>
+<td>Best estimates of large schools are rough and rounded; “groups” can be subgroups</td>
+<td>Not modelled; enters <span class="math inline">\(E[s]\)</span> one-for-one</td>
+</tr>
+<tr class="odd">
+<td><strong>One distribution everywhere</strong></td>
+<td>Mean group size is global, so spatial variation in group size is absorbed into the density surface</td>
+<td>Not modelled</td>
+</tr>
+<tr class="even">
+<td><strong>Tail of the log-normal</strong></td>
+<td>The PWSD support runs to 1000 against a largest observed group of 452</td>
+<td>Sensitivity check below</td>
+</tr>
+<tr class="odd">
+<td><strong>Missing sightings</strong></td>
+<td>73 on-effort sightings have no perpendicular distance and are excluded</td>
+<td>If missingness relates to size, biased</td>
+</tr>
+</tbody>
+</table>
+<p>Because density is group density times <span class="math inline">\(E[s]\)</span>, any bias in <span class="math inline">\(E[s]\)</span> is a bias in animal density of the same proportion.</p>
+</section>
+<section id="what-the-real-data-fits-show" class="level3" data-number="4.3.4">
+<h3 data-number="4.3.4" class="anchored" data-anchor-id="what-the-real-data-fits-show"><span class="header-section-number">4.3.4</span> What the real-data fits show</h3>
+<p>Four fits on the current set-up (north of 35°N, 1641 segments, 792-function basis, 2 chains of 500 + 500, no divergences, max Rhat at most 1.01):</p>
+<table class="table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th></th>
+<th>Humpback, no size effect</th>
+<th>Humpback, with size effect</th>
+<th>PWSD, <span class="math inline">\(S_\max\)</span> = 1000</th>
+<th>PWSD, <span class="math inline">\(S_\max\)</span> = 500</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Detections</td>
+<td>548</td>
+<td>548</td>
+<td>89</td>
+<td>89</td>
+</tr>
+<tr class="even">
+<td>Mean size of detected groups</td>
+<td>1.70</td>
+<td>1.70</td>
+<td>46.6</td>
+<td>46.6</td>
+</tr>
+<tr class="odd">
+<td>Mean size within 1 km of the line</td>
+<td>1.56 (n = 180)</td>
+<td>1.56</td>
+<td>37.4 (n = 39)</td>
+<td>37.4</td>
+</tr>
+<tr class="even">
+<td>Model population mean <span class="math inline">\(E[s]\)</span> (90% interval)</td>
+<td>1.70 [1.63, 1.78]</td>
+<td>1.69 [1.61, 1.78]</td>
+<td>37.0 [29.7, 47.5]</td>
+<td>36.5 [29.2, 45.1]</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(\beta_\text{size}\)</span> (90% interval)</td>
+<td>at prior (off)</td>
+<td>0.029 [<span class="math inline">\(-0.043\)</span>, 0.101]</td>
+<td>0.0041 [0.0009, 0.0128]</td>
+<td>0.0039 [0.0011, 0.0123]</td>
+</tr>
+<tr class="even">
+<td>Mean animal density (per km²)</td>
+<td>0.0227</td>
+<td>0.0225</td>
+<td>0.093</td>
+<td>0.093</td>
+</tr>
+<tr class="odd">
+<td>Mean detection probability</td>
+<td>0.44</td>
+<td>0.44</td>
+<td>0.51</td>
+<td>0.50</td>
+</tr>
+<tr class="even">
+<td>Runtime (2 chains)</td>
+<td>13 min</td>
+<td>18 min</td>
+<td>24 min</td>
+<td>22 min</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>PWSD has a clear size bias, and the model corrects it.</strong> The detected groups average 46.6 animals, but the population mean is estimated at 37.0, a correction of about <span class="math inline">\(-21\%\)</span>. An independent check agrees: groups seen within 1 km of the line, where detection is nearly certain regardless of size, average 37.4. Beyond 3 km the mean is 74 (n = 13). Without the correction PWSD density would be about 26% too high.</li>
+<li><strong>The tail does not matter much.</strong> Cutting the support from 1000 to 500 changes <span class="math inline">\(E[s]\)</span> by <span class="math inline">\(-1.3\%\)</span> and density by <span class="math inline">\(-0.5\%\)</span>.</li>
+<li><strong>Humpback has little size bias to correct.</strong> Groups are mostly singles. With the size effect on, <span class="math inline">\(\beta_\text{size}\)</span> is 0.029 with an interval that includes zero, <span class="math inline">\(E[s]\)</span> moves by <span class="math inline">\(-1\%\)</span> and density by <span class="math inline">\(-0.8\%\)</span>. The data are not informative about it (548 detections, most of size 1 or 2); the near-line mean is a little lower than the model’s (1.56 against 1.69), within sampling noise at this sample size.</li>
+</ul>
+<blockquote class="blockquote">
+<p><strong>Correction.</strong> The AIC selection for humpback picked a group-size effect on detection (<span class="math inline">\(\Delta\)</span>AIC <span class="math inline">\(-3.2\)</span>), and the notes and the real-data tables in this document describe humpback as “hazard-rate, group size”. The earlier real-data humpback fits did <strong>not</strong> include it: the loader never switched <code>use_size_covar</code> on for humpback (the simulator’s humpback truth has none). The loader now sets it, and the processed objects are regenerated. The comparison above shows the omission changed humpback’s mean group size and density by about 1%, so the earlier numbers stand to that accuracy. (All the real-data results above this point in the document also predate the 35°N set-up.)</p>
+</blockquote>
+</section>
+</section>
+<section id="test-on-simulated-data-1" class="level2" data-number="4.4">
+<h2 data-number="4.4" class="anchored" data-anchor-id="test-on-simulated-data-1"><span class="header-section-number">4.4</span> Test on simulated data</h2>
 <p><strong>Setup.</strong> One survey (seed 1): 25 transects of 10 km segments, 549 humpback and 78 PWSD detections within 5 km. Basis of 392 functions (28 by 14, set by the design-based prior rule); 3 chains of 800 + 800 iterations.</p>
 <table class="table">
 <thead>
@@ -4133,8 +4351,8 @@ b = 3 + 1.0\left(\frac{2Y}{Y_\max} - 1\right) + 0.75\left(1 - \frac{2X}{X_\max}\
 <li><strong>Prior against posterior.</strong> The priors alone imply anywhere from tens to hundreds of thousands of detected groups, so they are weak. The data then collapse that to a narrow range around what was observed.</li>
 <li><strong>Hyperparameters.</strong> All posteriors sit well inside the prior band, so the data, not the prior, determine them. The east-west length-scale (<span class="math inline">\(\ell_x\)</span>) is the least certain parameter for both species.</li>
 </ul>
-<section id="replicated-validation" class="level3" data-number="4.3.1">
-<h3 data-number="4.3.1" class="anchored" data-anchor-id="replicated-validation"><span class="header-section-number">4.3.1</span> Replicated validation</h3>
+<section id="replicated-validation" class="level3" data-number="4.4.1">
+<h3 data-number="4.4.1" class="anchored" data-anchor-id="replicated-validation"><span class="header-section-number">4.4.1</span> Replicated validation</h3>
 <p>The repository’s multi-replicate study (5 simulated surveys, 4 chains of 1000 + 1000, design-based priors) gave:</p>
 <table class="table">
 <colgroup>
@@ -4181,8 +4399,8 @@ b = 3 + 1.0\left(\frac{2Y}{Y_\max} - 1\right) + 0.75\left(1 - \frac{2X}{X_\max}\
 <p>With sea state simulated (3 replicates), fitting without the Beaufort covariate reads poor sighting conditions as low density: the fitted field shifts by up to 0.58 log units across the survey. The covariate recovers its true effect in 3 of 3 fits.</p>
 </section>
 </section>
-<section id="real-data-the-muri-line-transect-survey" class="level2" data-number="4.4">
-<h2 data-number="4.4" class="anchored" data-anchor-id="real-data-the-muri-line-transect-survey"><span class="header-section-number">4.4</span> Real data: the MURI line-transect survey</h2>
+<section id="real-data-the-muri-line-transect-survey" class="level2" data-number="4.5">
+<h2 data-number="4.5" class="anchored" data-anchor-id="real-data-the-muri-line-transect-survey"><span class="header-section-number">4.5</span> Real data: the MURI line-transect survey</h2>
 <p><strong>Data.</strong> The 2018 CCES cruise: 2779 effort segments of about 5 km (12,967 km of effort), with sightings of humpback and PWSD. <em>(Now restricted to north of 35°N: 1641 segments, 7,561 km. The fits below used all the effort; see the note at the top.)</em> Perpendicular distances come from the survey’s own records (<code>SITEINFO_CCE_2018_Pp_Lo_Mn.csv</code>; km).</p>
 <p><strong>Decisions made along the way</strong> (all in <code>notes/muri_data_formatting.md</code>):</p>
 <table class="table">
@@ -4207,7 +4425,7 @@ b = 3 + 1.0\left(\frac{2Y}{Y_\max} - 1\right) + 0.75\left(1 - \frac{2X}{X_\max}\
 </tr>
 <tr class="odd">
 <td>Covariates</td>
-<td>Humpback: group size. PWSD: group size and Beaufort (visibility dropped by choice)</td>
+<td>Humpback: group size (selected by AIC; see the correction in Section 4.3). PWSD: group size and Beaufort (visibility dropped by choice)</td>
 </tr>
 <tr class="even">
 <td>Domain</td>
@@ -4225,8 +4443,8 @@ b = 3 + 1.0\left(\frac{2Y}{Y_\max} - 1\right) + 0.75\left(1 - \frac{2X}{X_\max}\
 <figcaption>Humpback hazard-rate vs half-normal: where the choice matters. Real data distances for both species, with the Distance-package fits.</figcaption>
 </figure>
 </div>
-<section id="fit-to-the-real-data" class="level3" data-number="4.4.1">
-<h3 data-number="4.4.1" class="anchored" data-anchor-id="fit-to-the-real-data"><span class="header-section-number">4.4.1</span> Fit to the real data</h3>
+<section id="fit-to-the-real-data" class="level3" data-number="4.5.1">
+<h3 data-number="4.5.1" class="anchored" data-anchor-id="fit-to-the-real-data"><span class="header-section-number">4.5.1</span> Fit to the real data</h3>
 <p>Both species were fitted with the spatial model on all 2779 segments (basis of 391 functions, 2 chains of 500 + 500, design-based priors built from the segment locations). These are single fits, shorter than the validation runs, and should be read as a working demonstration rather than a final analysis.</p>
 <table class="table">
 <colgroup>

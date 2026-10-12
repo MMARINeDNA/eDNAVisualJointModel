@@ -466,6 +466,142 @@ The model is `stan/hsgp_visual.stan`, one species at a time:
 
 ![Visual model, one species. The density field, expected group size and effective strip half-width set the Poisson number of groups detected on each segment. For each detected group, the group size and perpendicular distance are observed; the distance follows the truncated detection function, whose scale depends on group size and optionally Beaufort. There is no per-segment latent draw.](figures/model_visual.svg)
 
+## Group size: where it comes from, how it enters, and how it is biased
+
+Group size matters twice in a line-transect model. It sets how many animals sit
+behind each detected *group*, and (when larger groups are easier to see) it changes
+how far out a group is detected. Both go through one parametric distribution of
+group sizes and the effective strip half-width.
+
+### Where the group sizes come from
+
+| Stage | Source |
+|---|---|
+| **Real data** | The observers' best estimate of group size (`gsspbest`) for each *detected* group: on effort, with a perpendicular distance, within the truncation distance |
+| **Simulator truth** | The empirical pools in `data/grpsz/` (all of the survey's sightings of the species: 683 humpback, 110 PWSD), resampled **as the population** of groups present |
+| **Model** | A parametric population distribution fitted to the detected sizes: zero-truncated negative binomial (humpback) or log-normal (PWSD), on sizes $1,\dots,S_\max$ |
+
+### How group size enters the model
+
+Let $p_k$ be the population probability of a group of size $k$, and let
+$\sigma_k$ be the detection scale for such a group in sea state $b$:
+
+$$
+E[s] \;=\; \sum_{k=1}^{S_\max} k\,p_k ,
+\qquad
+\sigma_k \;=\; \sigma_0\, e^{\beta_\text{size}(k-\bar s)}\, e^{\beta_\text{bft}(b-3)} ,
+\qquad
+\text{ESW}(\sigma_k) \;=\; \int_0^w g(x \mid \sigma_k)\,dx .
+$$
+
+The strip width is **averaged over the population of group sizes**, not evaluated at
+the average size:
+
+$$
+\overline{\text{ESW}}(b) \;=\; \sum_{k=1}^{S_\max} p_k \,\text{ESW}\big(\sigma_k(b)\big).
+$$
+
+Segment counts then follow
+
+$$
+E[\text{detected groups}_j] \;=\; \frac{\lambda_j}{E[s]} \;\times\; 2L_j \;\times\; \overline{\text{ESW}}(b_j),
+$$
+
+where $\lambda_j$ is animal density (animals per km²), so $\lambda_j / E[s]$ is the
+density of *groups*. Each detected group contributes its distance $x_i$ and size
+$s_i$ through
+
+$$
+p(x_i, s_i \mid \text{detected}) \;=\; \frac{g(x_i \mid s_i)\, f(s_i)}{\overline{\text{ESW}}(b_i)},
+$$
+
+so the sizes of detected groups inform both the population distribution $f$ and the
+size effect $\beta_\text{size}$.
+
+**Segments with no detections.** $\overline{\text{ESW}}$ does not use a segment's own
+detections. It depends only on the segment's covariate level (its binned Beaufort,
+where used) and on the global parameters ($\sigma_0$, $\beta_\text{size}$,
+$\beta_\text{bft}$, the hazard-rate shape, the group-size parameters). All segments
+at the same sea-state level share the same value, whether or not anything was seen,
+and a zero count is evidence of low density in proportion to that expected count.
+
+**Without a size effect on detection** ($\beta_\text{size}$ off), $\text{ESW}(\sigma_k)$
+is the same for every $k$, group size drops out of the strip width, and
+$E[s]$ is simply the mean of the detected sizes (the model has no way to know
+detected groups are unrepresentative).
+
+**With a size effect**, larger groups have a wider strip, so the *detected* groups
+have a mean size above the population mean:
+
+$$
+\text{mean size of detected groups} \;=\; \frac{\sum_k k\,p_k\,\text{ESW}_k}{\sum_k p_k\,\text{ESW}_k} \;>\; E[s],
+\qquad
+\text{effective strip width per animal} \;=\; \frac{\overline{\text{ESW}}}{E[s]} .
+$$
+
+The model estimates $E[s]$ from the detected sizes by undoing that weighting.
+
+*Implementation.* The sum over $k$ is binned (sizes 1 to 30 individually, then 10%
+log bins; it agrees with the full sum to about $10^{-5}$), the hazard-rate integral
+is a 400-cell midpoint rule, and the half-normal integral is closed-form.
+
+### Is it biased?
+
+Yes, in several ways. The first three are the important ones.
+
+| Source of bias | What happens | Handled? |
+|---|---|---|
+| **Size-biased detection** | Larger groups are seen farther out, so detected groups over-represent large ones | Only through $\beta_\text{size}$, and only if that term is in the model and its log-linear form is adequate (an extrapolation for the largest dolphin schools) |
+| **No size effect assumed** | If $\beta_\text{size}$ is off, $E[s]$ equals the detected mean by construction | Not corrected; use the size effect where the data support it |
+| **Simulator truth is a detected sample** | The pools are made of detected groups, then used as the population | Simulation tests consistency, not realism |
+| **Observer error** | Best estimates of large schools are rough and rounded; "groups" can be subgroups | Not modelled; enters $E[s]$ one-for-one |
+| **One distribution everywhere** | Mean group size is global, so spatial variation in group size is absorbed into the density surface | Not modelled |
+| **Tail of the log-normal** | The PWSD support runs to 1000 against a largest observed group of 452 | Sensitivity check below |
+| **Missing sightings** | 73 on-effort sightings have no perpendicular distance and are excluded | If missingness relates to size, biased |
+
+Because density is group density times $E[s]$, any bias in $E[s]$ is a bias in
+animal density of the same proportion.
+
+### What the real-data fits show
+
+Four fits on the current set-up (north of 35°N, 1641 segments, 792-function basis,
+2 chains of 500 + 500, no divergences, max Rhat at most 1.01):
+
+| | Humpback, no size effect | Humpback, with size effect | PWSD, $S_\max$ = 1000 | PWSD, $S_\max$ = 500 |
+|---|---|---|---|---|
+| Detections | 548 | 548 | 89 | 89 |
+| Mean size of detected groups | 1.70 | 1.70 | 46.6 | 46.6 |
+| Mean size within 1 km of the line | 1.56 (n = 180) | 1.56 | 37.4 (n = 39) | 37.4 |
+| Model population mean $E[s]$ (90% interval) | 1.70 [1.63, 1.78] | 1.69 [1.61, 1.78] | 37.0 [29.7, 47.5] | 36.5 [29.2, 45.1] |
+| $\beta_\text{size}$ (90% interval) | at prior (off) | 0.029 [$-0.043$, 0.101] | 0.0041 [0.0009, 0.0128] | 0.0039 [0.0011, 0.0123] |
+| Mean animal density (per km²) | 0.0227 | 0.0225 | 0.093 | 0.093 |
+| Mean detection probability | 0.44 | 0.44 | 0.51 | 0.50 |
+| Runtime (2 chains) | 13 min | 18 min | 24 min | 22 min |
+
+- **PWSD has a clear size bias, and the model corrects it.** The detected groups
+  average 46.6 animals, but the population mean is estimated at 37.0, a correction
+  of about $-21\%$. An independent check agrees: groups seen within 1 km of the
+  line, where detection is nearly certain regardless of size, average 37.4. Beyond
+  3 km the mean is 74 (n = 13). Without the correction PWSD density would be about
+  26% too high.
+- **The tail does not matter much.** Cutting the support from 1000 to 500 changes
+  $E[s]$ by $-1.3\%$ and density by $-0.5\%$.
+- **Humpback has little size bias to correct.** Groups are mostly singles. With the
+  size effect on, $\beta_\text{size}$ is 0.029 with an interval that includes zero,
+  $E[s]$ moves by $-1\%$ and density by $-0.8\%$. The data are not informative about
+  it (548 detections, most of size 1 or 2); the near-line mean is a little lower
+  than the model's (1.56 against 1.69), within sampling noise at this sample size.
+
+> **Correction.** The AIC selection for humpback picked a group-size effect on
+> detection ($\Delta$AIC $-3.2$), and the notes and the real-data tables in this
+> document describe humpback as "hazard-rate, group size". The earlier real-data
+> humpback fits did **not** include it: the loader never switched
+> `use_size_covar` on for humpback (the simulator's humpback truth has none). The
+> loader now sets it, and the processed objects are regenerated. The comparison
+> above shows the omission changed humpback's mean group size and density by about
+> 1%, so the earlier numbers stand to that accuracy. (All the real-data results
+> above this point in the document also predate the 35°N set-up.)
+
 ## Test on simulated data
 
 **Setup.** One survey (seed 1): 25 transects of 10 km segments, 549 humpback and
@@ -554,7 +690,7 @@ the survey's own records (`SITEINFO_CCE_2018_Pp_Lo_Mn.csv`; km).
 |---|---|
 | Truncation | 95th percentile per species: humpback 6.45 km, PWSD 4.64 km (548 and 89 detections kept) |
 | Detection key | Humpback hazard-rate (about 20 AIC points better than half-normal); PWSD half-normal |
-| Covariates | Humpback: group size. PWSD: group size and Beaufort (visibility dropped by choice) |
+| Covariates | Humpback: group size (selected by AIC; see the correction in Section 4.3). PWSD: group size and Beaufort (visibility dropped by choice) |
 | Domain | Bounding box of all effort and eDNA, 1360 by 2600 km |
 | Sightings without a distance | Excluded (69 humpback, 4 PWSD) |
 

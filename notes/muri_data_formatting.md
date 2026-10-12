@@ -23,7 +23,7 @@ the domain is built from the data (see Shared).
 | Visual segments / sections / effort | 2779 / 1015 / 12,967 km |
 | Truncation `w` (95th percentile, per species) | humpback 6.45 km, pwsd 4.64 km |
 | Sightings used within `w` (humpback / pwsd) | 548 / 89 (of 577 / 94 on effort with a distance) |
-| Detection function | humpback: hazard-rate + group size; pwsd: half-normal + group size + visibility + Beaufort |
+| Detection function | humpback: hazard-rate + group size; pwsd: half-normal + group size + Beaufort |
 
 Sighting flow (all `sightings.csv` rows of the species -> on effort -> has pdist -> within `w`):
 humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
@@ -209,3 +209,16 @@ Model support (`stan/hsgp_visual.stan`, after merging main's Phase 4b):
 - g(0) = 1 is still assumed (no availability or perception bias correction).
 - The loader asserts that every segment and bottle is inside the domain; if data are added, the
   domain is recomputed from them.
+
+## Correction: group size for humpback (2026-10-12)
+
+The AIC selection (table above) chose group size for humpback, and this note said it was
+used. It was not: `R/01_load_muri.r` set `det_key` and `use_bft` for humpback but left
+`use_size_covar` at the simulator's value (off), so the humpback fits ran without a size
+effect on detection. The loader now sets `use_size_covar = 1L` for humpback and the processed
+objects were regenerated (on the 35°N domain). On the current set-up, switching it on changes
+humpback's mean group size from 1.70 to 1.69 and mean density by -0.8%; `beta_size` is 0.029
+[-0.043, 0.101], so the data say little about it. PWSD was correct throughout (size effect on:
+beta_size 0.004, population mean group size 37.0 against a detected mean of 46.6, matching the
+37.4 mean of groups seen within 1 km). Cutting PWSD's group-size support from 1000 to 500 moves
+its mean group size by -1.3% and density by -0.5%.

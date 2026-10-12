@@ -1,6 +1,6 @@
 # Spatial visual model on the real MURI line-transect data (both species).
 # Run from the repo root: SP=humpback Rscript docs/explainer/03_fit_visual_real.R
-# Env: SP (species), M_MAX (basis budget; default GP_BASIS_BUDGET, 800 from HSGP4eDNA v1.4),
+# Env: SP (species), USE_SIZE, S_MAX (sensitivity overrides), M_MAX (basis budget; default GP_BASIS_BUDGET, 800 from HSGP4eDNA v1.4),
 #      TAG (output tag; default "real").
 # The explainer's first fits (budget 400) were flagged by the floor check and refitted with
 # M_MAX=800 TAG=real800; on v1.4 the default is 800, so a doubled refit is M_MAX=1600.
@@ -10,6 +10,9 @@ sp  <- Sys.getenv("SP", "humpback")
 tag <- Sys.getenv("TAG", "real")
 M_MAX_ENV <- as.integer(Sys.getenv("M_MAX", as.character(GP_BASIS_BUDGET)))
 vis <- readRDS("data/processed/muri_visual.rds")
+# Optional overrides for sensitivity runs: USE_SIZE (0/1 group-size effect on detection), S_MAX (group-size support)
+if (nzchar(Sys.getenv("USE_SIZE"))) vis$truth$sp_params[[sp]]$use_size_covar <- as.integer(Sys.getenv("USE_SIZE"))
+if (nzchar(Sys.getenv("S_MAX")))    vis$truth$sp_params[[sp]]$S_max <- as.integer(Sys.getenv("S_MAX"))
 sd  <- format_stan_data_visual(vis, sp, M_max = M_MAX_ENV)
 cat(sprintf("%s: n=%d n_seg=%d w=%.2f det_key=%d use_bft=%d n_bft=%d M=%d K_bathy=%d\n", sp, sd$n,
             sd$n_seg, sd$w, sd$det_key, sd$use_bft_covar, sd$n_bft, sd$M, sd$K_bathy))
