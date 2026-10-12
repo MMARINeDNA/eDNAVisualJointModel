@@ -40,9 +40,16 @@ southern edge on 35°N.
 - **Simulations:** the eDNA, visual and joint simulators all use the same box,
   so simulated and real fits share coordinates and prior extents.
 
-> **Re-run pending.** The results below were produced on the earlier
-> simulation box (500 × 1270 km, about 37.7–49.2°N) and on the unrestricted
-> real data. ROADMAP Phase 6 lists what has to be re-run on the 35°N domain.
+> **Re-run pending.** The results below were produced with the earlier
+> simulation set-up and the unrestricted real data:
+> - a 500 × 1270 km box, about 37.7–49.2°N;
+> - 50 × 300 km length-scales;
+> - 25 transects;
+> - a 400-function basis budget.
+>
+> The current set-up is the 35°N domain, 50 × 150 km length-scales, 35
+> transects and an 800-function budget. ROADMAP Phase 6.0 lists what has to
+> be re-run.
 
 ## Simulated species
 
@@ -63,7 +70,7 @@ source is:
   - **PWSD** is weak in both sources: about 40–120 visual detections. It is
     where the joint model should help most.
 - **Shared field structure.** Every species has an anisotropic GP with
-  length-scales of 50 km (east–west) and 300 km (along the coast), plus a
+  length-scales of 50 km (east–west) and 150 km (along the coast), plus a
   smooth bottom-depth effect. The depth shapes (`BATHY_BETA_TRUE` in
   HSGP4eDNA) are arbitrary test curves, not ecological estimates. Density is in
   animals/km²; for hake the unit is nominal, since hake is seen only through
@@ -77,7 +84,7 @@ source is:
 - **Water column** (`bathysp_depthspref` only). Bottles are taken at 6
   depths (0–500 m). Hake and humpback eDNA peak below the surface (~150 m);
   PWSD eDNA is surface-associated.
-- **Visual surveys.** 25 east–west transects across the study domain, cut into 10 km segments, truncation
+- **Visual surveys.** 35 east–west transects (about 51 km apart) across the study domain, cut into 10 km segments, truncation
   distance 5 km. Group sizes are resampled from the empirical pools in
   `data/grpsz/`. With `sea_state = TRUE`, detection also declines with
   Beaufort sea state: β_bft = −0.08 (humpback), −0.15 (PWSD) per Beaufort

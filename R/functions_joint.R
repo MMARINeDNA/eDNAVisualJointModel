@@ -28,7 +28,7 @@ source("R/functions_visual.R")
 
 simulate_joint <- function(seed = 1L, n_stations = 200L,
                            sample_depths = 0, zsample_pref = NULL,
-                           n_transects = 25L, seg_length = 10, w = 5.0, df = 4L,
+                           n_transects = 35L, seg_length = 10, w = 5.0, df = 4L,
                            gp_params  = default_gp_params(),
                            lt_species = c("humpback", "pwsd"),
                            sp_params  = lt_species_params()) {

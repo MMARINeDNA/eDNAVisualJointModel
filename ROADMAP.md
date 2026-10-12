@@ -676,20 +676,36 @@ Every analysis is restricted to the MURI study area north of 35°N.
     removed and counted in `sight_flow`.
   - The domain shrinks from 1360 × 2600 km to 690 × 1770 km.
 - **Simulations.** The box grows from 500 × 1270 km (about 37.7–49.2°N) to
-  690 × 1770 km. Station and segment designs scale with it: 200 uniform
-  stations, and 25 transects of 69 segments (1,725 segments, was 1,250).
-- **Decision before re-running simulations.** With the 400-function budget,
-  the design-prior floor rises:
-  - eDNA (200 stations): 31 × 93 → 46 × 116 km;
-  - joint (stations + segments): 32 × 88 → 44 × 123 km;
-  - visual (segments): 24 × 120 → 28 × 195 km.
+  690 × 1770 km. There are still 200 uniform stations; the visual design is
+  now 35 transects of 69 segments (2,415 segments, was 25 × 50 = 1,250).
+- **Length-scales and basis budget (decided 2026-10-12).** The domain is
+  1.9× larger in area. At the old 400-function budget, the design floor for
+  200 stations would rise to about 43 × 130 km.
+  - **Truths:** now 50 km east–west × 150 km north–south for every species.
+    Was 50 × 300 km, with PWSD 40 km east–west in the `bathygp` scenarios.
+    150 km is closer to the real visual fits (85–130 km north–south).
+  - **Budget:** `GP_BASIS_BUDGET` 400 → 800.
 
-  The truths' east–west length-scale (50 km) would sit just above the floor in
-  the eDNA and joint designs. That is the regime where unresolved field leaks
-  into the noise terms (HSGP4eDNA L5). Either scale the truths with the domain
-  (about 70 × 420 km, the same proportions as before), or double `M_MAX` for
-  the validations (about 2× runtime). Smoke-test truths stay above their
-  floors.
+  Floors at 800, with the margin below the truths:
+
+  | Design | Floor (east–west × north–south) | Margin |
+  |---|---|---|
+  | eDNA | 30 × 93 km | about 1.6× |
+  | joint | 30 × 94 km | about 1.6× |
+  | visual | 23 × 117 km | 2.2×, but only **1.28×** north–south |
+
+  The visual north–south floor is limited by the transect spacing, so the
+  simulated visual design now has 35 east–west transects (about 51 km apart,
+  2,415 segments; was 25). Runtime grows roughly in proportion to the budget:
+  expect eDNA and joint fits of about 4–6 h. The 800 budget also applies to
+  the real-data fits.
+  - **Why the budget matters.** The budget is a compute choice, but it sets
+    the prior's lower length-scale bound wherever the design is denser than
+    the basis, which is every set-up so far. So it acts as the resolution
+    limit. A squared-exponential length-scale ℓ means correlation 0.61 at
+    distance ℓ and about 0.05 at 2.45 ℓ, so hot spots about 2ℓ across.
+    Resolving 50 × 50 km everywhere would take about 900 functions;
+    25 × 25 km about 3,400.
 
 **Re-run list (nothing re-run yet), in order:**
 
@@ -703,11 +719,11 @@ Every analysis is restricted to the MURI study area north of 35°N.
      Beaufort PWSD) came from AIC on all effort; re-check them on the kept
      set.
 2. **Smoke test** (`tests/smoke.R`) and `tests/visual_detection.R`.
-3. **HSGP4eDNA 2-D validation** (after the length-scale decision above):
+3. **HSGP4eDNA 2-D validation** (HSGP4eDNA#4 merged and tagged v1.4 first):
    - `nobathy_surface` × gp2d and `bathysp_surface` / `bathysp_depthspref` /
      `bathygp_surface` × gp2d_bathysp, giving a new README §4 table;
    - the §5 noise-term and §6 junk tables if they are to be kept current;
-   - release HSGP4eDNA v1.4.
+   - release a v1.4.x with the updated tables.
 
    The §2 basis sweep and the 3-D cells are v1.x history; mark them as on
    the old box rather than re-run.

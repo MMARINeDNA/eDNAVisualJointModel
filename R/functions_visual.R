@@ -68,7 +68,7 @@ species_field <- function(locs, species = c("humpback", "pwsd"),
 # -----------------------------------------------------------------------------
 # lt_design(): systematic E-W transects split into segments (as v4.1).
 # -----------------------------------------------------------------------------
-lt_design <- function(n_transects = 25L, seg_length = 10, domain = LT_DOMAIN) {
+lt_design <- function(n_transects = 35L, seg_length = 10, domain = LT_DOMAIN) {
   n_seg_per <- floor(domain$X_km_max / seg_length)
   transect_Y <- seq(domain$Y_km_max / (2 * n_transects),
                     domain$Y_km_max - domain$Y_km_max / (2 * n_transects),
@@ -162,7 +162,7 @@ simulate_lt_sightings <- function(segments, lambda_animals, p, w) {
 # field, so the field matches the sea_state = FALSE draw for the same seed).
 # -----------------------------------------------------------------------------
 simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
-                            n_transects = 25L, seg_length = 10, w = 5.0, df = 4L,
+                            n_transects = 35L, seg_length = 10, w = 5.0, df = 4L,
                             gp_params = default_gp_params(),
                             sp_params = lt_species_params(),
                             sea_state = FALSE) {
