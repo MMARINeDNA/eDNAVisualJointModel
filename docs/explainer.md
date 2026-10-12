@@ -166,9 +166,43 @@ with probability given by the detection function.
   groups, groups of 2 to 452. Group sizes are resampled from the real survey's
   pools (`data/grpsz/`).
 - **Sea state (optional):** detection falls with Beaufort, with a spatial trend in
-  sea state so that ignoring it biases the field.
+  sea state so that ignoring it biases the field (details below).
 
 ![Detected perpendicular distances against the true detection function (top), and the empirical group-size pools the simulator resamples (bottom).](figures/sim_visual_obs.png)
+
+### How sea state is simulated
+
+With `sea_state = TRUE` each segment gets a Beaufort value, and that value changes the
+detection scale of every group seen from it:
+
+$$
+b = 3 + 1.0\left(\frac{2Y}{Y_\max} - 1\right) + 0.75\left(1 - \frac{2X}{X_\max}\right) + \varepsilon,
+\qquad \varepsilon \sim N(0, 0.5),\quad b \in [0, 6]
+$$
+
+$$
+\sigma \;=\; \sigma_\text{det}\; e^{\beta_\text{size}(s - \bar s)}\; e^{\beta_\text{bft}(b - 3)},
+\qquad g(x) = \exp\!\left(-\frac{x^2}{2\sigma^2}\right)
+$$
+
+- **The trend** makes the north (large $Y$) and the west (small $X$, the offshore side)
+  rougher, with segment-level noise on top. The mean is 3 and the trend spans about
+  $\pm 1.75$ Beaufort units.
+- **The effect** is a log-linear multiplier on the detection scale, equal to 1 at
+  Beaufort 3. The truths are $\beta_\text{bft} = -0.08$ (humpback) and $-0.15$
+  (PWSD) per Beaufort unit.
+- **Density does not depend on sea state.** Only the chance of seeing a group does.
+  Because sea state is correlated with position, a model that ignores it reads the
+  rough north and west as low density; the validation measured field shifts of up to
+  0.58 log units across the survey.
+
+![How sea state is simulated and what it does to detectability: the chain from Beaufort to detection (top), the expected sea-state surface (bottom left), detection functions at Beaufort 1, 3 and 5 (bottom middle), and the average detection probability in a 5 km strip (bottom right).](figures/sim_sea_state.png)
+
+Averaged over a 5 km strip, going from Beaufort 1 to 5 lowers the detection
+probability from 0.67 to 0.52 for humpback and from 0.50 to 0.28 for PWSD (at the
+reference group size). The simulator uses the same log-linear form that the model
+fits, so a fit to simulated data has the right structure by construction; real sea
+state is also not a smooth spatial trend, and rough days are often not surveyed.
 
 ## The joint simulator
 
