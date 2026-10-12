@@ -13,6 +13,25 @@ number-sections: true
 > re-run them for this document**, and the joint model has not yet been fitted to
 > the real data. Items that need your input are marked **[REVIEW]**.
 
+> **Out of date: set-up changed on 2026-10-12** (HSGP4eDNA v1.4,
+> eDNAVisualJointModel #82). Every analysis is now restricted to the study
+> area **north of 35°N**, one 690 × 1770 km box shared by the simulations and
+> the real data. The changes:
+>
+> | | This document | Current set-up |
+> |---|---|---|
+> | Simulation box | 500 × 1270 km, about 37.7–49.2°N | 690 × 1770 km, 35°N northwards |
+> | Simulated length-scales | 50 km E–W × 300 km N–S | 50 km E–W × 150 km N–S |
+> | Simulated transects | 25 (1250 segments) | 35 (2415 segments) |
+> | Basis budget | 400 functions | 800 functions |
+> | Real visual effort | 2779 segments (12,967 km), from 27.4°N | 1641 segments (7,561 km), north of 35°N |
+> | Real-data domain | 1360 × 2600 km | 690 × 1770 km |
+>
+> **Every number and figure below predates these changes** and will be
+> regenerated after the re-runs listed in ROADMAP Phase 6.0. The real eDNA
+> bottles (all north of 35°N) are unchanged; the real eDNA fit's numbers still
+> change through the new domain and budget.
+
 # What this document is
 
 The aim of the project is to estimate where marine mammals and fish are, using two
@@ -486,7 +505,9 @@ fits.
 ## Real data: the MURI line-transect survey
 
 **Data.** The 2018 CCES cruise: 2779 effort segments of about 5 km (12,967 km of
-effort), with sightings of humpback and PWSD. Perpendicular distances come from
+effort), with sightings of humpback and PWSD. *(Now restricted to north of
+35°N: 1641 segments, 7,561 km. The fits below used all the effort; see the
+note at the top.)* Perpendicular distances come from
 the survey's own records (`SITEINFO_CCE_2018_Pp_Lo_Mn.csv`; km).
 
 **Decisions made along the way** (all in `notes/muri_data_formatting.md`):
@@ -585,7 +606,9 @@ $\ell_\min$ falls to 75 km east-west and 106 km north-south). Neither fit had di
 > prior's central 95% (upper bound 2.7) in all four fits.
 
 > **[REVIEW]** The real-data effort extends well beyond the eDNA region: eDNA
-> bottles cover about 20% of the width and 45% of the height of the domain. A
+> bottles cover about 20% of the width and 45% of the height of the domain.
+> *(On the 35°N study domain they cover about 39% of the width and 66% of the
+> height.)* A
 > visual-only fit is informative everywhere; a joint fit will only borrow
 > strength in the eDNA region.
 
@@ -721,3 +744,8 @@ quarto render docs/explainer.md --to html --embed-resources
 
 Fits are saved under `outputs/explainer/` (git-ignored); the figures are in
 `docs/figures/`.
+
+From HSGP4eDNA v1.4 the default basis budget is 800, so the first real visual
+fit already uses about 800 functions. The "twice the budget" refit would be
+`M_MAX=1600 TAG=real1600`. The real eDNA fit (`04`) also uses the default
+budget, and will take roughly twice as long.

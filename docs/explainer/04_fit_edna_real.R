@@ -19,7 +19,8 @@ ed$meta$N_qpcr_long <- 1L
 # values irrelevant in practice; use the simulators' values so the data list is complete.
 ed$truth$qpcr_params <- list(kappa = 0.85, alpha_ct = 38.0, beta_ct = 1.44,
                              gamma_0 = 0.30, gamma_1 = -0.30, sigma_0 = 0.23)
-fd <- format_stan_data_gp2d_bathysp(ed, gp_prior = "design", M_max = 400L, bottle_noise = "gamma")
+fd <- format_stan_data_gp2d_bathysp(ed, gp_prior = "design", M_max = GP_BASIS_BUDGET,   # 800 from v1.4 (was 400)
+                                    bottle_noise = "gamma")
 sd <- fd$stan_data
 S <- ed$meta$n_species; D1 <- sd$D1; Mtot <- sd$M; K <- sd$K_bathy
 cat(sprintf("N=%d S=%d M=%d (%dx%d) K=%d N_qpcr=%d N_mb=%d\n", sd$N, S, Mtot, sd$m_hsgp[1],
