@@ -25,7 +25,7 @@ their outputs and notebooks).
 | **eDNA** (2-D HSGP + bottom-depth spline) | [HSGP4eDNA](https://github.com/MMARINeDNA/HSGP4eDNA) submodule, `stan/hsgp_2d_bathysp.stan`; driven by `R/fit_edna.r` | ✅ Validated in HSGP4eDNA (see its README) |
 | **Visual** (2-D HSGP + bottom-depth spline, line transects) | `stan/hsgp_visual.stan`; driven by `R/fit_visual.r` | ✅ Validated over 5 replicates (see [Results](#results)) |
 | Joint simulator | `R/functions_joint.R` (`simulate_joint()`) | ✅ One shared field; each half validated with its single-source model |
-| **Joint** eDNA + visual model | `stan/hsgp_joint.stan` | 🚧 Roadmap Phase 5 |
+| **Joint** eDNA + visual model | `stan/hsgp_joint.stan`; driven by `R/fit_joint.r` | ✅ One shared field; beats the best single source for the cetaceans and recovers their eDNA conversion factors (see [Results](#results)) |
 
 ## Simulated species
 
@@ -82,7 +82,7 @@ Requirements: R with `cmdstanr` + CmdStan, `tidyverse`, `posterior`, `MASS`,
 
 ### Smoke test
 
-Run this before committing any change to `R/`, `stan/`, or a submodule bump. It takes a few minutes, and the exit status is non-zero on
+Run this before committing any change to `R/`, `stan/`, or a submodule bump. It takes about half an hour (the joint case is the longest), and the exit status is non-zero on
 failure:
 
 ```bash
@@ -162,9 +162,45 @@ sim$edna                          # shaped like HSGP4eDNA's simulate_bathysp() o
 sim$visual                        # shaped like simulate_visual() output
 ```
 
-The joint model is not built yet (roadmap Phase 5). Until then, each half can
-be fitted with its single-source model. `Rscript R/validate_joint_sim.r` does
-exactly that, and is the Phase 4 check.
+Each half can also be fitted with its single-source model.
+`Rscript R/validate_joint_sim.r` does exactly that, and is the Phase 4 check.
+
+### Joint model
+
+```r
+source("R/fit_joint.r")
+sim <- simulate_joint(seed = 1)
+res <- fit_joint(sim, "joint")        # also "edna" or "visual"; 3 chains x 800/800
+res$field                             # R², 95% CI width and coverage per species
+res$recovery                          # GP hyperparameters, detection scale, noise theta
+fit_joint(sim, "joint", conv_free = c("humpback", "pwsd"))   # estimate conversion factors
+```
+
+`stan/hsgp_joint.stan` gives each species one field: a 2-D HSGP plus a
+bottom-depth spline, in animals/km². Two observation models share it:
+
+- **eDNA:** HSGP4eDNA's v1.3 model, run unchanged. It has qPCR for hake,
+  zero-inflated beta-binomial metabarcoding for all species, and the
+  between-bottle and junk noise terms.
+- **Visual:** the line-transect model for humpback and PWSD, without the
+  sea-state covariate. Its half-normal or hazard-rate key and per-species
+  truncation carry through.
+
+Data switches turn the eDNA or the visual likelihood off, and free the
+cetaceans' conversion factors. So the eDNA-only, visual-only and joint fits use
+the same priors, basis and starting values, and differ only in the data they
+use.
+
+Exactness checks:
+- **Visual off:** the log density equals HSGP4eDNA's `hsgp_2d_bathysp.stan` up
+  to a constant.
+- **eDNA off:** it equals the sum of the two `hsgp_visual.stan` fits up to a
+  constant, with both half-normal and hazard-rate detection.
+
+In both cases the spread is ≤ 3e-11 over random draws.
+
+`Rscript R/compare_joint.r` runs all four fits on one simulated dataset and
+writes the tables and the figure below to `outputs/joint/compare_s<SEED>/`.
 
 ## Results
 
@@ -204,6 +240,45 @@ PWSD (38–122 detections): covered, but shrunk toward zero (median relative
 bias −70%). The covariate makes PWSD fits about 2.5× slower (11 Beaufort
 levels × 1000 group sizes).
 
+**Joint model** (`R/compare_joint.r`, `simulate_joint()` seeds 1 and 2, 3 chains × 800/800).
+The same model and priors are used in each column; only the data differ. Each
+cell is the field R² over all 200 stations and 1250 segments, with the mean
+95% CI width of log density in brackets. Coverage of the true field is 0.87–0.99
+throughout.
+
+| Species | Seed | eDNA only | Visual only | Joint | Joint, conversion free |
+|---|---|---|---|---|---|
+| Hake | 1 | 0.987 (1.07) | — | 0.987 (1.09) | 0.987 (1.08) |
+| Hake | 2 | 0.989 (1.27) | — | 0.988 (1.26) | |
+| Humpback | 1 | 0.696 (2.08) | 0.897 (1.25) | **0.922 (1.15)** | 0.923 (1.15) |
+| Humpback | 2 | 0.579 (2.40) | 0.869 (1.31) | **0.895 (1.26)** | |
+| PWSD | 1 | 0.659 (2.54) | 0.533 (3.57) | **0.661** (2.63) | 0.665 (2.79) |
+| PWSD | 2 | 0.751 (2.26) | 0.574 (3.47) | **0.809 (2.03)** | |
+
+- **Hake** is unchanged from eDNA-only, as it should be: it has no visual data.
+- **Humpback.** Joint beats the best single source in R² and CI width in both
+  seeds.
+- **PWSD.** Joint has the best R² in both seeds and the narrowest CIs in seed 2.
+  In seed 1 (only 37 sightings) its CI is slightly wider than eDNA-only. The
+  visual data pull PWSD's along-coast length-scale from 435 to 199 km (truth
+  300, covered in every fit), and a shorter length-scale means more
+  uncertainty between data points. Coverage rises from 92% to 94%.
+- **Conversion factors.** Freed with a deliberately off-centre prior
+  (normal(log 100, 2)), the joint model recovers them. Humpback is
+  5.33 [5.09, 5.57] (truth 5.30); PWSD is 4.94 [4.46, 5.42] (truth 4.70). eDNA
+  alone cannot identify them, because only density × conversion enters its
+  likelihood.
+- **Convergence.** Every fit above has 0 divergences and max Rhat ≤ 1.04.
+  - **The first seed-2 joint run did not converge** (max Rhat 1.66). One chain
+    sat in a mode with very large junk noise (θ_junk ≈ 2 against ≈ 17 in the
+    other chains), and hake's R² fell to 0.84.
+  - A rerun on the same data converged; that is the run shown.
+  - Rhat flags the problem, but it is an intermittent mixing risk. Check
+    Rhat on θ_junk in every joint fit.
+- **Runtime.** eDNA-only and joint fits take 2–3 h; visual-only takes 12–15 min.
+
+![Joint vs single-source field recovery, seed 1: posterior mean vs true log density per species (rows) and fit (columns)](docs/figures/joint_compare_s1.png)
+
 ### GP priors
 
 The field priors come from the **survey design only**: sample locations,
@@ -231,9 +306,10 @@ domain extent and the basis budget. Observed outcomes never enter
 .
 ├── ROADMAP.md              restructure plan + per-phase results
 ├── external/HSGP4eDNA/     submodule: eDNA model, HSGP helpers, simulators
-├── R/                      drivers: fit_edna.r, functions_visual.R, functions_joint.R, gp_priors.R,
-│                           fit_visual.r, validate_visual.r, validate_joint_sim.r
-├── stan/                   hsgp_visual.stan; stan/include/visual_functions.stan
+├── R/                      drivers: fit_edna.r, functions_visual.R, functions_joint.R,
+│                           fit_visual.r, validate_visual.r, validate_joint_sim.r,
+│                           fit_joint.r, compare_joint.r; 01_load_muri.r, 02_check_muri.r
+├── stan/                   hsgp_visual.stan, hsgp_joint.stan; stan/include/visual_functions.stan
 ├── tests/smoke.R           fast end-to-end check of every model
 ├── data/                   real survey data (+ data/grpsz/ group-size pools)
 ├── scripts/data_figures/   real-data maps and exploration (no model fitting)

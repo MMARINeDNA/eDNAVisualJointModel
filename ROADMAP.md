@@ -597,6 +597,59 @@ spatial field. This has to be in place before Phase 5 runs on real data.
 ✅ Check: the smoke test now covers all three models, the validation table has
 eDNA / visual / joint rows, and the comparison figure is produced.
 
+**Done.**
+
+- **Model.** `stan/hsgp_joint.stan` gives each species one field (2-D HSGP +
+  bottom-depth spline, animals/km²), shared by two observation models:
+  - **eDNA:** HSGP4eDNA v1.3, unchanged: qPCR + ZI-beta-binomial MB, one shared
+    θ for bottle noise, own θ_junk for junk noise.
+  - **Visual:** for `lt_species_idx = {2, 3}`. Single ESW per species, with the
+    detection key (half-normal / hazard-rate) and per-species truncation from
+    main's visual model.
+
+  Switches `use_edna` / `use_visual` give eDNA-only and visual-only fits from
+  the same model, priors, basis and starting values. `n_conv_free` frees
+  conversion factors (step 4).
+- **Data.** `format_stan_data_joint()` normalizes stations and segments by the
+  domain. It builds the design prior from the union of their locations
+  (21×19 basis), and reuses both single-source formatters for the observation
+  data.
+- **Exactness.**
+  - Joint with `use_visual = 0` equals `hsgp_2d_bathysp.stan` up to a constant.
+  - Joint with `use_edna = 0` equals the sum of the two `hsgp_visual.stan` fits
+    up to a constant, with half-normal and hazard-rate humpback.
+  - Spreads ≤ 3e-11; re-checked after merging main's detection-interface
+    changes.
+- **Comparison** (`R/compare_joint.r`, seeds 1 and 2; README results table):
+  - **Hake:** unchanged.
+  - **Humpback:** joint beats the best single source (visual) in R²
+    (0.92 vs 0.90; 0.90 vs 0.87) and CI width in both seeds.
+  - **PWSD:** joint has the best R² in both seeds (0.66 vs 0.66; 0.81 vs
+    0.75). CIs are narrower in seed 2 but 4% wider than eDNA-only in seed 1,
+    where the visual data shorten PWSD's along-coast length-scale (435 → 199
+    km; truth 300, covered).
+  - So the "joint ≥ max(single source)" check holds for R² everywhere, and for
+    CI width except PWSD in seed 1.
+- **Step 4: free conversion factors.** Prior normal(log 100, 2). The joint
+  model recovers humpback 5.33 [5.09, 5.57] (truth 5.30) and PWSD 4.94
+  [4.46, 5.42] (truth 4.70). The field is unchanged.
+- **Mixing caveat.**
+  - The first seed-2 joint run did not converge: max Rhat 1.66, one chain in a
+    large-junk-noise mode (θ_junk ≈ 2 vs ≈ 17), hake R² 0.84.
+  - A rerun on the same data converged and is the reported run.
+  - Rhat catches it. Candidate fixes if it recurs: a non-centred (lognormal)
+    junk term, or more chains.
+- **Cost.** Joint and eDNA-only fits take 2–3 h (3 × 800/800); visual-only
+  12–15 min.
+- **Smoke test.** New `joint` case; 26 checks pass on the merged code.
+- **Not yet in the joint model.**
+  - The sea-state covariate: `format_stan_data_joint()` warns and ignores
+    `use_bft` (MURI's PWSD requests it).
+  - A real-data entry point (Phase 6).
+- **ESW note.** Results were fitted before main's binned group-size ESW was
+  merged. The binned sum matches the exact one to ~1e-5, far below anything
+  compared here.
+
 ### Phase 6: Extend and tidy
 
 - Add the remaining scenarios to the joint model: `bathysp_depthspref` (water
