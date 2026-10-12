@@ -310,13 +310,13 @@ throughout.
 
 The field priors come from the **survey design only**: sample locations,
 domain extent and the basis budget. Observed outcomes never enter
-(`R/gp_priors.R`, `gp_prior_from_design()`):
+(`gp_prior_from_design()` in HSGP4eDNA's `R/functions.R`):
 
 - **Length-scales:** inverse-gamma on each axis, with 1% of mass below ℓ_min
   and 1% above the domain extent. ℓ_min is the larger of two floors:
   - the median spacing of sample coordinates along the axis;
-  - the shortest length-scale a basis of `GP_BASIS_BUDGET` = 400 functions
-    can represent.
+  - the shortest length-scale a basis of `GP_BASIS_BUDGET` = 800 functions
+    can represent (400 before HSGP4eDNA v1.4).
 
   The basis is sized to ℓ_min, so it can represent everything the prior
   allows.
@@ -377,7 +377,8 @@ survey data and write them to `figures/`. Run them as
   will be refreshed in roadmap Phase 6.
 - `docs/explainer.md` (rendered `docs/explainer.html`) walks through every model
   with simulated and real data, prior and posterior predictive checks, and the
-  open issues. Figure scripts are in `docs/explainer/`; re-render with
+  open issues. It was written on the set-up before the 35°N study domain (see
+  its status note) and will be regenerated after the ROADMAP 6.0 re-runs. Figure scripts are in `docs/explainer/`; re-render with
   `quarto render docs/explainer.md --to html --embed-resources`.
 - `docs/history/` has two self-contained write-ups. `v3.2_notebook.html` is
   the eDNA sampler-pathology debugging case study, and

@@ -3197,6 +3197,56 @@ window.Quarto = {
 <blockquote class="blockquote">
 <p><strong>Status of this draft.</strong> Every figure in Sections 2 to 4 was produced from the code in this repository (<code>docs/explainer/</code>). <strong>Section 5 (the joint model) summarises results recorded in the repository by the Phase 5 work; I did not re-run them for this document</strong>, and the joint model has not yet been fitted to the real data. Items that need your input are marked <strong>[REVIEW]</strong>.</p>
 </blockquote>
+<blockquote class="blockquote">
+<p><strong>Out of date: set-up changed on 2026-10-12</strong> (HSGP4eDNA v1.4, eDNAVisualJointModel #82). Every analysis is now restricted to the study area <strong>north of 35°N</strong>, one 690 × 1770 km box shared by the simulations and the real data. The changes:</p>
+<table class="table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th></th>
+<th>This document</th>
+<th>Current set-up</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Simulation box</td>
+<td>500 × 1270 km, about 37.7–49.2°N</td>
+<td>690 × 1770 km, 35°N northwards</td>
+</tr>
+<tr class="even">
+<td>Simulated length-scales</td>
+<td>50 km E–W × 300 km N–S</td>
+<td>50 km E–W × 150 km N–S</td>
+</tr>
+<tr class="odd">
+<td>Simulated transects</td>
+<td>25 (1250 segments)</td>
+<td>35 (2415 segments)</td>
+</tr>
+<tr class="even">
+<td>Basis budget</td>
+<td>400 functions</td>
+<td>800 functions</td>
+</tr>
+<tr class="odd">
+<td>Real visual effort</td>
+<td>2779 segments (12,967 km), from 27.4°N</td>
+<td>1641 segments (7,561 km), north of 35°N</td>
+</tr>
+<tr class="even">
+<td>Real-data domain</td>
+<td>1360 × 2600 km</td>
+<td>690 × 1770 km</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Every number and figure below predates these changes</strong> and will be regenerated after the re-runs listed in ROADMAP Phase 6.0. The real eDNA bottles (all north of 35°N) are unchanged; the real eDNA fit’s numbers still change through the new domain and budget.</p>
+</blockquote>
 <section id="what-this-document-is" class="level1" data-number="1">
 <h1 data-number="1"><span class="header-section-number">1</span> What this document is</h1>
 <p>The aim of the project is to estimate where marine mammals and fish are, using two very different kinds of data at once:</p>
@@ -3954,7 +4004,7 @@ window.Quarto = {
 </section>
 <section id="real-data-the-muri-line-transect-survey" class="level2" data-number="4.4">
 <h2 data-number="4.4" class="anchored" data-anchor-id="real-data-the-muri-line-transect-survey"><span class="header-section-number">4.4</span> Real data: the MURI line-transect survey</h2>
-<p><strong>Data.</strong> The 2018 CCES cruise: 2779 effort segments of about 5 km (12,967 km of effort), with sightings of humpback and PWSD. Perpendicular distances come from the survey’s own records (<code>SITEINFO_CCE_2018_Pp_Lo_Mn.csv</code>; km).</p>
+<p><strong>Data.</strong> The 2018 CCES cruise: 2779 effort segments of about 5 km (12,967 km of effort), with sightings of humpback and PWSD. <em>(Now restricted to north of 35°N: 1641 segments, 7,561 km. The fits below used all the effort; see the note at the top.)</em> Perpendicular distances come from the survey’s own records (<code>SITEINFO_CCE_2018_Pp_Lo_Mn.csv</code>; km).</p>
 <p><strong>Decisions made along the way</strong> (all in <code>notes/muri_data_formatting.md</code>):</p>
 <table class="table">
 <colgroup>
@@ -4200,7 +4250,7 @@ window.Quarto = {
 <p><strong>[REVIEW] The length-scale posteriors track the floor, and density does not depend on it.</strong> At both budgets <code>floor_check()</code> flags both axes of both species: the posterior length-scales (58 to 128 km) lie below the floor (<span class="math inline">\(\ell_\min\)</span> = 75 to 150 km), and doubling the basis lowered the floor and the posterior with it (humpback <span class="math inline">\(\ell_x\)</span> 80 to 58 km). So a larger basis alone does not make the flag go away. Density, detection and group-size estimates did not change (mean humpback density 0.0135 both times; PWSD 0.056 and 0.057). Two things are consistent with this pattern, and I have not separated them: real sightings are more clustered than a smooth GP with Poisson counts allows, so the GP uses short length-scales to chase hot spots (the same mechanism that HSGP4eDNA documents for unmodelled bottle noise); or the real field really has structure on scales of tens of kilometres. The visual model has no overdispersion term for segment counts. The marginal SD is also above the prior’s central 95% (upper bound 2.7) in all four fits.</p>
 </blockquote>
 <blockquote class="blockquote">
-<p><strong>[REVIEW]</strong> The real-data effort extends well beyond the eDNA region: eDNA bottles cover about 20% of the width and 45% of the height of the domain. A visual-only fit is informative everywhere; a joint fit will only borrow strength in the eDNA region.</p>
+<p><strong>[REVIEW]</strong> The real-data effort extends well beyond the eDNA region: eDNA bottles cover about 20% of the width and 45% of the height of the domain. <em>(On the 35°N study domain they cover about 39% of the width and 66% of the height.)</em> A visual-only fit is informative everywhere; a joint fit will only borrow strength in the eDNA region.</p>
 </blockquote>
 </section>
 </section>
@@ -4351,6 +4401,7 @@ window.Quarto = {
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="ex">Rscript</span> docs/explainer/07_fig_visual.R         <span class="co"># visual figures</span></span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render docs/explainer.md <span class="at">--to</span> html <span class="at">--embed-resources</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p>Fits are saved under <code>outputs/explainer/</code> (git-ignored); the figures are in <code>docs/figures/</code>.</p>
+<p>From HSGP4eDNA v1.4 the default basis budget is 800, so the first real visual fit already uses about 800 functions. The “twice the budget” refit would be <code>M_MAX=1600 TAG=real1600</code>. The real eDNA fit (<code>04</code>) also uses the default budget, and will take roughly twice as long.</p>
 </section>
 
 </main>

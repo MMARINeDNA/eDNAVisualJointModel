@@ -1,7 +1,9 @@
 # Spatial visual model on the real MURI line-transect data (both species).
 # Run from the repo root: SP=humpback Rscript docs/explainer/03_fit_visual_real.R
-# Env: SP (species), M_MAX (basis budget; default GP_BASIS_BUDGET = 400), TAG (output tag; default "real").
-# The floor check flagged the default budget, so the explainer also uses M_MAX=800 TAG=real800.
+# Env: SP (species), M_MAX (basis budget; default GP_BASIS_BUDGET, 800 from HSGP4eDNA v1.4),
+#      TAG (output tag; default "real").
+# The explainer's first fits (budget 400) were flagged by the floor check and refitted with
+# M_MAX=800 TAG=real800; on v1.4 the default is 800, so a doubled refit is M_MAX=1600.
 source("docs/explainer/00_common.R")
 source("R/fit_visual.r")
 sp  <- Sys.getenv("SP", "humpback")
