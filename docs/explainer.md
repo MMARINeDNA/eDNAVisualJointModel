@@ -212,6 +212,8 @@ the observation model above, are:
 - **Known water-column offset.** Depth preferences enter as a fixed offset per
   sample and species; the model does not estimate them.
 
+![eDNA-only model. Each species' GP hyperparameters, intercept and bottom-depth spline set its density field. With fixed conversion factors, volumes and water-column offsets, the field sets each bottle's expected copies. The bottle's species copies (spread θ, shared by all species) and its junk copies (spread θ_junk) are unobserved negative-binomial draws. Its qPCR and metabarcoding replicates are observed and share those copies.](figures/model_edna.svg)
+
 ## Test on simulated data
 
 **Setup.** A `bathysp_depthspref`-style simulation (seed 303) with 40 stations and 6
@@ -428,6 +430,8 @@ The model is `stan/hsgp_visual.stan`, one species at a time:
 - **Priors:** the same design-based GP priors as the eDNA model, built from
   segment locations only.
 
+![Visual model, one species. The density field, expected group size and effective strip half-width set the Poisson number of groups detected on each segment. For each detected group, the group size and perpendicular distance are observed; the distance follows the truncated detection function, whose scale depends on group size and optionally Beaufort. There is no per-segment latent draw.](figures/model_visual.svg)
+
 ## Test on simulated data
 
 **Setup.** One survey (seed 1): 25 transects of 10 km segments, 549 humpback and
@@ -632,6 +636,8 @@ share it:
   key (half-normal or hazard-rate) and per-species truncation of the visual
   model. A species map ties the cetaceans' eDNA fields to their line-transect
   data.
+
+![Joint model. One density field per species feeds both observation models. The eDNA side is the HSGP4eDNA model above (bottle and junk noise, replicates), with conversion factors fixed or, optionally, free for the cetaceans. The visual side is the line-transect model for humpback and PWSD. The likelihood switches drop either side without changing anything else.](figures/model_joint.svg)
 
 Data switches turn either likelihood off, and optionally **free the cetaceans'
 eDNA conversion factors**. The eDNA-only, visual-only and joint fits therefore use
