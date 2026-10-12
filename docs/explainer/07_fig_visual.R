@@ -173,12 +173,12 @@ if (file.exists(sim_f)) {
   saveRDS(res_sim, file.path(EXPL_OUT, "visual_sim_results.rds"))
 }
 
-# ---- real data (default budget, and the refit at twice the budget) ---------------------------------
+# ---- real data (default budget, and the refit at twice the budget: real800 before v1.4, real1600 after) ---------------------------------
 vis_f <- "data/processed/muri_visual.rds"
 res_real <- list()
 if (file.exists(vis_f)) {
   vis <- readRDS(vis_f)
-  for (tag in c("real", "real800")) for (sp in c("humpback", "pwsd")) {
+  for (tag in c("real", "real800", "real1600")) for (sp in c("humpback", "pwsd")) {
     ff <- file.path(EXPL_OUT, sprintf("visual_%s_%s_fit.rds", tag, sp))
     if (!file.exists(ff)) next
     sd <- readRDS(file.path(EXPL_OUT, sprintf("visual_%s_%s_standata.rds", tag, sp))); fit <- readRDS(ff)

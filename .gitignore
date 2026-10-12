@@ -60,9 +60,14 @@ stan/**
 !stan/**/
 !stan/**/*.stan
 
-# Big eDNA dataset — too large to track in git (30 MB). The smaller
-# qPCR file (data/hake_qPCR_MURI_df.csv) stays tracked.
+# Raw MURI inputs that stay private (this repo is public). Only the real-data
+# loader (R/01_load_muri.r) and R/02_check_muri.r read them; copy them to a
+# new clone by hand (notes/stats3_guide.md, Part 4). The derived
+# data/processed/muri_{edna,visual}.rds and the qPCR, effort and sightings
+# files are tracked.
 data/MV1_MURI_df.csv
+data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv
+data/obis_seamap_dataset_*/
 
 # Claude Code worktrees
 .claude/worktrees/
@@ -75,3 +80,6 @@ outputs/joint_sim/
 
 # Joint-model comparison fits (R/compare_joint.r)
 outputs/joint/
+
+# Job logs from tools/stats3_reruns.sh
+logs/
