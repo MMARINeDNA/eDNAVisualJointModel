@@ -91,7 +91,7 @@ mix_g <- function(s) {   # density of detected distances: mean over group sizes 
   tibble(species = s, x = xg, dens = g / (sum(g) * (xg[2] - xg[1])))
 }
 det_curve <- bind_rows(mix_g("humpback"), mix_g("pwsd"))
-p5a <- ggplot(dd, aes(distance, after_stat(density))) + geom_histogram(binwidth = 0.5, fill = "grey80", colour = "white") +
+p5a <- ggplot(dd, aes(distance, after_stat(density))) + geom_histogram(binwidth = 0.5, boundary = 0, closed = "left", fill = "grey80", colour = "white") +
   geom_line(data = det_curve, aes(x, dens), colour = "#b2182b", linewidth = 1) +
   facet_wrap(~species, scales = "free_y") + labs(x = "perpendicular distance (km)", y = "density",
   title = "Detected distances against the true detection function",

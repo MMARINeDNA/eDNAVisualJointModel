@@ -454,9 +454,13 @@ the five replicates in the repository's validation study.
   replicated 90% interval for nearly every line (about 90% by construction, so a
   few misses are expected).
 - **Detection function.** The fitted curve follows the histogram of detected
-  distances. For PWSD (78 detections) the curve sits above the first histogram
-  bin; the true detection function has the same shape, so this is sampling noise
-  in a small sample rather than misfit.
+  distances, and the bars nearest the trackline are the tallest, as a
+  half-normal predicts. (Histograms in this document start their first bin at
+  zero. An earlier version let the plotting default centre a bin on zero, which
+  halves the first bar and looks like a deficit of detections near the line; the
+  counts themselves, 87 in the first 0.5 km for humpback against 91 expected,
+  were never short.) For PWSD (78 detections) the first two bars sit above the
+  curve, within the noise of a small sample.
 - **Prior against posterior.** The priors alone imply anywhere from tens to
   hundreds of thousands of detected groups, so they are weak. The data then
   collapse that to a narrow range around what was observed.
@@ -532,10 +536,12 @@ be read as a working demonstration rather than a final analysis.
   between the empty south (Y below about 800 km, southern California and further
   south) and the dense regions near central California (Y of about 1000 km) and
   from southern Oregon to Vancouver Island (Y of about 1700 to 2400 km).
-- **Detection function.** For humpback the fitted hazard-rate curve is higher near
-  zero than the first histogram bin: the data show no excess of
-  sightings right on the trackline (this could reflect rounding or observer
-  behaviour; the data cannot tell which). For PWSD the fit tracks the histogram.
+- **Detection function.** For humpback the fitted hazard-rate curve passes through
+  the tallest bars near the trackline and then falls away with a long tail,
+  which is the shape the half-normal could not reproduce (see the detection-key
+  comparison above); the
+  90% band is widest near zero, where few detections constrain it. For PWSD the
+  fit tracks the histogram.
 - **Prior against posterior.** As on simulated data, the priors are weak and the
   data narrow the predicted total to the observed value.
 
