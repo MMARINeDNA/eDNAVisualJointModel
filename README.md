@@ -348,6 +348,10 @@ survey data and write them to `figures/`. Run them as
   project goals. Render them with `quarto render presentations/<file>.qmd`.
   The presenter notes still refer to the pre-restructure file layout, which
   will be refreshed in roadmap Phase 6.
+- `docs/explainer.md` (rendered `docs/explainer.html`) walks through every model
+  with simulated and real data, prior and posterior predictive checks, and the
+  open issues. Figure scripts are in `docs/explainer/`; re-render with
+  `quarto render docs/explainer.md --to html --embed-resources`.
 - `docs/history/` has two self-contained write-ups. `v3.2_notebook.html` is
   the eDNA sampler-pathology debugging case study, and
   `distance_v4.1_notebook.html` covers the distance-sampling development
