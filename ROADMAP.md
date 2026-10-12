@@ -707,12 +707,17 @@ Every analysis is restricted to the MURI study area north of 35°N.
     Resolving 50 × 50 km everywhere would take about 900 functions;
     25 × 25 km about 3,400.
 
-**Re-run list (nothing re-run yet), in order:**
+**Re-run list, in order.** These run on stats3 with
+`tools/stats3_reruns.sh` (stages 1–5); `notes/stats3_guide.md` (and its PDF)
+covers the set-up, from cloning and copying the private data to pulling the
+results back.
 
 1. **Real data objects.** `Rscript R/01_load_muri.r` (needs
    `data/MV1_MURI_df.csv` and `data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv`, which
-   are git-ignored), then `R/02_check_muri.r`. The committed
-   `data/processed/muri_{edna,visual}.rds` still hold the unrestricted data.
+   stay private and git-ignored), then `R/02_check_muri.r`. *Done for the
+   loader in #85*: the committed `data/processed/muri_{edna,visual}.rds` now
+   hold the 35°N data (with humpback's group-size effect switched on). The
+   stats3 run repeats it and checks that it reproduces them.
    - Per-species truncation (95th percentile) is recomputed on the kept
      sightings.
    - The detection-function choices (hazard-rate humpback; half-normal +
