@@ -12,24 +12,31 @@
 #   tools/stats3_reruns.sh run <job>       run one job in this shell
 #   tools/stats3_reruns.sh status          last line of every log
 #
-# Env: SESSION (tmux session name, default "reruns"), NICE (default 10)
+# Env: SESSION (tmux session name, default "reruns"), NICE (default 10),
+#      CMP_SEEDS (joint-comparison seeds for stage 3, default "2 3"; e.g.
+#      CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3 for a second wave)
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 SESSION=${SESSION:-reruns}
 NICE=${NICE:-10}
+CMP_SEEDS=${CMP_SEEDS:-2 3}
+CMP_MODES="visual edna joint joint_conv"
 mkdir -p logs
 
 # Stage 1 must finish first: it rebuilds the real data and compiles the models.
-# Stages 2, 3 and 4 only need stage 1; stage 5 needs 3 and 4.
+# Stages 2 to 4 only need stage 1; stage 5 needs 3 and 4. Stage 3 is the joint
+# comparison: one job per seed in CMP_SEEDS and mode, 4 chains each (16 cores
+# per seed; the visual-only job ends after about 30 min).
+# expl_edna_real is in no stage: the real eDNA fit waits for the ROADMAP 6.1
+# data (launch it on its own when they are in).
 STAGE1="prep"
 STAGE2="hsgp_nobathy hsgp_bathysp_surface hsgp_bathysp_depthspref hsgp_bathygp_surface
         visual_val visual_val_sea joint_sim"
-STAGE3="cmp_s1_edna cmp_s1_visual cmp_s1_joint cmp_s1_joint_conv
-        cmp_s2_edna cmp_s2_visual cmp_s2_joint cmp_s2_joint_conv"
+STAGE3=$(for s in $CMP_SEEDS; do for m in $CMP_MODES; do printf 'cmp_s%s_%s ' "$s" "$m"; done; done)
 STAGE4="expl_edna_sim expl_visual_sim expl_real_humpback expl_real_pwsd
-        expl_real1600_humpback expl_real1600_pwsd expl_edna_real"
+        expl_real1600_humpback expl_real1600_pwsd"
 STAGE5="finish"
 
 hsgp() { (cd external/HSGP4eDNA && Rscript "$@"); }
@@ -72,11 +79,12 @@ job() {
     visual_val)     SEEDS=1:5 Rscript R/validate_visual.r ;;
     visual_val_sea) SEA_STATE=1 SEEDS=1:3 Rscript R/validate_visual.r ;;
     joint_sim)      Rscript R/validate_joint_sim.r ;;
-    # ---- stage 3: joint comparison, one mode per job (3 cores each)
-    cmp_s[12]_*)
-      local seed=${1:5:1} mode=${1:7}
-      SEED=$seed MODES=$mode Rscript R/compare_joint.r ;;
-    # ---- stage 4: explainer fits (2-3 cores each)
+    # ---- stage 3: joint comparison, one job per seed and mode (4 cores each)
+    cmp_s*)
+      [[ $1 =~ ^cmp_s([0-9]+)_(edna|visual|joint|joint_conv)$ ]] ||
+        { echo "bad job name $1 (cmp_s<seed>_<edna|visual|joint|joint_conv>)"; exit 2; }
+      SEED=${BASH_REMATCH[1]} MODES=${BASH_REMATCH[2]} Rscript R/compare_joint.r ;;
+    # ---- stage 4: explainer fits (2-3 cores each; expl_edna_real waits for the 6.1 data)
     expl_edna_sim)
       Rscript docs/explainer/01_fit_edna_sim.R
       Rscript docs/explainer/05_fig_simulation.R
@@ -91,9 +99,13 @@ job() {
       Rscript docs/explainer/09_fig_edna_real.R ;;
     # ---- stage 5: comparison tables and the remaining figures (minutes)
     finish)
-      SEED=1 MODES= Rscript R/compare_joint.r
-      SEED=2 MODES= Rscript R/compare_joint.r
-      cp outputs/joint/compare_s1/compare_joint.png docs/figures/joint_compare_s1.png
+      # tables and figure for every seed with comparison fits
+      for d in outputs/joint/compare_s*; do
+        [ -d "$d" ] && ls "$d"/fit_*.rds > /dev/null 2>&1 || continue
+        seed=${d##*compare_s}
+        SEED=$seed MODES= Rscript R/compare_joint.r
+        cp "$d/compare_joint.png" "docs/figures/joint_compare_s$seed.png"
+      done
       Rscript docs/explainer/07_fig_visual.R
       Rscript docs/explainer/08_fig_key_choice.R
       Rscript docs/explainer/10_fig_sea_state.R ;;
@@ -136,11 +148,13 @@ case "${1:-list}" in
     done ;;
   list)
     cat <<EOF
-stage 1  (run alone first; ~1 h)       $STAGE1
-stage 2  (~23 cores; hours to ~2 days) $(echo $STAGE2)
-stage 3  (~24 cores; ~4-6 h per job)   $(echo $STAGE3)
-stage 4  (~16 cores; hours)            $(echo $STAGE4)
-stage 5  (after 3 and 4; minutes)      $STAGE5
+stage 1  (run alone first; ~1 h)                 $STAGE1
+stage 2  (~23 cores; hours to ~2 days)           $(echo $STAGE2)
+stage 3  (16 cores per seed; ~4-6 h per job)     $(echo $STAGE3)
+         seeds from CMP_SEEDS (now "$CMP_SEEDS")
+stage 4  (~14 cores; hours)                      $(echo $STAGE4)
+stage 5  (after 3 and 4; minutes)                $STAGE5
+not in a stage (needs ROADMAP 6.1 data): expl_edna_real
 EOF
     ;;
   *) echo "usage: $0 list | stage <1-5> | launch <job> | run <job> | status" >&2; exit 2 ;;

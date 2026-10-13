@@ -7,7 +7,7 @@
 //   log lambda_s(x) = mu_s + f_s(X, Y) + B(Z_bathy) . beta_s       animals / km^2
 //   f_s ~ GP(0, K_SE(lx_s, ly_s)), 2-D HSGP over (X, Y) normalised by the DOMAIN
 //
-// eDNA (all S species + junk; HSGP4eDNA v1.3 gp2d_bathysp, unchanged):
+// eDNA (all S species + junk; HSGP4eDNA v1.5 gp2d_bathysp, unchanged):
 //   log lambda_edna_is = log lambda_s(x_i) + log_zsample_effect_is
 //                        + log_conv_s + log_vol_filtered + log g_is
 //   -> qPCR hurdle (species 1) + zero-inflated beta-binomial metabarcoding,
@@ -91,12 +91,13 @@ data {
   real prior_gamma0_phi_mu;  real<lower=0> prior_gamma0_phi_sig;
   real prior_gamma1_phi_mu;  real<lower=0> prior_gamma1_phi_sig;
 
-  // Between-bottle and junk noise (HSGP4eDNA v1.3 semantics)
+  // Between-bottle and junk noise (HSGP4eDNA v1.5 semantics)
   int<lower=0, upper=1> use_bottle_noise;
   int<lower=1, upper=2> bottle_noise_dist;   // 1 gamma (exact NB), 2 lognormal
   int<lower=0, upper=1> bottle_theta_shared;
   real<lower=0> prior_cv_bottle_sig;
   int<lower=0, upper=1> use_junk_noise;
+  int<lower=1, upper=2> junk_noise_dist;     // 1 gamma (centred), 2 lognormal (non-centred)
   real<lower=0> prior_cv_junk_sig;
 
   // Free conversion factors (science step): species whose log_conv is estimated
@@ -224,7 +225,7 @@ transformed parameters {
   }
   log_lambda_edna[, S + 1] = rep_vector(mu_sp[S + 1] + log_conv[S + 1] + log_vol_filtered, N);
   if (use_junk_noise == 1)
-    log_lambda_edna[, S + 1] += bottle_dist_log_g(g_junk_raw, cv_junk[1], bottle_noise_dist);
+    log_lambda_edna[, S + 1] += bottle_dist_log_g(g_junk_raw, cv_junk[1], junk_noise_dist);
 
   // Visual: population-average ESW and mean group size per species
   vector[L] b_hr = rep_vector(1.0, L);     // hazard-rate shape (1, unused, if half-normal)
@@ -264,7 +265,7 @@ model {
   }
   cv_junk ~ normal(0, prior_cv_junk_sig);
   if (use_junk_noise == 1) {
-    if (bottle_noise_dist == 1) g_junk_raw ~ log_gamma_mixing(1 / square(cv_junk[1]));
+    if (junk_noise_dist == 1) g_junk_raw ~ log_gamma_mixing(1 / square(cv_junk[1]));
     else                        g_junk_raw ~ std_normal();
   }
   log_conv_free ~ normal(prior_log_conv_mu, prior_log_conv_sig);
@@ -312,7 +313,7 @@ generated quantities {
   for (d in 1:D1) gp_l[, d] = gp_l_raw[, d] * coord_scale[d];
   vector[n_cv] theta_bottle = bottle_noise_dist == 1
       ? 1 ./ square(cv_bottle) : 1 ./ (exp(square(cv_bottle)) - 1);
-  vector[use_junk_noise] theta_junk = bottle_noise_dist == 1
+  vector[use_junk_noise] theta_junk = junk_noise_dist == 1
       ? 1 ./ square(cv_junk) : 1 ./ (exp(square(cv_junk)) - 1);
   vector[L] sigma_c = exp(log_sigma);      // key scale at s = s_centre (km)
   vector[L] b_shape = b_hr;                // hazard-rate shape (1 if half-normal)

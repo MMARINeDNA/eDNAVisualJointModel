@@ -130,9 +130,10 @@ joint_field_agreement <- function(sim, max_km = 10) {
 #                         estimated (log_conv ~ normal(prior_log_conv)); the
 #                         rest stay fixed at sim$edna$meta$conv_factor.
 #   prior_mu_sp           list(mu, sig) for the log-density intercepts, by
-#                         species name (+ "junk"). Default: the visual model's
-#                         normal(-5, 2) for the line-transect species and
-#                         HSGP4eDNA's normal(2, 1.5) for the others and junk.
+#                         species name (+ "junk"). Default: HSGP4eDNA's
+#                         prior_mu_sp_default(), normal(-5, 2) for the
+#                         cetaceans (as in the visual model) and normal(2, 1.5)
+#                         for the others and junk.
 #
 # Coordinates of both sources are normalised by the DOMAIN extents, and the
 # design-based GP prior is built from the union of station and segment
@@ -181,12 +182,8 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
   picki <- function(field) vapply(vd, function(v) as.integer(v[[field]]), integer(1))
 
   # Intercept priors (species + junk)
-  if (is.null(prior_mu_sp)) {
-    mu  <- setNames(rep(2.0, S + 1), c(sp_all, "junk"))
-    sig <- setNames(rep(1.5, S + 1), c(sp_all, "junk"))
-    mu[lt] <- -5; sig[lt] <- 2
-    prior_mu_sp <- list(mu = mu, sig = sig)
-  }
+  if (is.null(prior_mu_sp))
+    prior_mu_sp <- lapply(prior_mu_sp_default(sp_all), setNames, c(sp_all, "junk"))
 
   conv_idx <- match(conv_free, sp_all)
   stopifnot(!anyNA(conv_idx))
@@ -221,7 +218,8 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     use_bottle_noise = ed$use_bottle_noise * noise_on,
     bottle_noise_dist = ed$bottle_noise_dist, bottle_theta_shared = ed$bottle_theta_shared,
     prior_cv_bottle_sig = ed$prior_cv_bottle_sig,
-    use_junk_noise = ed$use_junk_noise * noise_on, prior_cv_junk_sig = ed$prior_cv_junk_sig,
+    use_junk_noise = ed$use_junk_noise * noise_on, junk_noise_dist = ed$junk_noise_dist,
+    prior_cv_junk_sig = ed$prior_cv_junk_sig,
     n_conv_free = length(conv_idx), conv_free_idx = as.array(as.integer(conv_idx)),
     prior_log_conv_mu = as.array(rep(prior_log_conv[["mu"]], length(conv_idx))),
     prior_log_conv_sig = as.array(rep(prior_log_conv[["sig"]], length(conv_idx))),

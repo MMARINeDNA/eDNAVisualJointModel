@@ -40,16 +40,16 @@ southern edge on 35°N.
 - **Simulations:** the eDNA, visual and joint simulators all use the same box,
   so simulated and real fits share coordinates and prior extents.
 
-> **Re-run pending.** The results below were produced with the earlier
-> simulation set-up and the unrestricted real data:
-> - a 500 × 1270 km box, about 37.7–49.2°N;
-> - 50 × 300 km length-scales;
-> - 25 transects;
-> - a 400-function basis budget.
+> **Re-runs in progress.** The current set-up is the 35°N domain, 50 × 150 km
+> length-scales, 35 transects and an 800-function budget.
+> - **Re-run (2026-10-12):** the visual validation and sea-state check
+>   ([Results](#results)).
+> - **Still from the earlier set-up:** the joint-model results and HSGP4eDNA's
+>   validation. That set-up was a 500 × 1270 km box (about 37.7–49.2°N),
+>   50 × 300 km length-scales, 25 transects and a 400-function budget.
 >
-> The current set-up is the 35°N domain, 50 × 150 km length-scales, 35
-> transects and an 800-function budget. ROADMAP Phase 6.0 lists what has to
-> be re-run.
+> The rest runs on the stats3 server (`notes/stats3_guide.md`); ROADMAP Phase
+> 6.0 lists it.
 
 ## Simulated species
 
@@ -194,7 +194,7 @@ Each half can also be fitted with its single-source model.
 ```r
 source("R/fit_joint.r")
 sim <- simulate_joint(seed = 1)
-res <- fit_joint(sim, "joint")        # also "edna" or "visual"; 3 chains x 800/800
+res <- fit_joint(sim, "joint")        # also "edna" or "visual"; 4 chains x 800/800
 res$field                             # R², 95% CI width and coverage per species
 res$recovery                          # GP hyperparameters, detection scale, noise theta
 fit_joint(sim, "joint", conv_free = c("humpback", "pwsd"))   # estimate conversion factors
@@ -228,46 +228,46 @@ writes the tables and the figure below to `outputs/joint/compare_s<SEED>/`.
 
 ## Results
 
-*All results in this section are from the earlier 500 × 1270 km simulation
-box; see [Study domain](#study-domain).*
-
-**Visual model** (`R/validate_visual.r`, 5 replicates, 4 chains × 1000/1000,
-design-based GP priors, basis 28×14 = 392, spline df 4):
+**Visual model** (`R/validate_visual.r`, 5 replicates on the 35°N domain, 35
+transects / 2,415 segments, 4 chains × 1000/1000, design-based GP priors,
+800-function budget, spline df 4; run 2026-10-12):
 
 | Species | Detections | Runtime | Divergences | max Rhat | Field R² | Coverage D / σ_det / E[s] | Coverage gp_sigma / lx / ly |
 |---|---|---|---|---|---|---|---|
-| Humpback | 549–917 | 2.1–4.8 min | 0 in 5 fits | ≤ 1.01 | 0.87–0.93 | 5/5, 5/5, 5/5 | 5/5, 5/5, 5/5 |
-| PWSD | 41–100 | 5.2–7.9 min | 1 each in 2 fits | ≤ 1.00 | 0.60–0.79 | 5/5, 4/5, 5/5 | 5/5, 4/5, 5/5 |
+| Humpback | 808–1529 | 10–18 min | 0 | ≤ 1.010 | 0.84–0.90 | 5/5, 5/5, 5/5 | 5/5, 4/5, 5/5 |
+| PWSD | 94–110 | 20–37 min | 0 | ≤ 1.005 | 0.50–0.69 | 5/5, 5/5, 5/5 | 5/5, 5/5, 4/5 |
 
 Median relative bias:
-- mean density: −3% for both species;
-- `gp_sigma`: +3% (humpback), +5% (PWSD);
-- `lx`: −6% (humpback), +48% (PWSD, which has only 41–100 detections).
+- mean density: +2% for both species;
+- `gp_sigma`: −5% (humpback), −1% (PWSD);
+- `lx` / `ly`: −1% / +3% (humpback), +15% / +48% (PWSD, which has only
+  94–110 detections).
 
-The earlier HSGP4eDNA priors gave 2/5 to 5/5 coverage, `gp_sigma` +40% and
-PWSD `lx` +99%. See `ROADMAP.md`.
+The north–south length-scale is the one to watch: the floor check flags it in
+4 of 5 humpback fits and 2 of 5 PWSD fits (posterior near the prior's
+117 km floor against a truth of 150 km). That is the narrow 1.28× visual
+north–south margin recorded in ROADMAP 6.0; the truth stays covered.
 
 **Sea-state covariate** (`SEA_STATE=1 SEEDS=1:3`; truth β_bft = −0.08
-humpback, −0.15 PWSD; segment Beaufort 0.6–5.4). Each species fitted with and
-without the covariate. With the switch off the model's log density matches
-the single-ESW model exactly.
+humpback, −0.15 PWSD). Each species fitted with and without the covariate.
+With the switch off the model's log density matches the single-ESW model
+exactly.
 
 | Species | Covariate | Divergences | max Rhat | Field R² | β_bft covered | Field-error slope per Beaufort unit | Runtime |
 |---|---|---|---|---|---|---|---|
-| Humpback | with | 0 | ≤ 1.007 | 0.90–0.93 | 3/3 | +0.015 to +0.017 | 2.8–4.8 min |
-| Humpback | without | 0 | ≤ 1.004 | 0.90–0.93 | — | −0.034 to −0.018 | 2.8–4.2 min |
-| PWSD | with | 0 | ≤ 1.003 | 0.78–0.82 | 3/3 | −0.135 to −0.001 | 16–18 min |
-| PWSD | without | 2 in 1 fit | ≤ 1.010 | 0.73–0.80 | — | −0.250 to −0.041 | 6.5–7.9 min |
+| Humpback | with | 0 | ≤ 1.002 | 0.84–0.91 | 3/3 | +0.005 to +0.019 | 9–13 min |
+| Humpback | without | 0 | ≤ 1.004 | 0.84–0.91 | — | −0.041 to −0.024 | 8–13 min |
+| PWSD | with | 0 | ≤ 1.005 | 0.52–0.66 | 3/3 | +0.075 to +0.100 | 26–35 min |
+| PWSD | without | 0 | ≤ 1.004 | 0.52–0.66 | — | −0.034 to +0.064 | 25–29 min |
 
-Leaving the covariate out reads poor sighting conditions as low density. The
-fitted field shifts by −0.03 to −0.05 (humpback) and −0.04 to −0.12 (PWSD)
-log units per Beaufort unit, up to 0.58 log units across the survey. All other
-parameters keep their coverage either way. β_bft is weakly identified for
-PWSD (38–122 detections): covered, but shrunk toward zero (median relative
-bias −70%). The covariate makes PWSD fits about 2.5× slower (11 Beaufort
-levels × 1000 group sizes).
+Leaving the covariate out reads poor sighting conditions as low density: the
+fitted field shifts by −0.03 to −0.06 (humpback) and −0.04 to −0.11 (PWSD)
+log units per Beaufort unit, up to 0.61 log units across the survey. Density
+is covered in every fit either way. β_bft is covered but shrunk toward zero
+(median relative bias −29% humpback, −37% PWSD).
 
-**Joint model** (`R/compare_joint.r`, `simulate_joint()` seeds 1 and 2, 3 chains × 800/800).
+**Joint model** (*earlier 500 × 1270 km set-up; re-run on stats3 pending*;
+`R/compare_joint.r`, `simulate_joint()` seeds 1 and 2, 3 chains × 800/800).
 The same model and priors are used in each column; only the data differ. Each
 cell is the field R² over all 200 stations and 1250 segments, with the mean
 95% CI width of log density in brackets. Coverage of the true field is 0.87–0.99
@@ -301,7 +301,9 @@ throughout.
     other chains), and hake's R² fell to 0.84.
   - A rerun on the same data converged; that is the run shown.
   - Rhat flags the problem, but it is an intermittent mixing risk. Check
-    Rhat on θ_junk in every joint fit.
+    Rhat on θ_junk in every joint fit. Joint fits now default to 4 chains.
+  - On the 35°N domain, seed 1's eDNA fits get stuck at its extreme hake hot
+    spots (ROADMAP 6.0), so the stats3 comparison runs seeds 2–5 first.
 - **Runtime.** eDNA-only and joint fits take 2–3 h; visual-only takes 12–15 min.
 
 ![Joint vs single-source field recovery, seed 1: posterior mean vs true log density per species (rows) and fit (columns)](docs/figures/joint_compare_s1.png)
