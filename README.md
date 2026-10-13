@@ -377,6 +377,11 @@ survey data and write them to `figures/`. Run them as
   project goals. Render them with `quarto render presentations/<file>.qmd`.
   The presenter notes still refer to the pre-restructure file layout, which
   will be refreshed in roadmap Phase 6.
+- `presentations/smm2026.qmd` is the 15-minute SMM 2026 talk (goals, real
+  data, model structure; simulation results still a placeholder). It renders
+  to HTML and PDF, with speaker notes inline. Its figures are built by
+  `Rscript presentations/smm2026_figs/make_figures.R` from the processed
+  real-data objects and `docs/figures/model_*.svg`.
 - `docs/explainer.md` (rendered `docs/explainer.html`) walks through every model
   with simulated and real data, prior and posterior predictive checks, and the
   open issues. It was written on the set-up before the 35°N study domain (see

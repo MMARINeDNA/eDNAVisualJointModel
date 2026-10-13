@@ -1,0 +1,405 @@
+---
+title: "One density surface, two kinds of data"
+subtitle: "A joint spatial model for marine mammal eDNA and visual line-transect surveys"
+# TODO: add co-authors and affiliations
+author: "Eiren Jacobson and the MMARINeDNA team"
+date: "2026"
+date-format: "[SMM] YYYY"
+format:
+  revealjs:
+    embed-resources: true
+    theme: simple
+    width: 1600
+    height: 900
+    margin: 0.06
+    slide-number: true
+    progress: true
+    history: false
+    html-math-method: katex
+    include-in-header:
+      text: |
+        <style>
+          .reveal { font-size: 34px; }
+          .reveal h2 { font-size: 1.5em; }
+          .reveal table { font-size: 0.85em; }
+          .reveal table.big { font-size: 1em; }
+          .reveal .small { font-size: 0.75em; }
+          .reveal .note { color: #5f5e5a; font-size: 0.7em; }
+          .reveal .placeholder {
+            border: 3px dashed #d55e00; border-radius: 12px;
+            padding: 0.6em 1em; color: #7a3a10; background: #fff6ef;
+          }
+          .reveal .vis  { color: #d55e00; font-weight: 600; }
+          .reveal .edna { color: #0072b2; font-weight: 600; }
+        </style>
+  beamer:
+    theme: metropolis
+    aspectratio: 169
+    pdf-engine: xelatex
+    fontsize: 10pt
+    classoption: [handout]   # collapse incremental overlays to one page per slide
+    include-in-header:
+      text: |
+        \setbeamertemplate{frame footer}{}
+        \setbeamerfont{caption}{size=\scriptsize}
+---
+
+<!-- Speaker-note timings sum to ~15 min (title and section slides not counted). -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.align = "center")
+
+# Figure height as a fraction of the slide: px on the 900-px reveal.js slide,
+# \textheight on the beamer frame. Set per chunk with `#| out_h: 0.8`.
+knitr::opts_hooks$set(out_h = function(options) {
+  options$out.height <- if (knitr::is_latex_output())
+    sprintf("%.2f\\textheight", options$out_h)
+  else sprintf("%dpx", round(options$out_h * 900))
+  options
+})
+fig <- function(f) knitr::include_graphics(file.path("smm2026_figs", f))
+
+# Counts quoted on the data slides, from the objects the models are fitted to
+edna   <- readRDS("../data/processed/muri_edna.rds")
+visual <- readRDS("../data/processed/muri_visual.rds")
+segs   <- visual$design$segments
+n_seg  <- format(nrow(segs), big.mark = ",")
+km_eff <- format(round(sum(segs$seg_l)), big.mark = ",")
+n_bot  <- edna$meta$N
+n_in_w <- function(sp) sum(visual$observed[[sp]]$obs$distance <= visual$meta$w[[sp]])
+mb_pos <- function(sp) {
+  pos <- tapply(edna$observed$mb_reads[, sp], edna$observed$mb_sample_idx, sum) > 0
+  sum(pos)
+}
+q_pos  <- sum(tapply(edna$observed$qpcr_detect, edna$observed$qpcr_sample_idx, max))
+fmt_w  <- function(sp) sprintf("%.1f", visual$meta$w[[sp]])
+```
+
+## Two ways to count whales
+
+|   | Visual line transects | eDNA |
+|---|---|---|
+| **What is recorded** | Groups seen, their size and distance from the line | DNA copies in a filtered water sample |
+| **What it tells us about density** | Absolute: animals per km², after correcting for detection | Relative: copies depend on shedding, decay and transport |
+| **Where it works** | Daylight, calm seas, animals at the surface | Any weather; samples at depth; species that are hard to see |
+| **Where it struggles** | Rare or cryptic species, rough seas | Turning copies into animals |
+
+: {.big}
+
+::: {.notes}
+~45 s. The audience knows eDNA; the point here is that the two data types fail in different places. Visual surveys give absolute density but are limited by sightability; eDNA sees more but only on a relative scale. Neither on its own gives the full picture, and they fail in complementary ways.
+:::
+
+## Project goals
+
+::: {.incremental}
+- **One density surface per species**, informed by both data streams at once
+- **Calibrate eDNA against animals:** let visual data set the scale that links DNA copies to density
+- **Fill gaps:** eDNA where there is little visual effort, or for species rarely seen
+- **Honest uncertainty:** each data source keeps its own observation model
+- **Test on simulations first**, where the truth is known
+:::
+
+::: {.notes}
+~45 s. The core idea: treat eDNA and sightings as two noisy, indirect windows onto the same thing, the density of animals in space. A Bayesian state-space model: one latent process, two observation processes. We build and validate it on simulated data before trusting it with real data.
+:::
+
+# The data
+
+## Two surveys, one coast
+
+:::: {.columns}
+::: {.column width="38%"}
+```{r}
+#| out_h: 0.86
+fig("data_footprint.png")
+```
+:::
+::: {.column width="62%"}
+**Visual line transects** (2018 CCES)
+
+- `r km_eff` km of effort in `r n_seg` segments
+- Perpendicular distances, group sizes, Beaufort sea state
+
+**eDNA** (2019)
+
+- `r n_bot` water bottles, 0--500 m depth
+- **qPCR** for Pacific hake
+- **Metabarcoding** (MarVer1) for all vertebrates
+
+**Study area:** north of 35°N, a 690 × 1,770 km box
+:::
+::::
+
+::: {.notes}
+~45 s. Two different cruises in two different years. The visual survey covers more ground and goes further offshore; the eDNA stations are concentrated on the shelf and slope, sampled at several depths. Everything in this talk, simulated or real, is on the same study domain north of 35°N.
+:::
+
+## Humpback whale: easy to see, rare in eDNA
+
+:::: {.columns}
+::: {.column width="55%"}
+```{r}
+#| out_h: 0.86
+fig("data_humpback.png")
+```
+:::
+::: {.column width="45%"}
+- <span class="vis">`r n_in_w("humpback")` groups</span> detected within `r fmt_w("humpback")` km of the line
+- <span class="edna">Reads in `r mb_pos("humpback")` of `r n_bot` bottles</span>
+- Visual data are rich; eDNA hits are sparse but broadly match the sighting hot spots
+:::
+::::
+
+::: {.notes}
+~45 s. Humpbacks are conspicuous: hundreds of detections. In eDNA they are rare, about 7% of bottles. Visual data should dominate the humpback surface, and they are what can tell us how many copies one whale's worth of density produces.
+:::
+
+## Pacific white-sided dolphin: weak in both
+
+:::: {.columns}
+::: {.column width="55%"}
+```{r}
+#| out_h: 0.86
+fig("data_pwsd.png")
+```
+:::
+::: {.column width="45%"}
+- <span class="vis">`r n_in_w("pwsd")` groups</span> detected within `r fmt_w("pwsd")` km of the line
+- <span class="edna">Reads in `r mb_pos("pwsd")` of `r n_bot` bottles</span>
+- Few sightings, but large groups (up to hundreds)
+- This is where combining sources should help most
+:::
+::::
+
+::: {.notes}
+~45 s. PWSD: under a hundred sightings, and eDNA detections in about 1 bottle in 10. Neither source is strong alone. This is the case the joint model is really for.
+:::
+
+## Pacific hake: the eDNA anchor
+
+:::: {.columns}
+::: {.column width="55%"}
+```{r}
+#| out_h: 0.86
+fig("data_hake.png")
+```
+:::
+::: {.column width="45%"}
+- qPCR detects hake in `r q_pos` of `r n_bot` bottles
+- Metabarcoding reads in `r mb_pos("hake")` bottles
+- Not surveyed visually
+- Abundant and eDNA-rich, so it pins down the **shared eDNA noise terms** (bottle-to-bottle variation, non-target DNA)
+:::
+::::
+
+::: {.notes}
+~30 s. Hake is not a marine mammal, but it earns its place in the model. It is in nearly every bottle, has qPCR as well as metabarcoding, and so it tells the model how noisy bottles are and how much non-target DNA there is. Those terms are shared with the whale species, which are near the detection limit.
+:::
+
+# The model
+
+## The core idea: one latent field per species
+
+$$
+\log \lambda_s(\mathbf{x}) \;=\; \underbrace{\mu_s}_{\text{intercept}} \;+\; \underbrace{f_s(X, Y)}_{\text{spatial GP}} \;+\; \underbrace{h_s(Z_\text{bottom})}_{\text{depth spline}}
+\qquad \text{animals per km}^2
+$$
+
+:::: {.columns}
+::: {.column width="50%"}
+<span class="edna">**eDNA**</span>: expected copies in bottle $i$
+
+$$
+\mu_{is} = \lambda_s(\mathbf{x}_i)\times c_s \times v_i \times \omega_s(z_i)
+$$
+
+conversion factor $c_s$, litres filtered $v_i$, water-column offset $\omega_s$
+:::
+::: {.column width="50%"}
+<span class="vis">**Visual**</span>: expected groups on segment $j$
+
+$$
+\mathbb{E}[n_j] = \frac{\lambda_s(\mathbf{x}_j)}{\mathbb{E}[\text{group size}_s]}\times 2L_j \times \text{ESW}_{j}
+$$
+
+segment length $L_j$, effective strip half-width $\text{ESW}_j$
+:::
+::::
+
+::: {.notes}
+~1 min. This one slide is the whole model. A single log-density surface per species, in animals per km^2, and two observation models hanging off it. On the eDNA side density becomes expected copies through a conversion factor, volume filtered and a water-column offset. On the visual side density becomes expected groups seen through the standard distance-sampling quantities. Same lambda in both.
+:::
+
+## The latent field: a Hilbert-space Gaussian process
+
+```{r}
+#| out_h: 0.56
+fig("hsgp_illustration.png")
+```
+
+:::: {.columns .small}
+::: {.column width="50%"}
+- **Anisotropic GP:** separate length-scales east--west and along the coast
+- **HSGP approximation:** the GP is a weighted sum of fixed sine waves (up to 800), so the sampler fits hundreds of weights instead of an $N \times N$ covariance
+:::
+::: {.column width="50%"}
+- **Bottom depth:** smooth spline, 4 df
+- **Priors from the survey design only:** sample spacing, domain size and basis budget, never the counts
+- Fitted in **Stan**
+:::
+::::
+
+::: {.notes}
+~1 min 15 s. A Gaussian process is a flexible prior over smooth surfaces. The HSGP approximation (Riutort-Mayol et al. 2023) writes it as a weighted sum of fixed basis functions: the sampler only estimates the weights, which makes a coast-wide 2-D surface fast to fit. Ocean structure runs along the coast, so we let the length-scales differ by direction. The priors on the length-scales come only from where we sampled, so the same prior applies to every data source and to real data.
+:::
+
+## eDNA observation model
+
+:::: {.columns}
+::: {.column width="56%"}
+```{r}
+#| out_h: 0.84
+fig("model_edna.png")
+```
+:::
+::: {.column width="44%"}
+- **Bottle copies** $C_{is} \sim \text{NB}(\mu_{is}, \theta)$: bottles vary even at the same density
+- **Non-target "junk" DNA** $J_i$, with its own spread $\theta_\text{junk}$
+- **qPCR** (hake): detection with probability $1 - e^{-\kappa C}$; Ct falls linearly with $\ln C$
+- **Metabarcoding**: reads split among species and junk in proportion to copies; zero-inflated beta-binomial
+- Replicates share their bottle's copies
+:::
+::::
+
+::: {.notes}
+~1 min 45 s. Read the diagram top to bottom: purple boxes are estimated, coral are latent (one per bottle), teal are observed. Density sets expected copies; the actual copies in a bottle are a negative-binomial draw, so between-bottle noise is not mistaken for spatial structure. qPCR and metabarcoding replicates both look at the same bottle copies. Metabarcoding is compositional, so we model all non-target DNA as a "junk" category that also varies between bottles. Leaving out either noise term biases the field.
+:::
+
+## Visual observation model
+
+:::: {.columns}
+::: {.column width="56%"}
+```{r}
+#| out_h: 0.84
+fig("model_visual.png")
+```
+:::
+::: {.column width="44%"}
+- **Encounters:** groups per segment are Poisson with mean $\lambda / \mathbb{E}[s] \times 2L \times \text{ESW}$
+- **Distances:** half-normal or hazard-rate detection, truncated at $w$; $\log\sigma = \log\sigma_0 + \beta_\text{size}(s-\bar s) + \beta_\text{bft}(\text{Bft}-3)$
+- **Group size:** modelled, with size-bias correction
+- Same field, units and priors as the eDNA side
+- $g(0) = 1$ assumed (for now)
+:::
+::::
+
+::: {.notes}
+~1 min 15 s. This is a spatial distance-sampling model, fitted in one step. Segment counts carry the spatial signal; perpendicular distances estimate the detection function and so the effective strip width. Larger groups are seen further away, which is corrected for. Beaufort is a covariate on detection, because rough seas are also spatially structured and would otherwise look like low density.
+:::
+
+## The joint model
+
+:::: {.columns}
+::: {.column width="56%"}
+```{r}
+#| out_h: 0.84
+fig("model_joint.png")
+```
+:::
+::: {.column width="44%"}
+- **One field per species** feeds both observation models
+- **Switches** turn either likelihood off: eDNA-only, visual-only and joint fits share priors, basis and starting values, and differ only in data
+- With one side switched off, it reproduces the single-source model exactly
+- **Conversion factors** $c_s$ can be **estimated** for the cetaceans
+:::
+::::
+
+::: {.notes}
+~1 min 15 s. Put the two together and you get this: the shared density field in the middle, eDNA on the left, sightings on the right. Because the comparison fits are literally the same model with a likelihood switched off, any difference in performance is due to the data, not to different priors or code. We checked that switching one side off reproduces the single-source models' log density to numerical precision.
+:::
+
+## Why combining should help
+
+::: {.incremental}
+- **eDNA alone** sees only $\lambda_s \times c_s$, so it can map *relative* density but cannot separate density from the conversion factor
+- **Visual data** fix the absolute scale of $\lambda_s$, so the joint model can **estimate $c_s$**: copies per unit of animal density
+- **eDNA** adds information where visual effort is thin or sightings are few, sharpening the surface
+- **Shared noise terms**, learned mostly from hake, carry over to the rare whale signals
+:::
+
+::: {.notes}
+~45 s. The key identifiability point for an eDNA audience: in an eDNA-only model, density and the copies-per-animal conversion factor only appear as a product. The visual data break that tie. That gives us an estimate of the conversion factor, which is exactly the quantity eDNA needs to become quantitative, and it comes with uncertainty.
+:::
+
+# Simulation study
+
+## Simulation design
+
+| Species | eDNA | Visual detections | Role |
+|---|---|---|---|
+| Pacific hake | qPCR + metabarcoding | not surveyed | eDNA-rich anchor |
+| Humpback whale | metabarcoding | ~800--1,500 | rare in eDNA, conspicuous at the surface |
+| Pacific white-sided dolphin | metabarcoding | ~100 | weak in both |
+
+: {.big}
+
+:::: {.columns}
+::: {.column width="50%"}
+- Study box north of 35°N, 690 × 1,770 km
+- 200 eDNA stations; 35 east--west transects in 10 km segments
+- True length-scales: 50 km east--west, 150 km along the coast
+:::
+::: {.column width="50%"}
+- Four fits per dataset: **eDNA-only, visual-only, joint, joint with $c_s$ free**
+- Scored on field $R^2$, 95% interval width and coverage, and recovery of $c_s$
+:::
+::::
+
+::: {.notes}
+~45 s. One simulated field per species, observed by both survey types. The three species span the range of how informative each source is. Each simulated dataset is fitted four ways with the same model, and we compare how well each recovers the true density surface.
+:::
+
+## Results
+
+::: {.placeholder}
+**Placeholder: simulation results to come** (joint comparison now running on the server, seeds 2--5)
+
+- Figure: posterior mean against true log density, by species (rows) and fit (columns), from `outputs/joint/compare_s<SEED>/compare_joint.png`
+- Table: field $R^2$ (95% interval width) per species and fit, from `compare_field.csv`
+- Conversion-factor recovery for humpback and PWSD (joint, $c_s$ free), from `compare_recovery.csv`
+:::
+
+| Species | eDNA only | Visual only | Joint | Joint, $c_s$ free |
+|---|---|---|---|---|
+| Hake | … | not surveyed | … | … |
+| Humpback | … | … | … | … |
+| PWSD | … | … | … | … |
+
+::: {.notes}
+~2 min. TO FILL IN once the stats3 runs finish. Questions to answer on this slide: does joint beat the best single source for humpback and PWSD? Is hake unchanged (it should be: no visual data)? Are the conversion factors recovered?
+:::
+
+## Next steps
+
+- **Real data:** fit the joint model to the 2018 sightings and 2019 eDNA
+- **eDNA inputs:** qPCR Ct values and standard curves; volumes filtered
+- **Detection:** Beaufort covariate in the joint model's visual side; $g(0)$
+- **Different years:** the surveys are a year apart, so the joint fit assumes a stable density surface
+- **eDNA transport and decay:** where the DNA is is not quite where the animal is
+
+::: {.notes}
+~45 s. The machinery works on simulations; the open problems are mostly about data. The real eDNA data are missing Ct values and filtered volumes, so the absolute conversion factor is not yet meaningful. The two surveys are a year apart. And eDNA moves and decays, which the model treats only through the noise terms for now.
+:::
+
+## Thank you
+
+<https://github.com/MMARINeDNA/eDNAVisualJointModel>
+
+<!-- TODO: acknowledgements, funding (MURI), collaborators, contact -->
+
+::: {.note}
+Riutort-Mayol *et al.* (2023) Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming. *Statistics and Computing* 33:17.
+Buckland *et al.* (2001) *Introduction to Distance Sampling.* Oxford University Press.
+:::
