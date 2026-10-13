@@ -100,8 +100,9 @@ p3 <- ggplot(sp_curves, aes(Z)) + geom_ribbon(aes(ymin = lo, ymax = hi), fill = 
 save_fig(p3, "edna_sim_spline", 12, 3.8)
 
 # ---- posterior predictive: metabarcoding positives by species x depth -----------------------
-# The model's generated quantities (pp_mb_reads) omit the zero-inflation term of the likelihood, so
-# the probability that a replicate has any reads is computed here, exactly as in the likelihood:
+# Up to HSGP4eDNA v1.4 the model's pp_mb_reads omitted the zero-inflation term of the likelihood
+# (fixed in v1.5), so the probability that a replicate has any reads is computed here, exactly as in
+# the likelihood (from v1.5 it matches the share of pp_mb_reads draws with reads):
 #   P(reads > 0) = (1 - exp(-aliquot copies)) * (1 - BetaBinomial(0 | total, a, b)).
 le_all <- pick("log_lambda_edna[")
 li_all <- mat_idx(le_all)

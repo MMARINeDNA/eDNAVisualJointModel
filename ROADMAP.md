@@ -712,6 +712,13 @@ Every analysis is restricted to the MURI study area north of 35°N.
 covers the set-up, from cloning and copying the private data to pulling the
 results back.
 
+**Priority for the October 2026 presentation** (decided 2026-10-13): working
+eDNA-only, visual-only and joint fits on simulations of the real study
+domain. So the joint comparison (item 6) runs first, on several seeds:
+seeds 2 and 3, then 4 and 5 (`CMP_SEEDS`). Seed 1 waits for the hot-spot fix
+(item 5). The full validation (items 3, 5) and the explainer (item 7) follow
+after the presentation.
+
 1. **Real data objects.** `Rscript R/01_load_muri.r` (needs
    `data/MV1_MURI_df.csv` and `data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv`, which
    stay private and git-ignored), then `R/02_check_muri.r`. *Done for the
@@ -723,23 +730,50 @@ results back.
    - The detection-function choices (hazard-rate humpback; half-normal +
      Beaufort PWSD) came from AIC on all effort; re-check them on the kept
      set.
-2. **Smoke test** (`tests/smoke.R`) and `tests/visual_detection.R`.
-3. **HSGP4eDNA 2-D validation** (HSGP4eDNA#4 merged and tagged v1.4 first):
+2. ✅ **Smoke test** (`tests/smoke.R`) and `tests/visual_detection.R`: 26/26
+   checks on main (Mac, 2026-10-12) and on the v1.5 code. stats3's stage 1
+   repeats them.
+3. **HSGP4eDNA 2-D validation** (on v1.5):
    - `nobathy_surface` × gp2d and `bathysp_surface` / `bathysp_depthspref` /
      `bathygp_surface` × gp2d_bathysp, giving a new README §4 table;
    - the §5 noise-term and §6 junk tables if they are to be kept current;
-   - release a v1.4.x with the updated tables.
+   - release a v1.5.x with the updated tables.
 
    The §2 basis sweep and the 3-D cells are v1.x history; mark them as on
    the old box rather than re-run.
-4. **Visual validation.** `SEEDS=1:5 Rscript R/validate_visual.r` and
-   `SEA_STATE=1 SEEDS=1:3 Rscript R/validate_visual.r`.
-5. **Joint simulator check.** `Rscript R/validate_joint_sim.r`.
-6. **Joint comparison.** `R/compare_joint.r`, seeds 1 and 2, with
-   `joint_conv`. This rebuilds the README Phase 5 table and
-   `docs/figures/joint_compare_s1.png`.
+4. ✅ **Visual validation** (Mac, 2026-10-12). `SEEDS=1:5` and `SEA_STATE=1
+   SEEDS=1:3`: every fit converged (0 divergences, max Rhat ≤ 1.010), with
+   density covered in all of them; the README Results tables are updated. The
+   floor check flags the north–south length-scale in 4/5 humpback and 2/5 PWSD
+   fits (the 1.28× margin above), with the truth still covered.
+5. **Joint simulator check.** `Rscript R/validate_joint_sim.r`. Run on the Mac
+   (v1.5 code): the visual halves are fine in both seeds (humpback R² 0.92,
+   PWSD 0.55–0.60), and seed 2's eDNA half too (R² 0.96 / 0.63 / 0.60, max
+   Rhat 1.01). **Seed 1's eDNA half fails** (hake R² 0.16–0.19, max Rhat
+   1.7–1.8, θ_bottle ≈ 1.6 against 10), on main's model as well, and with 4
+   chains × 800/800, so it is neither the v1.5 changes nor the short warmup.
+   - Seed 1 has extreme hake hot spots (log density up to 9.5, about
+     13,000/km²). At its 17 hottest stations every chain sits at hake *and*
+     junk copies near zero, even though Ct ≈ 26 and hake has ≈ 99% of the
+     reads there.
+   - Two features of the likelihood make that state possible: the Ct-noise
+     SD grows without limit as copies fall, and at tiny copies the read
+     model conditions on presence and its overdispersion collapses.
+   - But it is not a better fit: the qPCR alone fits each hot spot about 40
+     log-likelihood units better at the true copies. So it looks like a
+     sampler trap from the flat starting field.
+   - **Next:** start the field from the copies implied by the data (Ct gives
+     log copies directly); if seed 1 then converges, make that the default
+     initial value in `fit_edna()` / `fit_joint()`. Alternative: bound the
+     Ct-noise SD at very low copies (a model change).
+6. **Joint comparison.** `R/compare_joint.r` with `joint_conv`, one job per
+   seed and mode on stats3 (stage 3; seeds 2 and 3, then 4 and 5). This
+   rebuilds the README Phase 5 table and `docs/figures/joint_compare_s<seed>.png`.
 7. **Explainer.** `docs/explainer/01`–`09`: simulated and real fits (eDNA,
-   visual at 391 and 792 functions) and all figures. Then regenerate
+   visual at 800 and 1600 functions) and all figures. The simulated and real
+   visual fits are done (Mac, 2026-10-12; stage 4's `expl_visual_sim`,
+   `expl_real_*`); the eDNA ones and the figures remain. The real eDNA fit
+   waits for the 6.1 data. Then regenerate
    `docs/explainer.{md,html}`; several quoted numbers change, e.g. the eDNA
    region's share of the domain, now about 39% of the width and 66% of the
    height.
@@ -760,18 +794,49 @@ results back.
 
 #### 6.2 Model work (in order)
 
-1. **HSGP4eDNA posterior predictive reads.** `pp_mb_reads` draws
-   beta-binomial reads without the zero-inflation (presence) step, so it
-   over-predicts reads for rare species. Fix as a v1.x patch.
+1. ✅ **HSGP4eDNA posterior predictive reads** (v1.5). `pp_mb_reads` drew
+   beta-binomial reads without the zero-inflation (presence) step, so every
+   replicate had reads. It now uses `edna_mb_aliquot_reads_rng()`, which draws
+   presence first. On a 200-station simulation the share of replicates with
+   reads from the new draws matches the likelihood's analytic P(reads > 0) and
+   the data (hake 0.803 / 0.803 / 0.807 observed; humpback 0.140 / 0.140 /
+   0.142; PWSD 0.185 / 0.184 / 0.188); without the presence step it was 1 for
+   every species.
 2. **Priors.**
-   - **Intercepts:** per-species intercept priors in the eDNA formatter.
-     HSGP4eDNA's normal(2, 1.5) suits hake but pulls the whale intercepts up;
-     the joint formatter already uses normal(−5, 2) for the cetaceans.
+   - **Intercepts: tried, not adopted** (HSGP4eDNA v1.5, opt-in
+     `PRIOR_MU=species`). `prior_mu_sp_default()` gives normal(−5, 2) for the
+     cetaceans, as the visual and joint models use, and normal(2, 1.5) for the
+     rest. On one `bathysp_surface` simulation (budget 400, 4 chains) it made
+     the cetacean intercepts *worse*: the data put them slightly low, the
+     shared prior's upward pull partly offset that, and normal(−5, 2) adds to
+     it. The eDNA default stays the shared normal(2, 1.5); the joint
+     formatter keeps its normal(−5, 2) for the cetaceans (now through the same
+     helper, values unchanged).
+
+     | Prior | humpback μ (truth −4.61) | PWSD μ (truth −3.91) | PWSD field bias |
+     |---|---|---|---|
+     | normal(−5, 2) | −4.76 [−5.41, −4.23] | −4.77 [−5.75, −3.96] (missed) | −0.41 |
+     | shared normal(2, 1.5) | −4.52 [−5.02, −4.00] | −4.26 [−5.05, −3.46] | −0.25 |
+
    - **GP marginal SD:** the prior's 99% bound (3) is below the real visual
-     fits (2.8–3.6). *(Decision: new upper bound, e.g. 5.)*
-3. **Junk-noise mixing.** One Phase 5 chain stuck at θ_junk ≈ 2. Try a
-   non-centred (lognormal) junk term, and make 4 chains the default for joint
-   fits, before the long real-data runs.
+     fits (2.8–3.6). *(Decision pending: new upper bound, e.g. 5.)*
+3. **Junk-noise mixing.** One Phase 5 chain stuck at θ_junk ≈ 2 with the
+   centred junk term.
+   - ✅ Joint fits now default to **4 chains** (`fit_joint()`,
+     `compare_joint.r`), so a stuck chain shows in Rhat.
+   - **Non-centred junk term: tried, not adopted** (HSGP4eDNA v1.5, opt-in
+     `JUNK_DIST=lognormal`; the species' bottle noise stays exact NB). On one
+     `bathysp_surface` simulation (eDNA only, budget 400, 4 chains) recovery
+     was the same to two decimals, with no clear gain:
+
+     | Junk term | max Rhat | E-BFMI | runtime | θ_bottle (truth 10) | θ_junk |
+     |---|---|---|---|---|---|
+     | gamma (default) | 1.08 (θ_bottle) | 0.21–0.27 | 55 min | 6.5 [3.7, 12.1] | 19.2 |
+     | lognormal | 1.02 | 0.14–0.18 | 72 min | 6.6 [3.6, 13.5] | 17.6 |
+
+     The stuck chain was intermittent, so one fit cannot test it; the stats3
+     joint comparison (4 chains) will show whether it recurs.
+
 4. **Overdispersion for visual segment counts.**
    - First simulate clustered sightings (negative-binomial counts) and check
      whether the Poisson model reproduces the real fits' floor-following short

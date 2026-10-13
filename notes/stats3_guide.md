@@ -1,7 +1,7 @@
 ---
 title: "Running the eDNAVisualJointModel re-runs on stats3"
 author: "EJ45"
-date: "2026-10-12"
+date: "2026-10-13"
 ---
 
 ## Quick orientation
@@ -9,6 +9,14 @@ date: "2026-10-12"
 These are the re-runs that ROADMAP Phase 6.0 lists after the move to the
 35°N study domain. As with the FinWhale pipeline, the cleanest set-up is
 **SSH + tmux**: every job is a non-interactive `Rscript` that writes files.
+
+> **Priority before the October 2026 presentation.** Run stage 1, then the
+> joint comparison (stage 3) for seeds 2 and 3, then a second wave for seeds 4
+> and 5. That gives eDNA-only, visual-only and joint fits on several
+> simulations of the real study domain. Stages 2 and 4 can wait. The visual
+> validation and the explainer's visual fits are already done (run on the Mac
+> on 2026-10-12). Seed 1 is left out for now: its eDNA fits get stuck at its
+> extreme hake hot spots (ROADMAP 6.0).
 
 **stats3 specs (from the IT FAQ):** Intel i9-13900K with 24 physical cores and
 32 hyperthreads, 128 GB RAM, RAID-1 NVMe (`/fast_raid`) and HDD (`/local_raid`).
@@ -27,9 +35,13 @@ job. Every job runs under `nice` and stops at its first failing step.
 |---|---|---|---|
 | 1 | `prep`: real data (`01_load_muri.r`, `02_check_muri.r`), smoke test, `tests/visual_detection.R`, compile every model | 2 | about 1 h |
 | 2 | HSGP4eDNA 2-D validation (4 jobs), visual validation (normal and sea state), joint simulator check | 23 | hours; `hsgp_bathysp_depthspref` 1–2 days |
-| 3 | Joint comparison: seeds 1 and 2 × modes `edna`, `visual`, `joint`, `joint_conv` (8 jobs) | 24 | about 4–6 h each (`visual` about 30 min) |
-| 4 | Explainer fits: simulated eDNA and visual, real visual (budget 800 and 1600, both species), real eDNA | 16 | about 1–8 h each |
-| 5 | `finish`: comparison tables, `joint_compare_s1.png`, the remaining explainer figures | 1 | minutes |
+| 3 | Joint comparison: modes `visual`, `edna`, `joint`, `joint_conv` (4 chains each) for every seed in `CMP_SEEDS` (default `"2 3"`) | 16 per seed | about 4–6 h each (`visual` about 30 min) |
+| 4 | Explainer fits: simulated eDNA and visual, real visual (budget 800 and 1600, both species) | 14 | about 1–3 h each |
+| 5 | `finish`: comparison tables and `joint_compare_s<seed>.png` for every seed with fits, the remaining explainer figures | 1 | minutes |
+
+The real eDNA explainer fit (`expl_edna_real`) is in no stage: it waits for
+the ROADMAP 6.1 data (Ct values, volumes, dilutions), and is launched on its
+own with `tools/stats3_reruns.sh launch expl_edna_real` once they are in.
 
 The times are estimates. The budget is now 800 functions and the domain is
 larger, which roughly doubles the old run times. `bathysp_depthspref` (1185
@@ -37,7 +49,7 @@ bottles) took 15 h on the old set-up. The whole list is about 280 core-hours,
 or about 2 days of wall time on stats3.
 
 **Stage 1 must finish first**, because it checks the real data and compiles
-every Stan model. Stages 2, 3 and 4 each need only stage 1, and stage 5 needs
+every Stan model. Stages 2 to 4 each need only stage 1, and stage 5 needs
 3 and 4.
 
 ## Part 1: Connect to stats3 (every session)
@@ -196,20 +208,35 @@ the 35°N domain on `main` (#85), so the log should say each one **matches the
 committed copy**. If one differs, stop and look before going on. The smoke
 test's 26 checks must pass. If `prep` says `FAILED`, read `logs/prep.log`.
 
-Next, launch stage 2. It takes the longest:
+**For the presentation**, launch the joint comparison next. With the default
+`CMP_SEEDS="2 3"` it runs 8 jobs (32 chains for the first half hour, 24 once
+the two visual-only fits end), and should finish overnight:
+
+```bash
+tools/stats3_reruns.sh stage 3                      # seeds 2 and 3
+CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3      # second wave, once the first is done
+```
+
+A single fit can be relaunched by name, e.g.
+`tools/stats3_reruns.sh launch cmp_s3_joint`. The tables and figure for a seed
+are rebuilt by `finish` (stage 5); for the presentation it is quicker to pull
+`outputs/joint/` back to the Mac (Part 9) and build them there.
+
+**The rest, after the presentation.** Stage 2 is the full validation; it
+takes the longest:
 
 ```bash
 tools/stats3_reruns.sh stage 2
 ```
 
-It uses 23 cores. Its visual and joint-simulator jobs finish within hours,
-while the four HSGP4eDNA jobs run longer. The remaining stages go in this
-order:
+It uses 23 cores. Its visual and joint-simulator jobs finish within hours, as
+do three of the four HSGP4eDNA jobs; `hsgp_bathysp_depthspref` (3 cores) runs
+for 1–2 days. Launch stage 4 when about 14 cores are free, and stage 5 once
+stages 3 and 4 are done:
 
 ```bash
-tools/stats3_reruns.sh stage 4   # after stage 2's visual and joint jobs (16 cores)
-tools/stats3_reruns.sh stage 3   # when the machine is quiet again (24 cores)
-tools/stats3_reruns.sh stage 5   # once stages 3 and 4 are done
+tools/stats3_reruns.sh stage 4
+tools/stats3_reruns.sh stage 5
 ```
 
 Before launching a stage, check `uptime` (load average) or `htop`. Hold the
@@ -235,7 +262,7 @@ tools/stats3_reruns.sh launch hsgp_bathygp_surface
 | `joint_sim` | `outputs/joint_sim/validation/` |
 | `cmp_s<seed>_<mode>` | `outputs/joint/compare_s<seed>/fit_<mode>.rds` |
 | `expl_*` | `outputs/explainer/`, `docs/figures/*.png` (*tracked*) |
-| `finish` | `outputs/joint/compare_s{1,2}/compare_*.csv`, `docs/figures/joint_compare_s1.png` and the remaining explainer figures |
+| `finish` | `outputs/joint/compare_s<seed>/compare_*.csv`, `docs/figures/joint_compare_s<seed>.png` and the remaining explainer figures |
 
 ## Part 7: Check progress
 
@@ -279,13 +306,21 @@ rsync -av $R/docs/figures/ docs/figures/
 rsync -av $R/logs/ logs/
 ```
 
+For the presentation only the joint comparison is needed, which is small
+(summaries only):
+
+```bash
+rsync -av "$X" $R/outputs/joint/ outputs/joint/
+rsync -av $R/logs/ logs/
+```
+
 `docs/figures/*.png` then shows up as changed in `git status`.
 `data/processed/` is not copied back, because `prep` checked that it matches
 `main`.
 
 Then ask Claude to do three things:
 
-- rebuild the tables: the HSGP4eDNA README §4 (and a v1.4.x release), this
+- rebuild the tables: the HSGP4eDNA README §4 (and a v1.5.x release), this
   README's Phase 5 table and ROADMAP 6.0;
 - rewrite the explainer's numbers, and re-render it locally with
   `quarto render docs/explainer.md --to html --embed-resources`;

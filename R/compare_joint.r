@@ -11,7 +11,7 @@
 #   Rscript R/compare_joint.r
 # Env: SEED (default 1), MODES (default "edna,visual,joint,joint_conv"),
 #      CONV_FREE (species freed in joint_conv; default "humpback,pwsd"),
-#      CHAINS, WARMUP, SAMPLE (default 3 x 800/800), OUT (default
+#      CHAINS, WARMUP, SAMPLE (default 4 x 800/800), OUT (default
 #      outputs/joint/compare_s<SEED>)
 # Each mode's summary is saved as <OUT>/fit_<mode>.rds, so modes can run in
 # separate processes; the tables and figure are (re)built from whatever
@@ -31,14 +31,17 @@ dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 MODE_ORDER <- c("edna", "visual", "joint", "joint_conv")
 
 sim <- simulate_joint(seed = SEED)
-saveRDS(sim, file.path(OUT, "sim.rds"))
+# modes of one seed may run as parallel processes: write via a rename so a
+# reader never sees a half-written file
+tmp <- tempfile("sim", tmpdir = OUT, fileext = ".rds")
+saveRDS(sim, tmp); file.rename(tmp, file.path(OUT, "sim.rds"))
 if (length(MODES) && any(nzchar(MODES))) {
   mod <- compile_joint()
   for (m in MODES) {
     cat(sprintf("\n=== %s ===\n", m))
     r <- fit_joint(sim, if (m == "joint_conv") "joint" else m,
                    conv_free = if (m == "joint_conv") CONV_FREE else character(0),
-                   mod = mod, chains = env_int("CHAINS", "3"),
+                   mod = mod, chains = env_int("CHAINS", "4"),
                    warmup = env_int("WARMUP", "800"), sample = env_int("SAMPLE", "800"),
                    seed = 42L + SEED)
     r$field$mode <- m; r$recovery$mode <- m; r$mode <- m

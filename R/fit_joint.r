@@ -59,7 +59,7 @@ MODE_SWITCHES <- list(joint = c(1L, 1L), edna = c(1L, 0L), visual = c(0L, 1L))
 
 fit_joint <- function(sim, mode = c("joint", "edna", "visual"), conv_free = character(0),
                       stan_data = NULL, mod = NULL,
-                      chains = 3L, warmup = 800L, sample = 800L,
+                      chains = 4L, warmup = 800L, sample = 800L,
                       adapt_delta = 0.85, max_treedepth = 12L, seed = 42L,
                       refresh = 0L, output_dir = NULL, ...) {
   mode <- match.arg(mode)
