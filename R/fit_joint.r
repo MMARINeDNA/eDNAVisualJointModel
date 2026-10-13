@@ -29,14 +29,80 @@ JOINT_INCLUDE <- c("stan/include", file.path(HSGP4EDNA_DIR, "stan", "include"))
 
 compile_joint <- function(...) cmdstan_model(JOINT_STAN, include_paths = JOINT_INCLUDE, ...)
 
+# -----------------------------------------------------------------------------
+# Data-based starting field for the eDNA stations.
+#
+# From a flat starting field (z = 0) the sampler can get stuck where the data
+# imply extreme densities: at hot spots it settles on near-zero copies with
+# inflated noise (joint simulator seed 1: hake R^2 0.19, theta_bottle 1.6
+# against 10, log density ~2000 below the true region). Starting the field
+# from the data fixes it (hake R^2 0.978, theta_bottle 8.9; the same as
+# starting at the truth). ROADMAP 6.0.
+#
+# Per station and species, a target log density from the data only:
+#   - metabarcoding: log(reads_s / (reads_junk + 0.5)) + the junk's starting
+#     log copies, averaged over the replicates with reads of species s;
+#   - qPCR (species 1): log aliquot copies from Ct through the standard curve,
+#     averaged over detected replicates (replaces the MB value);
+#   - minus the conversion factor, log volume and water-column offset
+#     (conversion factors being estimated use their starting value).
+# Stations without a value get the species' minimum minus 1. The targets are smoothed
+# onto the HSGP basis by the GP posterior mean of z (ridge, noise SD 0.5) at
+# the prior's median length-scale, giving the starting mu, gp_sigma, gp_l_raw
+# and z_beta. Uses the Stan data only, so it applies to real data too.
+# -----------------------------------------------------------------------------
+edna_field_start <- function(sd, mu_junk, log_conv_free = sd$prior_log_conv_mu) {
+  S <- sd$S; N <- sd$N; M <- sd$M; D <- sd$D1; L <- sd$L_hsgp; IDX <- sd$INDICES
+  PHI <- sapply(seq_len(M), function(m) Reduce(`*`, lapply(seq_len(D), function(i)
+    1 / sqrt(L[i]) * sin(IDX[m, i] * pi * (sd$coords[, i] + L[i]) / (2 * L[i])))))
+  sqrt_spd <- function(alpha, rho) apply(IDX, 1, function(mm)
+    sqrt(alpha^2 * sqrt(2 * pi)^D * prod(rho) * exp(-0.5 * sum(rho^2 * (mm * pi / (2 * L))^2))))
+  rho0 <- sd$prior_gp_l_scale / qgamma(0.5, sd$prior_gp_l_shape)   # inverse-gamma median
+
+  log_conv <- sd$log_conv_factor
+  if (sd$n_conv_free > 0) log_conv[sd$conv_free_idx] <- log_conv_free
+  lvf <- log(sd$vol_aliquot / 100)
+  dens <- function(log_bottle, s, i)
+    log_bottle - log_conv[s] - sd$log_vol_filtered - sd$log_zsample_effect[i, s]
+  target <- matrix(NA_real_, N, S)
+  log_junk <- mu_junk + log_conv[S + 1] + sd$log_vol_filtered
+  for (s in 1:S) {
+    pos <- sd$mb_reads[, s] > 0
+    if (!any(pos)) next
+    v <- tapply(log(sd$mb_reads[pos, s]) - log(sd$mb_reads[pos, S + 1] + 0.5), sd$mb_sample_idx[pos], mean)
+    i <- as.integer(names(v)); target[i, s] <- dens(log_junk + v, s, i)
+  }
+  det <- sd$qpcr_detect == 1
+  if (any(det)) {
+    v <- tapply((sd$alpha_ct - sd$qpcr_ct[det]) / sd$beta_ct - lvf, sd$qpcr_sample_idx[det], mean)
+    i <- as.integer(names(v)); target[i, 1] <- dens(v, 1, i)
+  }
+  out <- list(mu = numeric(S), sigma = numeric(S), rho = rho0, z = matrix(0, S, M))
+  for (s in 1:S) {
+    y <- target[, s]
+    y[is.na(y)] <- if (all(is.na(y))) sd$prior_mu_sp_mu[s] else min(y, na.rm = TRUE) - 1
+    out$mu[s] <- mean(y); out$sigma[s] <- max(sd(y), 0.5)
+    A <- sweep(PHI, 2, sqrt_spd(out$sigma[s], rho0), `*`)
+    out$z[s, ] <- t(A) %*% solve(tcrossprod(A) + diag(0.25, N), y - out$mu[s])
+  }
+  out
+}
+
 joint_init <- function(sd) {
   S <- sd$S; L <- sd$L
+  mu_junk <- sd$prior_mu_sp_mu[S + 1] + 2.05                               # junk ~ 4
+  # data-based starting field when the eDNA data are in the likelihood (a
+  # visual-only fit must not start from the eDNA data)
+  fs <- if (sd$use_edna == 1L) edna_field_start(sd, mu_junk) else NULL
   function() {
     init <- list(
-      mu_sp = sd$prior_mu_sp_mu + c(rnorm(S, 0, 0.1), 2 + runif(1, 0, 0.1)),   # junk ~ 4
-      gp_sigma = runif(S, 0.8, 1.2),
-      gp_l_raw = matrix(runif(S * sd$D1, 0.2, 0.4), S, sd$D1),
-      z_beta = matrix(0, S, sd$M), beta_bathy = matrix(0, S, sd$K_bathy),
+      mu_sp = c(if (is.null(fs)) sd$prior_mu_sp_mu[1:S] else fs$mu, mu_junk) +
+              c(rnorm(S, 0, 0.1), runif(1, -0.05, 0.05)),
+      gp_sigma = (if (is.null(fs)) 1 else fs$sigma) * runif(S, 0.8, 1.2),
+      gp_l_raw = if (is.null(fs)) matrix(runif(S * sd$D1, 0.2, 0.4), S, sd$D1)
+                 else matrix(rep(fs$rho, each = S), S, sd$D1) * runif(S * sd$D1, 0.9, 1.1),
+      z_beta = if (is.null(fs)) matrix(0, S, sd$M) else fs$z + rnorm(S * sd$M, 0, 0.05),
+      beta_bathy = matrix(0, S, sd$K_bathy),
       beta0_phi = 0, gamma0_phi = 2, gamma1_phi = 1,
       g_raw = matrix(0, sd$N * sd$use_bottle_noise, S),
       cv_bottle = rep(0.3, sd$use_bottle_noise * (if (sd$bottle_theta_shared == 1L) 1L else S)),
@@ -73,7 +139,7 @@ fit_joint <- function(sim, mode = c("joint", "edna", "visual"), conv_free = char
                     iter_warmup = warmup, iter_sampling = sample,
                     adapt_delta = adapt_delta, max_treedepth = max_treedepth,
                     seed = seed, init = joint_init(sd), refresh = refresh,
-                    show_messages = FALSE, output_dir = output_dir)
+                    show_messages = refresh > 0, output_dir = output_dir)
   runtime_min <- as.numeric(Sys.time() - t0, units = "mins")
   c(list(fit = fit, stan_data = sd, mode = mode, runtime_min = runtime_min),
     summarise_joint(fit, sim, sd, mode))

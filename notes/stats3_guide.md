@@ -15,8 +15,10 @@ These are the re-runs that ROADMAP Phase 6.0 lists after the move to the
 > and 5. That gives eDNA-only, visual-only and joint fits on several
 > simulations of the real study domain. Stages 2 and 4 can wait. The visual
 > validation and the explainer's visual fits are already done (run on the Mac
-> on 2026-10-12). Seed 1 is left out for now: its eDNA fits get stuck at its
-> extreme hake hot spots (ROADMAP 6.0).
+> on 2026-10-12). Seed 1 needs the data-based starting field (from
+> 2026-10-13; `git pull` first), because from a flat start its eDNA fits get
+> stuck at its extreme hake hot spots (ROADMAP 6.0). Run it as its own wave:
+> `CMP_SEEDS="1" tools/stats3_reruns.sh stage 3`.
 
 **stats3 specs (from the IT FAQ):** Intel i9-13900K with 24 physical cores and
 32 hyperthreads, 128 GB RAM, RAID-1 NVMe (`/fast_raid`) and HDD (`/local_raid`).
@@ -215,6 +217,7 @@ the two visual-only fits end), and should finish overnight:
 ```bash
 tools/stats3_reruns.sh stage 3                      # seeds 2 and 3
 CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3      # second wave, once the first is done
+CMP_SEEDS="1" tools/stats3_reruns.sh stage 3        # seed 1 (needs the data-based start)
 ```
 
 A single fit can be relaunched by name, e.g.

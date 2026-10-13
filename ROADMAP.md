@@ -715,8 +715,8 @@ results back.
 **Priority for the October 2026 presentation** (decided 2026-10-13): working
 eDNA-only, visual-only and joint fits on simulations of the real study
 domain. So the joint comparison (item 6) runs first, on several seeds:
-seeds 2 and 3, then 4 and 5 (`CMP_SEEDS`). Seed 1 waits for the hot-spot fix
-(item 5). The full validation (items 3, 5) and the explainer (item 7) follow
+seeds 2 and 3, then 4 and 5 (`CMP_SEEDS`), then seed 1 with the data-based
+starting field (item 5). The full validation (items 3, 5) and the explainer (item 7) follow
 after the presentation.
 
 1. **Real data objects.** `Rscript R/01_load_muri.r` (needs
@@ -762,12 +762,24 @@ after the presentation.
    - But it is not a better fit: the qPCR alone fits each hot spot about 40
      log-likelihood units better at the true copies. So it looks like a
      sampler trap from the flat starting field.
-   - **Next:** start the field from the copies implied by the data (Ct gives
-     log copies directly); if seed 1 then converges, make that the default
-     initial value in `fit_edna()` / `fit_joint()`. Alternative: bound the
-     Ct-noise SD at very low copies (a model change).
+   - ✅ **Fixed by a data-based starting field** (2026-10-13). Seed 1 refit
+     with 4 × 800/800 from a field built from the data (Ct through the
+     standard curve, reads relative to junk, smoothed onto the HSGP basis),
+     against the same fit started at the true field:
+
+     | Seed 1, eDNA | hake R² | θ_bottle (truth 10) | θ_junk | lp__ | max Rhat |
+     |---|---|---|---|---|---|
+     | flat start | 0.19 | 1.6 | 1.0 | −15,190 to −15,450 | 1.72 |
+     | data-based start | **0.978** | **8.9** | 13.8 | −13,190 to −13,210 | 1.09 (θ_bottle) |
+     | start at the truth | 0.978 | 9.0 | 13.6 | −13,180 to −13,230 | 1.06 |
+
+     `fit_joint()` now starts from the data (`edna_field_start()`, eDNA in the
+     likelihood only; visual-only fits start as before). Still to do:
+     the same start in HSGP4eDNA's `09` driver (used by `fit_edna()` and
+     `validate_joint_sim.r`).
 6. **Joint comparison.** `R/compare_joint.r` with `joint_conv`, one job per
-   seed and mode on stats3 (stage 3; seeds 2 and 3, then 4 and 5). This
+   seed and mode on stats3 (stage 3; seeds 2 and 3, then 4 and 5, then 1;
+   seeds 2 and 3 started before the data-based start). This
    rebuilds the README Phase 5 table and `docs/figures/joint_compare_s<seed>.png`.
 7. **Explainer.** `docs/explainer/01`–`09`: simulated and real fits (eDNA,
    visual at 800 and 1600 functions) and all figures. The simulated and real

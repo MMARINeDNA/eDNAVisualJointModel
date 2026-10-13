@@ -302,8 +302,9 @@ throughout.
   - A rerun on the same data converged; that is the run shown.
   - Rhat flags the problem, but it is an intermittent mixing risk. Check
     Rhat on θ_junk in every joint fit. Joint fits now default to 4 chains.
-  - On the 35°N domain, seed 1's eDNA fits get stuck at its extreme hake hot
-    spots (ROADMAP 6.0), so the stats3 comparison runs seeds 2–5 first.
+  - On the 35°N domain, seed 1's eDNA fits got stuck at its extreme hake hot
+    spots from a flat starting field. Joint fits now start the field from the
+    data (`edna_field_start()`), which recovers it (ROADMAP 6.0).
 - **Runtime.** eDNA-only and joint fits take 2–3 h; visual-only takes 12–15 min.
 
 ![Joint vs single-source field recovery, seed 1: posterior mean vs true log density per species (rows) and fit (columns)](docs/figures/joint_compare_s1.png)
