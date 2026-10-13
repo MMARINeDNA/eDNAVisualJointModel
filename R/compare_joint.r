@@ -11,7 +11,8 @@
 #   Rscript R/compare_joint.r
 # Env: SEED (default 1), MODES (default "edna,visual,joint,joint_conv"),
 #      CONV_FREE (species freed in joint_conv; default "humpback,pwsd"),
-#      CHAINS, WARMUP, SAMPLE (default 4 x 800/800), OUT (default
+#      CHAINS, WARMUP, SAMPLE (default 4 x 800/800), REFRESH (sampler
+#      progress every REFRESH iterations; default 100, 0 = silent), OUT (default
 #      outputs/joint/compare_s<SEED>)
 # Each mode's summary is saved as <OUT>/fit_<mode>.rds, so modes can run in
 # separate processes; the tables and figure are (re)built from whatever
@@ -43,6 +44,7 @@ if (length(MODES) && any(nzchar(MODES))) {
                    conv_free = if (m == "joint_conv") CONV_FREE else character(0),
                    mod = mod, chains = env_int("CHAINS", "4"),
                    warmup = env_int("WARMUP", "800"), sample = env_int("SAMPLE", "800"),
+                   refresh = env_int("REFRESH", "100"),
                    seed = 42L + SEED)
     r$field$mode <- m; r$recovery$mode <- m; r$mode <- m
     cat(sprintf("%s: %.0f min | divergences %d | treedepth %d | max Rhat %.3f | E-BFMI %s\n",
