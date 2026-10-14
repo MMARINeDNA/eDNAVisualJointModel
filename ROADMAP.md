@@ -779,7 +779,14 @@ after the presentation.
      `validate_joint_sim.r`).
 6. **Joint comparison.** `R/compare_joint.r` with `joint_conv`, one job per
    seed and mode on stats3 (stage 3; seeds 2 and 3, then 4 and 5, then 1;
-   seeds 2 and 3 started before the data-based start). This
+   seeds 2 and 3 started before the data-based start). **Seed 1 done** (Mac,
+   2026-10-13, data-based start, 4 × 800/800): every fit converged (0
+   divergences; max Rhat 1.007 visual, 1.019 joint, 1.06 joint_conv, 1.11
+   eDNA-only on θ_bottle). Field R² hake 0.939 in every mode; humpback 0.494
+   eDNA / 0.925 visual / **0.928 joint**; PWSD 0.589 / 0.589 / **0.745**;
+   conversion factors recovered (humpback 5.30 [5.05, 5.53], truth 5.30; PWSD
+   4.77 [4.45, 5.08], truth 4.70). In the explainer (Section 5) and the SMM
+   talk. This
    rebuilds the README Phase 5 table and `docs/figures/joint_compare_s<seed>.png`.
 7. **Explainer.** `docs/explainer/01`–`09`: simulated and real fits (eDNA,
    visual at 800 and 1600 functions) and all figures. The simulated and real
