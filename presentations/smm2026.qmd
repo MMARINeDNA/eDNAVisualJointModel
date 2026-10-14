@@ -340,8 +340,8 @@ fig("model_joint.png")
 | Species | eDNA | Visual detections | Role |
 |---|---|---|---|
 | Pacific hake | qPCR + metabarcoding | not surveyed | eDNA-rich anchor |
-| Humpback whale | metabarcoding | ~800--1,500 | rare in eDNA, conspicuous at the surface |
-| Pacific white-sided dolphin | metabarcoding | ~100 | weak in both |
+| Humpback whale | metabarcoding | ~800--1,700 | rare in eDNA, conspicuous at the surface |
+| Pacific white-sided dolphin | metabarcoding | ~100--150 | weak in both |
 
 : {.big}
 
@@ -361,28 +361,45 @@ fig("model_joint.png")
 ~45 s. One simulated field per species, observed by both survey types. The three species span the range of how informative each source is. Each simulated dataset is fitted four ways with the same model, and we compare how well each recovers the true density surface.
 :::
 
-## Results
+## Results: one simulated dataset, four fits
 
-::: {.placeholder}
-**Placeholder: simulation results to come** (joint comparison now running on the server, seeds 2--5)
-
-- Figure: posterior mean against true log density, by species (rows) and fit (columns), from `outputs/joint/compare_s<SEED>/compare_joint.png`
-- Table: field $R^2$ (95% interval width) per species and fit, from `compare_field.csv`
-- Conversion-factor recovery for humpback and PWSD (joint, $c_s$ free), from `compare_recovery.csv`
-:::
-
-| Species | eDNA only | Visual only | Joint | Joint, $c_s$ free |
-|---|---|---|---|---|
-| Hake | … | not surveyed | … | … |
-| Humpback | … | … | … | … |
-| PWSD | … | … | … | … |
+```{r}
+#| out_h: 0.86
+fig("results_field.png")
+```
 
 ::: {.notes}
-~2 min. TO FILL IN once the stats3 runs finish. Questions to answer on this slide: does joint beat the best single source for humpback and PWSD? Is hake unchanged (it should be: no visual data)? Are the conversion factors recovered?
+~1 min. This is one simulated dataset, fitted four ways: the same model with the eDNA likelihood, the visual likelihood or both switched on. Each point is a location, an eDNA station or a transect segment, with the true log density on the x axis and the posterior mean on the y axis. Hake has no visual data, so its joint fit is just its eDNA fit, as it should be. Humpback is carried by the 1,700 sightings; eDNA alone is weak for it. PWSD is weak in both sources alone, R-squared about 0.6 either way, and the joint fit gets to 0.75 with narrower intervals. That is the case the joint model is for.
+:::
+
+## Results: what the joint model adds
+
+| Field $R^2$ (CI width) | eDNA only | Visual only | Joint | Joint, $c_s$ free |
+|---|---|---|---|---|
+| Hake | 0.94 (2.6) | not surveyed | 0.94 (2.6) | 0.94 (2.6) |
+| Humpback | 0.49 (4.2) | 0.92 (1.3) | **0.93 (1.3)** | 0.93 (1.3) |
+| PWSD | 0.59 (4.1) | 0.59 (3.2) | **0.75 (2.8)** | 0.74 (2.8) |
+
+: {.big}
+
+:::: {.columns}
+::: {.column width="55%"}
+- **$c_s$ recovered** (log scale): humpback 5.30 [5.05, 5.53], truth 5.30; PWSD 4.77 [4.45, 5.08], truth 4.70
+- True field covered: 92--96% in every fit
+:::
+::: {.column width="45%"}
+- Converged: no divergences, $\hat{R} \le 1.06$ (eDNA-only 1.11, bottle noise)
+- One dataset so far; replicates running
+:::
+::::
+
+::: {.notes}
+~1 min 15 s. The numbers behind the figure. Hake is identical across the eDNA, joint and joint-with-free-conversion fits, which is the sanity check. For humpback the joint fit edges out visual-only. For the dolphin both sources alone are mediocre and together they are clearly better: R-squared from 0.59 to 0.75 and narrower intervals. When we let the conversion factors float, the joint model recovers them: that is the copies-per-animal number eDNA needs to become quantitative, and eDNA alone cannot estimate it. Caveat: this is one simulated dataset; more replicates are running now. Starting values matter: from a flat start the eDNA side can get stuck at extreme hot spots, so the fits start from a field built from the data.
 :::
 
 ## Next steps
 
+- **Replicates:** more simulated datasets (running now)
 - **Real data:** fit the joint model to the 2018 sightings and 2019 eDNA
 - **eDNA inputs:** qPCR Ct values and standard curves; volumes filtered
 - **Detection:** Beaufort covariate in the joint model's visual side; $g(0)$

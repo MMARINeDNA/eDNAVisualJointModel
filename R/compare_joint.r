@@ -96,9 +96,13 @@ g <- ggplot(pts, aes(truth, post, colour = source)) +
   geom_text(data = lab, aes(x = -Inf, y = Inf, label = label), inherit.aes = FALSE,
             hjust = -0.1, vjust = 1.2, size = 3) +
   facet_grid(species ~ mode, scales = "free") +
+  # centred in the empty panel (free scales: its x range is the visual column's,
+  # its y range the species row's)
   geom_text(data = data.frame(mode = factor("visual", levels(pts$mode)),
-                              species = setdiff(sp, lt), label = "no visual data"),
-            aes(x = 0, y = 0, label = label), inherit.aes = FALSE, colour = "grey40", size = 3.5) +
+                              species = setdiff(sp, lt), label = "no visual data",
+                              x = mean(range(pts$truth[pts$mode == "visual"])),
+                              y = sapply(setdiff(sp, lt), function(s) mean(range(pts$post[pts$species == s])))),
+            aes(x = x, y = y, label = label), inherit.aes = FALSE, colour = "grey40", size = 3.5) +
   scale_colour_manual(values = c(station = "#D55E00", segment = "#0072B2")) +
   labs(x = "true log density", y = "posterior mean log density", colour = NULL,
        title = sprintf("Joint vs single-source field recovery (simulate_joint seed %d)", SEED),

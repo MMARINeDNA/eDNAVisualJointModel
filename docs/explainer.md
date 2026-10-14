@@ -28,9 +28,11 @@ number-sections: true
 > | Real-data domain | 1360 × 2600 km | 690 × 1770 km |
 >
 > **Every number and figure below predates these changes** and will be
-> regenerated after the re-runs listed in ROADMAP Phase 6.0. The real eDNA
-> bottles (all north of 35°N) are unchanged; the real eDNA fit's numbers still
-> change through the new domain and budget.
+> regenerated after the re-runs listed in ROADMAP Phase 6.0, **except the
+> joint model's simulation results (Section 5), which are on the current
+> set-up** (seed 1, 2026-10-13). The real eDNA bottles (all north of 35°N) are
+> unchanged; the real eDNA fit's numbers still change through the new domain
+> and budget.
 
 # What this document is
 
@@ -790,8 +792,9 @@ $\ell_\min$ falls to 75 km east-west and 106 km north-south). Neither fit had di
 
 The joint model (`stan/hsgp_joint.stan`, driven by `R/fit_joint.r`) was added to
 `main` after the rest of this document was written, in Phase 5 of the roadmap.
-This section summarises what the repository records about it. The numbers are
-from `README.md` and `ROADMAP.md`, produced by that work.
+Its simulation results below are from the current set-up: the 35°N study
+domain, 50 × 150 km length-scales, 35 transects and an 800-function basis
+budget (`R/compare_joint.r`, run 2026-10-13).
 
 ## Structure
 
@@ -799,7 +802,7 @@ Each species has **one** latent field, a 2-D HSGP plus a bottom-depth spline in
 animals per km², exactly as in the single-source models. Two observation models
 share it:
 
-- **eDNA:** HSGP4eDNA's v1.3 model, run unchanged: qPCR for hake, zero-inflated
+- **eDNA:** HSGP4eDNA's v1.5 model, run unchanged: qPCR for hake, zero-inflated
   beta-binomial metabarcoding for all species, and the between-bottle and junk
   noise terms.
 - **Visual:** the line-transect model for humpback and PWSD, with the detection
@@ -821,38 +824,57 @@ at most 3e-11.
 
 ## Results on simulated data
 
-Four fits on the same simulated dataset (`simulate_joint()`, seeds 1 and 2, 3
-chains of 800 + 800). Cells are the field R² over all 200 stations and 1250
-segments, with the mean 95% interval width of log density in brackets.
+Four fits on one simulated dataset (`simulate_joint()` seed 1, 4 chains of
+800 + 800): eDNA-only, visual-only, joint, and joint with the cetaceans'
+conversion factors estimated. They use the same model, priors, basis and
+starting rule; only the data switched on differ. Cells are the field R² over
+all 200 stations and 2415 segments, with the mean 95% interval width of log
+density in brackets.
 
-| Species | Seed | eDNA only | Visual only | Joint | Joint, conversion factor free |
-|---|---|---|---|---|---|
-| Hake | 1 | 0.987 (1.07) | not surveyed | 0.987 (1.09) | 0.987 (1.08) |
-| Hake | 2 | 0.989 (1.27) | not surveyed | 0.988 (1.26) | |
-| Humpback | 1 | 0.696 (2.08) | 0.897 (1.25) | **0.922 (1.15)** | 0.923 (1.15) |
-| Humpback | 2 | 0.579 (2.40) | 0.869 (1.31) | **0.895 (1.26)** | |
-| PWSD | 1 | 0.659 (2.54) | 0.533 (3.57) | **0.661** (2.63) | 0.665 (2.79) |
-| PWSD | 2 | 0.751 (2.26) | 0.574 (3.47) | **0.809 (2.03)** | |
+| Species | eDNA only | Visual only | Joint | Joint, conversion factor free |
+|---|---|---|---|---|
+| Hake | 0.939 (2.60) | not surveyed | 0.939 (2.65) | 0.939 (2.64) |
+| Humpback | 0.494 (4.17) | 0.925 (1.32) | **0.928 (1.28)** | 0.929 (1.28) |
+| PWSD | 0.589 (4.12) | 0.589 (3.17) | **0.745 (2.78)** | 0.744 (2.81) |
 
-![Joint against single-source field recovery, seed 1: posterior mean against true log density, by species (rows) and fit (columns). This figure is from the repository's Phase 5 comparison.](figures/joint_compare_s1.png)
+![Joint against single-source field recovery, seed 1: posterior mean against true log density at every station and segment location, by species (rows) and fit (columns).](figures/joint_compare_s1.png)
 
 - **Hake is unchanged** by the joint fit, as it should be: it has no visual data.
-- **Humpback improves** over the better single source in both seeds, in R² and in
-  interval width.
-- **PWSD** has the best R² in both seeds and narrower intervals in seed 2. In seed 1
-  (37 sightings) its interval is slightly wider than eDNA-only: the visual data
-  pull the along-coast length-scale from 435 to 199 km (truth 300), and a shorter
-  length-scale means more uncertainty between data points.
+- **Humpback** is carried by its 1,690 sightings. The joint fit is slightly
+  better than visual-only, in R² and interval width, and much better than
+  eDNA-only.
+- **PWSD gains most.** With 153 sightings and detections in a minority of
+  bottles, each source alone gives R² 0.59; together they give 0.75, with
+  narrower intervals than either.
 - **Conversion factors are identified.** eDNA alone cannot identify them (only
   density times conversion enters its likelihood). With the visual data, and a
-  deliberately off-centre prior, the joint model recovers them: humpback 5.33
-  [5.09, 5.57] (truth 5.30) and PWSD 4.94 [4.46, 5.42] (truth 4.70), on the log
-  scale.
-- **One joint run did not converge** (seed 2, first attempt, max Rhat 1.66): one
-  chain sat in a mode with very large junk noise. A rerun converged. This is
-  an intermittent mixing risk, and the repository's advice is to check Rhat on
-  $\theta_\text{junk}$ in every joint fit.
-- **Cost.** eDNA-only and joint fits take 2 to 3 hours; visual-only 12 to 15 minutes.
+  deliberately off-centre prior (normal(log 100, 2)), the joint model recovers
+  them on the log scale: humpback 5.30 [5.05, 5.53] (truth 5.30) and PWSD 4.77
+  [4.45, 5.08] (truth 4.70).
+- **Coverage** of the true field is 92–96% in every cell.
+- **Convergence.** No divergences in any fit. Max Rhat is 1.007 (visual-only),
+  1.019 (joint) and 1.06 (conversion factors free); the eDNA-only fit's is 1.11,
+  on $\theta_\text{bottle}$, the slowly mixing noise term (its field has
+  converged).
+- **Hyperparameters** are mostly covered. The misses: humpback's north–south
+  length-scale reads 185–187 km [156, 219] against a truth of 150 in the visual
+  and joint fits, and hake's and humpback's GP SDs sit slightly high.
+- **Starting values matter.** From a flat starting field, the eDNA side of this
+  dataset got stuck at its extreme hake hot spots (log density up to 9.5):
+  every chain settled on near-zero copies with inflated noise (hake R² 0.19,
+  $\theta_\text{bottle}$ 1.6 against 10), a state about 2000 log-density units
+  worse than the truth's. `fit_joint()` now starts the field from the data (Ct
+  through the standard curve, reads relative to junk, smoothed onto the HSGP
+  basis), which recovers the true region from the first iteration.
+- **Cost** on a laptop, 4 chains: eDNA-only, joint and joint with conversion
+  factors free about 2 hours each; visual-only about 45 minutes.
+- **One dataset so far.** Further seeds are running on the stats3 server; they
+  replace this single replicate with a summary across seeds.
+
+The earlier comparison on the old 500 × 1270 km box (seeds 1 and 2, 3 chains)
+showed the same pattern: joint best for both cetaceans, hake unchanged, and
+conversion factors recovered. One of its runs did not converge (one chain in a
+mode with very large junk noise), which is why joint fits now run 4 chains.
 
 > **[REVIEW] What is not yet shown here.**
 > (1) Prior and posterior predictive checks for the joint model, in the style of
@@ -915,6 +937,8 @@ SP=humpback M_MAX=800 TAG=real800 Rscript docs/explainer/03_fit_visual_real.R   
 Rscript docs/explainer/08_fig_key_choice.R     # detection-key comparison on the real distances
 Rscript docs/explainer/04_fit_edna_real.R      # real eDNA fit (metabarcoding only)
 Rscript docs/explainer/07_fig_visual.R         # visual figures
+SEED=1 Rscript R/compare_joint.r               # joint vs single-source fits (Section 5; ~7 h on a laptop)
+cp outputs/joint/compare_s1/compare_joint.png docs/figures/joint_compare_s1.png
 quarto render docs/explainer.md --to html --embed-resources
 ```
 
