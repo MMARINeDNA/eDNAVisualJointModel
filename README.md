@@ -42,14 +42,15 @@ southern edge on 35°N.
 
 > **Re-runs in progress.** The current set-up is the 35°N domain, 50 × 150 km
 > length-scales, 35 transects and an 800-function budget.
-> - **Re-run (2026-10-12):** the visual validation and sea-state check
->   ([Results](#results)).
-> - **Still from the earlier set-up:** the joint-model results and HSGP4eDNA's
->   validation. That set-up was a 500 × 1270 km box (about 37.7–49.2°N),
->   50 × 300 km length-scales, 25 transects and a 400-function budget.
+> - **Re-run:** the visual validation and sea-state check (2026-10-12) and
+>   the joint comparison for seed 1 (2026-10-13) ([Results](#results)). Seeds
+>   2 and 3 of the joint comparison are running.
+> - **Still from the earlier set-up:** HSGP4eDNA's validation. That set-up was
+>   a 500 × 1270 km box (about 37.7–49.2°N), 50 × 300 km length-scales, 25
+>   transects and a 400-function budget.
 >
-> The rest runs on the stats3 server (`notes/stats3_guide.md`); ROADMAP Phase
-> 6.0 lists it.
+> The rest runs on the stats3 server or a laptop (`notes/stats3_guide.md`);
+> ROADMAP Phase 6.0 lists it.
 
 ## Simulated species
 
@@ -203,9 +204,10 @@ fit_joint(sim, "joint", conv_free = c("humpback", "pwsd"))   # estimate conversi
 `stan/hsgp_joint.stan` gives each species one field: a 2-D HSGP plus a
 bottom-depth spline, in animals/km². Two observation models share it:
 
-- **eDNA:** HSGP4eDNA's v1.3 model, run unchanged. It has qPCR for hake,
+- **eDNA:** HSGP4eDNA's v1.5 model, run unchanged. It has qPCR for hake,
   zero-inflated beta-binomial metabarcoding for all species, and the
-  between-bottle and junk noise terms.
+  between-bottle and junk noise terms. The metabarcoding assumes equal
+  amplification efficiency across species (ROADMAP 6.2, item 6).
 - **Visual:** the line-transect model for humpback and PWSD, without the
   sea-state covariate. Its half-normal or hazard-rate key and per-species
   truncation carry through.
@@ -266,48 +268,51 @@ log units per Beaufort unit, up to 0.61 log units across the survey. Density
 is covered in every fit either way. β_bft is covered but shrunk toward zero
 (median relative bias −29% humpback, −37% PWSD).
 
-**Joint model** (*earlier 500 × 1270 km set-up; re-run on stats3 pending*;
-`R/compare_joint.r`, `simulate_joint()` seeds 1 and 2, 3 chains × 800/800).
-The same model and priors are used in each column; only the data differ. Each
-cell is the field R² over all 200 stations and 1250 segments, with the mean
-95% CI width of log density in brackets. Coverage of the true field is 0.87–0.99
-throughout.
+**Joint model** (`R/compare_joint.r`, `simulate_joint()` seed 1 on the 35°N
+domain, 4 chains × 800/800, data-based starting field; run 2026-10-13; seeds
+2 and 3 running). The same model and priors are used in each column; only the
+data differ. Each cell is the field R² over all 200 stations and 2,415
+segments, with the mean 95% CI width of log density in brackets. Coverage of
+the true field is 0.92–0.96 throughout.
 
-| Species | Seed | eDNA only | Visual only | Joint | Joint, conversion free |
-|---|---|---|---|---|---|
-| Hake | 1 | 0.987 (1.07) | — | 0.987 (1.09) | 0.987 (1.08) |
-| Hake | 2 | 0.989 (1.27) | — | 0.988 (1.26) | |
-| Humpback | 1 | 0.696 (2.08) | 0.897 (1.25) | **0.922 (1.15)** | 0.923 (1.15) |
-| Humpback | 2 | 0.579 (2.40) | 0.869 (1.31) | **0.895 (1.26)** | |
-| PWSD | 1 | 0.659 (2.54) | 0.533 (3.57) | **0.661** (2.63) | 0.665 (2.79) |
-| PWSD | 2 | 0.751 (2.26) | 0.574 (3.47) | **0.809 (2.03)** | |
+| Species | eDNA only | Visual only | Joint | Joint, conversion free |
+|---|---|---|---|---|
+| Hake | 0.939 (2.60) | — | 0.939 (2.65) | 0.939 (2.64) |
+| Humpback | 0.494 (4.17) | 0.925 (1.32) | **0.928 (1.28)** | 0.929 (1.28) |
+| PWSD | 0.589 (4.12) | 0.589 (3.17) | **0.745 (2.78)** | 0.744 (2.81) |
 
 - **Hake** is unchanged from eDNA-only, as it should be: it has no visual data.
-- **Humpback.** Joint beats the best single source in R² and CI width in both
-  seeds.
-- **PWSD.** Joint has the best R² in both seeds and the narrowest CIs in seed 2.
-  In seed 1 (only 37 sightings) its CI is slightly wider than eDNA-only. The
-  visual data pull PWSD's along-coast length-scale from 435 to 199 km (truth
-  300, covered in every fit), and a shorter length-scale means more
-  uncertainty between data points. Coverage rises from 92% to 94%.
+- **Humpback** (1,690 sightings) is carried by the visual data. Joint is
+  slightly better than visual-only in R² and CI width, and much better than
+  eDNA-only.
+- **PWSD** gains most: each source alone gives R² 0.59 (153 sightings;
+  metabarcoding reads in about one replicate in five), and together they give
+  0.75 with narrower CIs than either.
 - **Conversion factors.** Freed with a deliberately off-centre prior
-  (normal(log 100, 2)), the joint model recovers them. Humpback is
-  5.33 [5.09, 5.57] (truth 5.30); PWSD is 4.94 [4.46, 5.42] (truth 4.70). eDNA
+  (normal(log 100, 2)), the joint model recovers them: humpback
+  5.30 [5.05, 5.53] (truth 5.30), PWSD 4.77 [4.45, 5.08] (truth 4.70). eDNA
   alone cannot identify them, because only density × conversion enters its
-  likelihood.
-- **Convergence.** Every fit above has 0 divergences and max Rhat ≤ 1.04.
-  - **The first seed-2 joint run did not converge** (max Rhat 1.66). One chain
-    sat in a mode with very large junk noise (θ_junk ≈ 2 against ≈ 17 in the
-    other chains), and hake's R² fell to 0.84.
-  - A rerun on the same data converged; that is the run shown.
-  - Rhat flags the problem, but it is an intermittent mixing risk. Check
-    Rhat on θ_junk in every joint fit. Joint fits now default to 4 chains.
-  - On the 35°N domain, seed 1's eDNA fits got stuck at its extreme hake hot
-    spots from a flat starting field. Joint fits now start the field from the
-    data (`edna_field_start()`), which recovers it (ROADMAP 6.0).
-- **Runtime.** eDNA-only and joint fits take 2–3 h; visual-only takes 12–15 min.
+  likelihood. They assume equal amplification efficiency across species in
+  the metabarcoding (ROADMAP 6.2, item 6).
+- **Convergence.** 0 divergences in every fit; max Rhat 1.007 (visual), 1.019
+  (joint), 1.06 (conversion free) and 1.11 for eDNA-only, on θ_bottle, the
+  slowly mixing noise term.
+- **Hyperparameters** are mostly covered. The misses: humpback's north–south
+  length-scale reads 185–187 km [156, 219] against 150 in the visual and joint
+  fits, and hake's and humpback's GP SDs sit slightly high.
+- **Starting values.** From a flat starting field this dataset's eDNA side got
+  stuck at its extreme hake hot spots (hake R² 0.19, θ_bottle 1.6 against 10).
+  Joint fits now start the field from the data (`edna_field_start()`), which
+  recovers it (ROADMAP 6.0). Joint fits also run 4 chains, so a stuck chain
+  shows in Rhat.
+- **Runtime** on a laptop: eDNA-only, joint and conversion-free about 2 h each;
+  visual-only about 45 min.
+- **Earlier set-up.** On the old 500 × 1270 km box (Phase 5, seeds 1 and 2,
+  3 chains) the pattern was the same: joint best for both cetaceans, hake
+  unchanged, conversion factors recovered. One of those runs did not converge
+  (one chain with very large junk noise).
 
-![Joint vs single-source field recovery, seed 1: posterior mean vs true log density per species (rows) and fit (columns)](docs/figures/joint_compare_s1.png)
+![Joint vs single-source field recovery, seed 1 on the 35°N domain: posterior mean vs true log density per species (rows) and fit (columns)](docs/figures/joint_compare_s1.png)
 
 ### GP priors
 

@@ -808,6 +808,18 @@ after the presentation.
   and metabarcoding at 1–100×, and they are not yet in the likelihood.
 - Dates and cruises for the eDNA samples. They and the visual survey are
   treated as one snapshot.
+- **MarVer1 amplification efficiencies** from mock communities (per species,
+  including hake, humpback and PWSD, ideally with the non-target background),
+  and the **PCR cycle number** for each metabarcoding run. Questions for the
+  lab:
+  - Are there MarVer1 mock-community runs with known template proportions for
+    these species, and what were the reads per species?
+  - Was the cycle number the same for every library, and is it known per
+    sample?
+  - How were the 1–100× metabarcoding dilutions chosen, and do diluted and
+    undiluted templates go through the same cycle number?
+
+  Why it matters: see 6.2 item 6.
 - *(Decision.)* How to treat the 19 sampling depths: an offset, a covariate,
   or separate surfaces.
 
@@ -863,6 +875,36 @@ after the presentation.
    - Then carry it into the joint model.
 5. **Beaufort covariate in the joint model.** PWSD needs it on real data;
    `format_stan_data_joint()` currently warns and ignores `use_bft`.
+6. **Metabarcoding amplification efficiency** (needs the 6.1 mock-community
+   data). Neither the model nor the simulator has species-specific PCR
+   efficiency: expected read shares follow aliquot copies relative to junk, so
+   MarVer1 is assumed to amplify every species and the junk background
+   equally. A species amplifying with efficiency α_s over N cycles gets reads
+   inflated by about (1 + α_s)^N (Shelton et al. 2023).
+   - **Where it does not matter.** With a fixed cycle number the bias is a
+     constant multiplier per species: it shifts a species' whole surface, not
+     its shape (field R², length-scales, hot spots unchanged). For hake, qPCR
+     fixes the absolute copies and a hake–junk read bias is absorbed by the
+     free junk intercept.
+   - **Where it does.** The cetaceans' copies are inferred through hake qPCR →
+     hake/junk reads → cetacean/junk reads, so a hake–cetacean efficiency
+     difference scales their copies by the efficiency ratio. With fixed
+     conversion factors (eDNA-only) that biases their absolute density. With
+     free conversion factors (joint) it is absorbed but confounded: c_s
+     becomes copies per animal × relative amplification bias, so it is not a
+     shedding rate and does not transfer to another primer or protocol.
+   - **Where it leaks into the pattern.** If the cycle number or dilution
+     differs between samples, the bias varies between samples and enters the
+     spatial field; check this first (6.1).
+   - **How to add it.** A per-species offset log a_s = N log(1 + α_s) on the
+     metabarcoding side only (not qPCR), with α_s given a prior from the
+     mock-community estimates. Without mock data α_s is not identifiable
+     separately from c_s. Simulate it first: draw α_s, fit with and without
+     the term, and check what c_s and the cetacean densities recover.
+   - Related, from the CalCOFI comparison (`docs/calcofi_hake_comparison.md`):
+     test whether copies scale one-for-one with density by freeing an
+     elasticity (copies ∝ λ^b); CalCOFI found eDNA amount carried little
+     information beyond presence for whales.
 
 #### 6.3 Real joint fit and extensions
 

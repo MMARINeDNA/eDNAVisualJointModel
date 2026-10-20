@@ -868,8 +868,8 @@ density in brackets.
   basis), which recovers the true region from the first iteration.
 - **Cost** on a laptop, 4 chains: eDNA-only, joint and joint with conversion
   factors free about 2 hours each; visual-only about 45 minutes.
-- **One dataset so far.** Further seeds are running on the stats3 server; they
-  replace this single replicate with a summary across seeds.
+- **One dataset so far.** Seeds 2 and 3 are running; they will replace this
+  single replicate with a summary across seeds.
 
 The earlier comparison on the old 500 × 1270 km box (seeds 1 and 2, 3 chains)
 showed the same pattern: joint best for both cetaceans, hake unchanged, and
@@ -907,6 +907,9 @@ meaningless until they are supplied. The visual data supply the absolute density
   not corrected; metabarcoding replicates also carry template dilutions of 1 to
   100-fold that the model ignores.
 - **Perpendicular distance missing** for 73 on-effort sightings, which are excluded.
+- **No amplification efficiencies.** There are no MarVer1 mock-community data or
+  PCR cycle numbers yet, so the per-species amplification bias of the
+  metabarcoding is unknown (see the next section).
 
 ## Models
 
@@ -917,6 +920,16 @@ meaningless until they are supplied. The visual data supply the absolute density
   apportioned to species.
 - **Water-column depth** is a known fixed offset in the eDNA model; on real data it
   is set to 1 because the real profiles are unknown.
+- **Equal amplification efficiency.** The metabarcoding model makes expected read
+  shares follow aliquot copies relative to junk, so it assumes MarVer1 amplifies
+  every species and the junk background equally. With a fixed cycle number a
+  species' efficiency difference is a constant multiplier: it shifts that
+  species' surface but not its shape. For hake, qPCR fixes the absolute level;
+  for the cetaceans it biases eDNA-only absolute density, and in the joint model
+  it is absorbed into the conversion factor, which then means copies per animal
+  times the species' relative amplification bias. If cycles or dilutions vary
+  between samples, the bias also enters the spatial pattern. Mock-community
+  estimates would separate the two (ROADMAP 6.1 and 6.2, item 6).
 - **Projection.** Effort to about -114.5 degrees longitude is far from UTM zone 10's
   central meridian, so distances there are distorted by a few percent.
 - **Sampling cost.** The reference eDNA fit takes about 15 hours; real-data fits of
