@@ -148,6 +148,19 @@ that nature does:
    then a Ct that falls linearly in $\ln c$ with measurement noise.
 4. **Metabarcoding.** Reads are split among the three species and a **junk**
    category in proportion to their copies; junk varies from bottle to bottle.
+   - **Junk** stands for all reads that are not hake, humpback or PWSD. Each
+     sample gets one junk draw, shared by its three metabarcoding replicates
+     because they come from one bottle. The bottle's junk copies are a
+     negative-binomial draw, then subsampled into the aliquot like the species'
+     copies. That gives about 50 junk copies per aliquot, with a between-sample
+     CV of about 0.2.
+   - Junk has **no spatial structure and no qPCR**: it is the same in
+     expectation everywhere, and only metabarcoding sees it.
+   - **Reads.** Each replicate draws a sequencing depth: 80% of replicates are
+     log-normal around 75,000 reads, and 20% around 40,000 with a wide spread,
+     clipped to 1,000–250,000. The depth is then split multinomially across the
+     species' and junk's aliquot copies. Junk takes about 90% of the reads in a
+     typical sample; at hake hot spots the share flips.
 
 ![Simulated eDNA observations. Left: qPCR detection against expected copies in the aliquot (red: the true hurdle). Middle: Ct against copies (red: the true standard curve). Right: share of metabarcoding replicates with any reads, by sampling depth.](figures/sim_edna_obs.png)
 
@@ -245,6 +258,32 @@ the observation model above, are:
 - **Junk noise.** The junk background also varies between samples, with its own
   spread $\theta_\text{junk}$. Without it the species' noise term absorbs junk
   variation and $\theta$ reads about 7 against a true 10.
+
+**How junk is modelled.** Metabarcoding reads are shares, so every species is
+measured relative to junk.
+
+- **A category of its own, without a spatial field.** Junk is the last
+  category. It has its own intercept $\mu_\text{junk}$ (prior normal(2, 1.5))
+  and a fixed conversion factor:
+  $\log(\text{junk copies}_i) = \mu_\text{junk} + \log c_\text{junk} +
+  \log(\text{litres}) + \log g_{\text{junk},i}$.
+- **Per-sample noise.** $g_{\text{junk},i} \sim \text{Gamma}(\theta_\text{junk},
+  \theta_\text{junk})$ has mean 1 and is shared by the sample's replicates.
+  $\theta_\text{junk}$ is estimated, with
+  $1/\sqrt{\theta_\text{junk}} \sim$ half-normal(0, 1). In HSGP4eDNA,
+  `JUNK_DIST=lognormal` gives a non-centred version and `JUNK_NOISE=0` holds
+  junk constant.
+- **Read shares.** Each category's expected share is its presence-conditioned
+  aliquot copies relative to junk. Its reads are zero-inflated beta-binomial,
+  present with probability $1 - e^{-\text{copies}}$.
+- **What anchors it.** Metabarcoding alone fixes copies only relative to junk.
+  Hake qPCR gives absolute copies, which pins the junk level, and through it
+  the other species' copies. Without Ct values (the real data so far) that
+  anchor is missing.
+- **Approximations.** $\theta_\text{junk}$ has no exact simulation truth: the CV
+  of 0.2 implies about 24, and fits give about 13–19, so it is a nuisance
+  parameter. The model's independent beta-binomial per category approximates
+  the simulator's multinomial split of the reads.
 - **Known water-column offset.** Depth preferences enter as a fixed offset per
   sample and species; the model does not estimate them.
 
