@@ -930,11 +930,20 @@ after the presentation.
      identical (the exactness check above), so the seed 1–3 joint
      comparisons (no sea state) stand.
    - **New: joint comparison with sea state.** `simulate_joint(sea_state =
-     TRUE)` with seeds 1–3, fitted visual-only, joint and joint with free
-     conversion factors, each with the covariate on for both cetaceans and,
-     for contrast, off (the eDNA-only fit does not use the visual data and
-     does not change). This shows whether the joint model recovers β_bft and
+     TRUE)`, fitted visual-only, joint and joint with free conversion
+     factors, each with the covariate on for both cetaceans and, for
+     contrast, off (the eDNA-only fit does not use the visual data and does
+     not change). This shows whether the joint model recovers β_bft and
      what leaving it out costs when eDNA is also in the fit.
+     - **With the covariate, seeds 1–5 (all four modes): seeds 1 and 2 done**
+       (Mac, 2026-10-20/21), seeds 3–5 paused part-way (seed 3 joint and
+       seed 4 eDNA-only in progress). Seeds 1–2: 0 divergences, max Rhat
+       ≤ 1.06; joint best for both cetaceans (PWSD R² 0.70–0.74 against
+       0.59–0.62 for the better single source); humpback β_bft recovered
+       closely (−0.068 to −0.079, truth −0.08), PWSD's covered but noisy
+       (−0.089 to −0.227, truth −0.15); conversion factors recovered. Tables
+       in the explainer, Section 5.
+     - **Without the covariate (contrast):** not run yet.
    - **Docs:** the README results and explainer Section 5 gain the sea-state
      comparison; the explainer's [REVIEW] note about the missing covariate
      goes.

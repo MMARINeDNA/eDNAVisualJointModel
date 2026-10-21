@@ -148,6 +148,19 @@ that nature does:
    then a Ct that falls linearly in $\ln c$ with measurement noise.
 4. **Metabarcoding.** Reads are split among the three species and a **junk**
    category in proportion to their copies; junk varies from bottle to bottle.
+   - **Junk** stands for all reads that are not hake, humpback or PWSD. Each
+     sample gets one junk draw, shared by its three metabarcoding replicates
+     because they come from one bottle. The bottle's junk copies are a
+     negative-binomial draw, then subsampled into the aliquot like the species'
+     copies. That gives about 50 junk copies per aliquot, with a between-sample
+     CV of about 0.2.
+   - Junk has **no spatial structure and no qPCR**: it is the same in
+     expectation everywhere, and only metabarcoding sees it.
+   - **Reads.** Each replicate draws a sequencing depth: 80% of replicates are
+     log-normal around 75,000 reads, and 20% around 40,000 with a wide spread,
+     clipped to 1,000–250,000. The depth is then split multinomially across the
+     species' and junk's aliquot copies. Junk takes about 90% of the reads in a
+     typical sample; at hake hot spots the share flips.
 
 ![Simulated eDNA observations. Left: qPCR detection against expected copies in the aliquot (red: the true hurdle). Middle: Ct against copies (red: the true standard curve). Right: share of metabarcoding replicates with any reads, by sampling depth.](figures/sim_edna_obs.png)
 
@@ -245,6 +258,32 @@ the observation model above, are:
 - **Junk noise.** The junk background also varies between samples, with its own
   spread $\theta_\text{junk}$. Without it the species' noise term absorbs junk
   variation and $\theta$ reads about 7 against a true 10.
+
+**How junk is modelled.** Metabarcoding reads are shares, so every species is
+measured relative to junk.
+
+- **A category of its own, without a spatial field.** Junk is the last
+  category. It has its own intercept $\mu_\text{junk}$ (prior normal(2, 1.5))
+  and a fixed conversion factor:
+  $\log(\text{junk copies}_i) = \mu_\text{junk} + \log c_\text{junk} +
+  \log(\text{litres}) + \log g_{\text{junk},i}$.
+- **Per-sample noise.** $g_{\text{junk},i} \sim \text{Gamma}(\theta_\text{junk},
+  \theta_\text{junk})$ has mean 1 and is shared by the sample's replicates.
+  $\theta_\text{junk}$ is estimated, with
+  $1/\sqrt{\theta_\text{junk}} \sim$ half-normal(0, 1). In HSGP4eDNA,
+  `JUNK_DIST=lognormal` gives a non-centred version and `JUNK_NOISE=0` holds
+  junk constant.
+- **Read shares.** Each category's expected share is its presence-conditioned
+  aliquot copies relative to junk. Its reads are zero-inflated beta-binomial,
+  present with probability $1 - e^{-\text{copies}}$.
+- **What anchors it.** Metabarcoding alone fixes copies only relative to junk.
+  Hake qPCR gives absolute copies, which pins the junk level, and through it
+  the other species' copies. Without Ct values (the real data so far) that
+  anchor is missing.
+- **Approximations.** $\theta_\text{junk}$ has no exact simulation truth: the CV
+  of 0.2 implies about 24, and fits give about 13–19, so it is a nuisance
+  parameter. The model's independent beta-binomial per category approximates
+  the simulator's multinomial split of the reads.
 - **Known water-column offset.** Depth preferences enter as a fixed offset per
   sample and species; the model does not estimate them.
 
@@ -868,8 +907,61 @@ density in brackets.
   basis), which recovers the true region from the first iteration.
 - **Cost** on a laptop, 4 chains: eDNA-only, joint and joint with conversion
   factors free about 2 hours each; visual-only about 45 minutes.
-- **One dataset so far.** Seeds 2 and 3 are running; they will replace this
-  single replicate with a summary across seeds.
+- **Replicates.** This calm-sea comparison is one dataset. The replicates are
+  being run with sea state instead (next subsection).
+
+### With sea state (Beaufort)
+
+The joint model's visual side can include the Beaufort sea-state covariate on
+detection, as the visual model does (log σ shifts by β_bft per Beaufort unit
+around Beaufort 3). Here the simulations draw a Beaufort value for every
+segment (rougher to the north and offshore), and detection falls with it
+(truth β_bft −0.08 for humpback, −0.15 for PWSD). For the same seed the field
+and the eDNA data are identical to the calm-sea simulation; only the sightings
+change. Every fit includes the covariate for both cetaceans. Seeds 1 and 2 are
+done; seeds 3–5 are running.
+
+Field R² (mean 95% interval width):
+
+| Species | Seed | eDNA only | Visual only | Joint | Joint, conversion factor free |
+|---|---|---|---|---|---|
+| Hake | 1 | 0.939 (2.60) | not surveyed | 0.938 (2.63) | 0.939 (2.64) |
+| Hake | 2 | 0.900 (2.36) | not surveyed | 0.900 (2.38) | 0.900 (2.38) |
+| Humpback | 1 | 0.494 (4.17) | 0.888 (1.32) | **0.890 (1.30)** | 0.890 (1.30) |
+| Humpback | 2 | 0.585 (3.35) | 0.899 (1.17) | **0.906 (1.15)** | 0.906 (1.15) |
+| PWSD | 1 | 0.589 (4.12) | 0.616 (2.86) | **0.741 (2.62)** | 0.742 (2.68) |
+| PWSD | 2 | 0.493 (4.30) | 0.593 (4.33) | **0.698 (3.43)** | 0.697 (3.47) |
+
+![Joint against single-source field recovery with sea state, seed 1, fitted with the Beaufort covariate: posterior mean against true log density at every station and segment location, by species (rows) and fit (columns).](figures/joint_compare_sea_s1.png)
+
+- **The pattern holds.** Hake is unchanged by the joint fit; humpback's joint
+  fit edges out visual-only; PWSD gains most, from R² 0.59–0.62 for the better
+  single source to 0.70–0.74 jointly, with narrower intervals.
+- **Beaufort slopes:**
+
+  | | Truth | Seed | Visual only | Joint |
+  |---|---|---|---|---|
+  | Humpback | −0.08 | 1 | −0.079 [−0.133, −0.025] | −0.078 [−0.132, −0.025] |
+  | Humpback | −0.08 | 2 | −0.073 [−0.121, −0.027] | −0.068 [−0.118, −0.021] |
+  | PWSD | −0.15 | 1 | −0.119 [−0.253, 0.008] | −0.089 [−0.209, 0.028] |
+  | PWSD | −0.15 | 2 | −0.204 [−0.354, −0.062] | −0.227 [−0.379, −0.079] |
+
+  Humpback's slope is recovered closely; PWSD's (about 150 detections) is
+  covered in every fit but noisy, pulled toward zero in seed 1 and past the
+  truth in seed 2.
+- **Conversion factors** (log scale, conversion factors free): humpback 5.23
+  [4.98, 5.46] and 5.28 [5.06, 5.50] (truth 5.30); PWSD 4.75 [4.44, 5.09] and
+  4.60 [4.22, 4.97] (truth 4.70).
+- **Convergence.** No divergences in any fit; max Rhat at most 1.06 (seed 1's
+  eDNA-only fit, reused from the calm-sea run, 1.11 on
+  $\theta_\text{bottle}$). Coverage of the true field is 89–98%.
+- **Against calm sea (seed 1).** Humpback's R² drops by about 0.04 in the
+  visual and joint fits: rough-sea segments carry less detection information,
+  even with the covariate. PWSD's joint gain is unchanged (0.745 calm, 0.741
+  with sea state).
+- **Cost.** With the covariate, joint fits take about 3.5 hours on a laptop
+  with two seeds running at once (the size-averaged ESW is computed per
+  Beaufort level, which is expensive for PWSD's wide group sizes).
 
 The earlier comparison on the old 500 × 1270 km box (seeds 1 and 2, 3 chains)
 showed the same pattern: joint best for both cetaceans, hake unchanged, and
