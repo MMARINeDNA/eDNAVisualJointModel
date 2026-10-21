@@ -45,7 +45,8 @@ southern edge on 35°N.
 > - **Re-run:** the visual validation and sea-state check (2026-10-12) and
 >   the joint comparison for seed 1 (2026-10-13) ([Results](#results)). The
 >   joint comparison with sea state (Beaufort covariate) is done for seeds 1
->   and 2 and paused for seeds 3–5 (`docs/explainer.md`, Section 5).
+>   and 2 (`docs/explainer.md`, Section 5); seeds 3–5 follow the move to
+>   negative-binomial segment counts (ROADMAP 6.2, item 4).
 > - **Still from the earlier set-up:** HSGP4eDNA's validation. That set-up was
 >   a 500 × 1270 km box (about 37.7–49.2°N), 50 × 300 km length-scales, 25
 >   transects and a 400-function budget.

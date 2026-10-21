@@ -919,7 +919,9 @@ segment (rougher to the north and offshore), and detection falls with it
 (truth β_bft −0.08 for humpback, −0.15 for PWSD). For the same seed the field
 and the eDNA data are identical to the calm-sea simulation; only the sightings
 change. Every fit includes the covariate for both cetaceans. Seeds 1 and 2 are
-done; seeds 3–5 are running.
+done. Seeds 3–5 will be run after the next model change, negative-binomial
+segment counts on the visual side (ROADMAP 6.2, item 4), so that the replicate
+table comes from the model that will go forward.
 
 Field R² (mean 95% interval width):
 

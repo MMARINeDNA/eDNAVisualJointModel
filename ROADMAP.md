@@ -733,7 +733,8 @@ eDNA-only, visual-only and joint fits on simulations of the real study
 domain. So the joint comparison (item 6) runs first, on several seeds:
 seeds 2 and 3, then 4 and 5 (`CMP_SEEDS`), then seed 1 with the data-based
 starting field (item 5). The full validation (items 3, 5) and the explainer (item 7) follow
-after the presentation.
+after the presentation. *(Done: seed 1 ran in time for the talk; the replicates
+moved to the sea-state comparison, see item 6.)*
 
 1. **Real data objects.** `Rscript R/01_load_muri.r` (needs
    `data/MV1_MURI_df.csv` and `data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv`, which
@@ -804,6 +805,9 @@ after the presentation.
    4.77 [4.45, 5.08], truth 4.70). In the explainer (Section 5) and the SMM
    talk. This
    rebuilds the README Phase 5 table and `docs/figures/joint_compare_s<seed>.png`.
+   **Replicates (2026-10-21):** the calm-sea seeds 2 and 3 were stopped
+   unfinished; the replicate comparison is now the sea-state one (6.2, item
+   5), run on seeds 1–5 after the negative-binomial counts (6.2, item 4).
 7. **Explainer.** `docs/explainer/01`–`09`: simulated and real fits (eDNA,
    visual at 800 and 1600 functions) and all figures. The simulated and real
    visual fits are done (Mac, 2026-10-12; stage 4's `expl_visual_sim`,
@@ -884,12 +888,19 @@ after the presentation.
      The stuck chain was intermittent, so one fit cannot test it; the stats3
      joint comparison (4 chains) will show whether it recurs.
 
-4. **Overdispersion for visual segment counts.**
+4. **Overdispersion for visual segment counts** (*next*, decided 2026-10-21:
+   the replicate runs wait for it, so that they use the model that goes
+   forward).
    - First simulate clustered sightings (negative-binomial counts) and check
      whether the Poisson model reproduces the real fits' floor-following short
      length-scales, and whether a negative-binomial count term removes them.
-   - Then carry it into the joint model.
-5. **Beaufort covariate in the joint model** (in progress, 2026-10-20). PWSD
+   - Then carry it into the visual and joint models: segment counts
+     negative binomial around the current Poisson mean, with an
+     overdispersion per species and a switch whose off position is exactly
+     the Poisson model (checked as in `tests/joint_exactness.R`).
+   - Then rerun the sea-state joint comparison on seeds 1–5 (item 5): seeds 1
+     and 2 again, on the new model, and seeds 3–5 for the first time.
+5. ✅ **Beaufort covariate in the joint model** (merged in #95, 2026-10-21). PWSD
    needs it on real data: AIC on the real distances chose half-normal + group
    size + Beaufort, and the sea-state validation (README) shows that leaving it
    out reads rough sea as low density, shifting PWSD's field by −0.04 to −0.11
@@ -925,28 +936,29 @@ after the presentation.
      sum of the single-species visual fits (`hsgp_visual.stan`, PWSD with
      `use_bft`) up to a constant. A sea-state case in `tests/smoke.R`.
 
-   **What has to be re-run once it is merged:**
+   **Re-runs:**
    - **Nothing already run changes.** With the covariate off the model is
-     identical (the exactness check above), so the seed 1–3 joint
-     comparisons (no sea state) stand.
+     identical (the exactness check above), so the calm-sea seed-1 joint
+     comparison stands.
    - **New: joint comparison with sea state.** `simulate_joint(sea_state =
      TRUE)`, fitted visual-only, joint and joint with free conversion
      factors, each with the covariate on for both cetaceans and, for
      contrast, off (the eDNA-only fit does not use the visual data and does
      not change). This shows whether the joint model recovers β_bft and
      what leaving it out costs when eDNA is also in the fit.
-     - **With the covariate, seeds 1–5 (all four modes): seeds 1 and 2 done**
-       (Mac, 2026-10-20/21), seeds 3–5 paused part-way (seed 3 joint and
-       seed 4 eDNA-only in progress). Seeds 1–2: 0 divergences, max Rhat
+     - **With the covariate: seeds 1 and 2 done** (Mac, 2026-10-20/21, all
+       four modes). Seeds 3–5 were stopped part-way and wait for the
+       negative-binomial counts (item 4), after which all five seeds run on
+       the new model. Seeds 1–2: 0 divergences, max Rhat
        ≤ 1.06; joint best for both cetaceans (PWSD R² 0.70–0.74 against
        0.59–0.62 for the better single source); humpback β_bft recovered
        closely (−0.068 to −0.079, truth −0.08), PWSD's covered but noisy
        (−0.089 to −0.227, truth −0.15); conversion factors recovered. Tables
        in the explainer, Section 5.
      - **Without the covariate (contrast):** not run yet.
-   - **Docs:** the README results and explainer Section 5 gain the sea-state
-     comparison; the explainer's [REVIEW] note about the missing covariate
-     goes.
+   - ✅ **Docs:** the explainer's Section 5 has the seed 1–2 sea-state
+     comparison, and its [REVIEW] note no longer lists the covariate as
+     missing; the README points to it.
    - **Real data (6.3):** the real joint fit uses it for PWSD (humpback had no
      Beaufort effect by AIC).
 6. **Metabarcoding amplification efficiency** (needs the 6.1 mock-community
