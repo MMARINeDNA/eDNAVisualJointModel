@@ -23,7 +23,7 @@ Sources:
 
 - **CalCOFI:** `EXPLAINER.md`, `docs/METHODS.md`, `DATA.md` and the Stan programs
   in `analysis/` (repository state of 14 October 2026).
-- **This repo:** `README.md`, `ROADMAP.md`, `docs/explainer.md` and the Stan
+- **This repo:** `README.md`, `ROADMAP.md` (since archived as `ROADMAP_2026-10-06.md`), `docs/explainer.md` and the Stan
   programs.
 
 Equations are given in each project's own notation where that helps the comparison.
@@ -144,7 +144,7 @@ $$
   and group size segment by segment. CalCOFI's plug-in is simpler and borrows a
   mature detection model.
 - **Overdispersion.** CalCOFI's negative-binomial count model is something we have
-  listed but not yet adopted (ROADMAP item 4). Our real visual fits show
+  listed but not yet adopted (ROADMAP item 4; now ROADMAP_2026-10-21, section 3). Our real visual fits show
   floor-following short length-scales, which overdispersed counts might explain.
 
 # eDNA observation model
@@ -243,7 +243,7 @@ shape and some scale through those priors. We have no acoustic stream.
 
 1. Free an eDNA–density elasticity and test whether copies are proportional to
    density. Their b_edna ≈ 0 is the strongest reason to check.
-2. Negative-binomial segment counts (already ROADMAP item 4).
+2. Negative-binomial segment counts (already ROADMAP item 4; now ROADMAP_2026-10-21, section 3).
 3. Their split into a climatology smooth and an anomaly smooth, if we ever fit more
    than one survey or add dynamic covariates. It is a clean way to separate habitat
    from redistribution.

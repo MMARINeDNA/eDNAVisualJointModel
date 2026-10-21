@@ -6,8 +6,9 @@ date: "2026-10-13"
 
 ## Quick orientation
 
-These are the re-runs that ROADMAP Phase 6.0 lists after the move to the
-35°N study domain. As with the FinWhale pipeline, the cleanest set-up is
+These are the re-runs that the move to the 35°N study domain needed
+(ROADMAP_2026-10-06, 6.0; the remaining ones are in ROADMAP_2026-10-21,
+section 3). As with the FinWhale pipeline, the cleanest set-up is
 **SSH + tmux**: every job is a non-interactive `Rscript` that writes files.
 
 > **Priority before the October 2026 presentation.** Run stage 1, then the
@@ -17,7 +18,7 @@ These are the re-runs that ROADMAP Phase 6.0 lists after the move to the
 > validation and the explainer's visual fits are already done (run on the Mac
 > on 2026-10-12). Seed 1 needs the data-based starting field (from
 > 2026-10-13; `git pull` first), because from a flat start its eDNA fits get
-> stuck at its extreme hake hot spots (ROADMAP 6.0). Run it as its own wave:
+> stuck at its extreme hake hot spots (ROADMAP_2026-10-06, 6.0). Run it as its own wave:
 > `CMP_SEEDS="1" tools/stats3_reruns.sh stage 3`.
 
 **stats3 specs (from the IT FAQ):** Intel i9-13900K with 24 physical cores and
@@ -42,7 +43,7 @@ job. Every job runs under `nice` and stops at its first failing step.
 | 5 | `finish`: comparison tables and `joint_compare_s<seed>.png` for every seed with fits, the remaining explainer figures | 1 | minutes |
 
 The real eDNA explainer fit (`expl_edna_real`) is in no stage: it waits for
-the ROADMAP 6.1 data (Ct values, volumes, dilutions), and is launched on its
+the data in ROADMAP_2026-10-21, section 5 (Ct values, volumes, dilutions), and is launched on its
 own with `tools/stats3_reruns.sh launch expl_edna_real` once they are in.
 
 The times are estimates. The budget is now 800 functions and the domain is
@@ -220,7 +221,7 @@ CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3      # second wave, once the firs
 CMP_SEEDS="1" tools/stats3_reruns.sh stage 3        # seed 1 (needs the data-based start)
 ```
 
-**Sea-state comparison** (ROADMAP 6.2, item 5). Simulations with segment
+**Sea-state comparison** (ROADMAP_2026-10-21, section 3). Simulations with segment
 Beaufort, fitted visual-only, joint and joint with free conversion factors,
 each with the Beaufort covariate and without it (6 jobs, 24 cores per seed):
 
@@ -335,7 +336,7 @@ rsync -av $R/logs/ logs/
 Then ask Claude to do three things:
 
 - rebuild the tables: the HSGP4eDNA README §4 (and a v1.5.x release), this
-  README's Phase 5 table and ROADMAP 6.0;
+  README's results and ROADMAP_2026-10-21;
 - rewrite the explainer's numbers, and re-render it locally with
   `quarto render docs/explainer.md --to html --embed-resources`;
 - open the PRs.

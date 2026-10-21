@@ -37,7 +37,7 @@ compile_joint <- function(...) cmdstan_model(JOINT_STAN, include_paths = JOINT_I
 # inflated noise (joint simulator seed 1: hake R^2 0.19, theta_bottle 1.6
 # against 10, log density ~2000 below the true region). Starting the field
 # from the data fixes it (hake R^2 0.978, theta_bottle 8.9; the same as
-# starting at the truth). ROADMAP 6.0.
+# starting at the truth). ROADMAP_2026-10-06, 6.0.
 #
 # Per station and species, a target log density from the data only:
 #   - metabarcoding: log(reads_s / (reads_junk + 0.5)) + the junk's starting

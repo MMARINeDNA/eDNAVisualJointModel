@@ -133,7 +133,7 @@ humpback 683 -> 646 -> 577 -> 548; pwsd 112 -> 98 -> 94 -> 89.
      Y 2-1758 km); sightings on the dropped segments are counted in `sight_flow`
      (`n_south_of_lat_min`). The bottles span about 39% of the domain's width and 66% of its
      height. **The processed objects in data/processed/ still hold the pre-restriction data until
-     the loader is re-run** (see ROADMAP Phase 6).
+     the loader is re-run** (see ROADMAP_2026-10-06, Phase 6).
    - Dates: effort 2018-06-28 to 2018-12-03 (2018 CCES, cruise 1651); sightings 2018-07-01 to
      2018-10-16. eDNA: no dates. Not matched, as agreed (different cruises).
 
