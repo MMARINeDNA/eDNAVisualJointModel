@@ -11,9 +11,13 @@
 #   Rscript R/compare_joint.r
 # Env: SEED (default 1), MODES (default "edna,visual,joint,joint_conv"),
 #      CONV_FREE (species freed in joint_conv; default "humpback,pwsd"),
+#      SEA_STATE (1: simulate segment Beaufort; default 0), BFT_SPECIES
+#      (species with the sea-state covariate; default: both cetaceans when
+#      SEA_STATE=1, else none; "none" fits without it, for contrast),
 #      CHAINS, WARMUP, SAMPLE (default 4 x 800/800), REFRESH (sampler
 #      progress every REFRESH iterations; default 100, 0 = silent), OUT (default
-#      outputs/joint/compare_s<SEED>)
+#      outputs/joint/compare_s<SEED>; with SEA_STATE=1 compare_sea_s<SEED>, or
+#      compare_sea_nobft_s<SEED> when BFT_SPECIES=none)
 # Each mode's summary is saved as <OUT>/fit_<mode>.rds, so modes can run in
 # separate processes; the tables and figure are (re)built from whatever
 # summaries exist.
@@ -27,11 +31,17 @@ env_int <- function(k, d) as.integer(Sys.getenv(k, d))
 SEED  <- env_int("SEED", "1")
 MODES <- strsplit(Sys.getenv("MODES", "edna,visual,joint,joint_conv"), ",")[[1]]
 CONV_FREE <- strsplit(Sys.getenv("CONV_FREE", "humpback,pwsd"), ",")[[1]]
-OUT <- Sys.getenv("OUT", sprintf("outputs/joint/compare_s%d", SEED))
+SEA_STATE <- env_int("SEA_STATE", "0") == 1L
+BFT_SPECIES <- Sys.getenv("BFT_SPECIES", "")
+BFT_SPECIES <- if (!nzchar(BFT_SPECIES)) NULL else if (BFT_SPECIES == "none") character(0) else
+  strsplit(BFT_SPECIES, ",")[[1]]
+OUT <- Sys.getenv("OUT", sprintf("outputs/joint/compare%s_s%d",
+                                 if (!SEA_STATE) "" else if (identical(BFT_SPECIES, character(0)))
+                                   "_sea_nobft" else "_sea", SEED))
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 MODE_ORDER <- c("edna", "visual", "joint", "joint_conv")
 
-sim <- simulate_joint(seed = SEED)
+sim <- simulate_joint(seed = SEED, sea_state = SEA_STATE)
 # modes of one seed may run as parallel processes: write via a rename so a
 # reader never sees a half-written file
 tmp <- tempfile("sim", tmpdir = OUT, fileext = ".rds")
@@ -42,6 +52,7 @@ if (length(MODES) && any(nzchar(MODES))) {
     cat(sprintf("\n=== %s ===\n", m))
     r <- fit_joint(sim, if (m == "joint_conv") "joint" else m,
                    conv_free = if (m == "joint_conv") CONV_FREE else character(0),
+                   bft_species = BFT_SPECIES,
                    mod = mod, chains = env_int("CHAINS", "4"),
                    warmup = env_int("WARMUP", "800"), sample = env_int("SAMPLE", "800"),
                    refresh = env_int("REFRESH", "100"),
@@ -105,7 +116,9 @@ g <- ggplot(pts, aes(truth, post, colour = source)) +
             aes(x = x, y = y, label = label), inherit.aes = FALSE, colour = "grey40", size = 3.5) +
   scale_colour_manual(values = c(station = "#D55E00", segment = "#0072B2")) +
   labs(x = "true log density", y = "posterior mean log density", colour = NULL,
-       title = sprintf("Joint vs single-source field recovery (simulate_joint seed %d)", SEED),
+       title = sprintf("Joint vs single-source field recovery (simulate_joint seed %d%s)", SEED,
+                       if (!SEA_STATE) "" else if (identical(BFT_SPECIES, character(0)))
+                         ", sea state, fitted without Beaufort" else ", sea state"),
        subtitle = "R2 and mean 95% CI width of log density over all stations and segments (hake has no visual data)") +
   theme_bw(base_size = 10) + theme(legend.position = "bottom")
 ggsave(file.path(OUT, "compare_joint.pdf"), g, width = 10, height = 7.5)

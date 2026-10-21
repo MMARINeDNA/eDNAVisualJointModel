@@ -19,7 +19,9 @@
 #   eDNA   simulate_edna_obs() (HSGP4eDNA): qPCR on hake, junk-background
 #          metabarcoding on all species
 #   visual simulate_lt_sightings(): half-normal detection, empirical group
-#          sizes, for the cetaceans (lt_species)
+#          sizes, for the cetaceans (lt_species); with sea_state = TRUE,
+#          segment Beaufort (draw_sea_state()) scales each detection scale by
+#          exp(beta_bft_truth * (Beaufort - BFT_CENTRE))
 # Because each sub-object has its single-source shape, every eDNA-only and
 # visual-only fitting tool works on it unchanged.
 # =============================================================================
@@ -31,7 +33,8 @@ simulate_joint <- function(seed = 1L, n_stations = 200L,
                            n_transects = 35L, seg_length = 10, w = 5.0, df = 4L,
                            gp_params  = default_gp_params(),
                            lt_species = c("humpback", "pwsd"),
-                           sp_params  = lt_species_params()) {
+                           sp_params  = lt_species_params(),
+                           sea_state  = FALSE) {
   set.seed(seed)
   dom <- LT_DOMAIN
   S <- length(gp_params)
@@ -83,13 +86,16 @@ simulate_joint <- function(seed = 1L, n_stations = 200L,
     observed = eo$observed)
 
   # ---- Visual observations -------------------------------------------------
+  # Sea state is drawn after the field and the eDNA data, so those match the
+  # sea_state = FALSE draw for the same seed.
+  if (sea_state) segments$bft <- draw_sea_state(segments, dom)
   pick <- function(m) { m <- m[sgi, match(lt_species, names(gp_params)), drop = FALSE]
                         colnames(m) <- lt_species; m }
   log_lambda_seg <- pick(field$log_lambda_si)
   observed_lt <- lapply(setNames(lt_species, lt_species), function(sp)
     simulate_lt_sightings(segments, exp(log_lambda_seg[, sp]), sp_params[[sp]], w))
   visual <- list(
-    meta = list(seed = seed, species = lt_species, w = w, domain = dom),
+    meta = list(seed = seed, species = lt_species, w = w, domain = dom, sea_state = sea_state),
     design = list(segments = segments),
     truth = list(log_lambda = log_lambda_seg, gp_field = pick(field$gp_field_si),
                  bathy_effect = pick(field$bathy_effect_si),
@@ -134,18 +140,27 @@ joint_field_agreement <- function(sim, max_km = 10) {
 #                         prior_mu_sp_default(), normal(-5, 2) for the
 #                         cetaceans (as in the visual model) and normal(2, 1.5)
 #                         for the others and junk.
+#   bft_species           line-transect species with the sea-state (Beaufort)
+#                         covariate on detection. Default: each species' `use_bft`
+#                         setting in sp_params if present, else every species
+#                         whenever the segments carry a `bft` column (as
+#                         format_stan_data_visual()). character(0) = none.
 #
 # Coordinates of both sources are normalised by the DOMAIN extents, and the
 # design-based GP prior is built from the union of station and segment
 # locations (sample locations only - no detections).
 # The eDNA observation data come from HSGP4eDNA's format_stan_data_gp2d_bathysp()
-# and the visual data from format_stan_data_visual() (single ESW: no sea state;
-# its detection key, hazard-rate prior and per-species truncation carry over).
+# and the visual data from format_stan_data_visual() (its detection key,
+# hazard-rate prior and per-species truncation carry over). With any species
+# using the covariate, every species' segments and detections are binned to the
+# same Beaufort levels (they share the segments); the covariate is switched on
+# per species.
 # -----------------------------------------------------------------------------
 format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
                                    conv_free = character(0),
                                    prior_log_conv = c(mu = log(100), sig = 2),
                                    prior_mu_sp = NULL,
+                                   bft_species = NULL,
                                    HSGP_M = NULL, HSGP_C = c(1.5, 1.5),
                                    M_max = GP_BASIS_BUDGET) {
   dom    <- sim$meta$domain
@@ -168,14 +183,24 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
   if (is.null(HSGP_M)) HSGP_M <- gp_prior$HSGP_M
   INDICES <- as.matrix(do.call(tidyr::expand_grid, lapply(HSGP_M, seq_len)))
 
-  # Visual data per line-transect species (single ESW). The sea-state
-  # covariate is not in the joint model yet (roadmap Phase 6).
-  wants_bft <- vapply(lt, function(sp) isTRUE(sim$visual$truth$sp_params[[sp]]$use_bft), logical(1))
-  if (any(wants_bft))
-    warning("the joint model has no sea-state covariate yet; ignoring use_bft for: ",
-            paste(lt[wants_bft], collapse = ", "), call. = FALSE)
+  # Visual data per line-transect species. Species using the sea-state
+  # covariate: from each species' use_bft setting, else whenever the segments
+  # carry Beaufort (format_stan_data_visual()'s default).
+  if (is.null(bft_species)) {
+    has_bft <- !is.null(seg$bft)
+    bft_species <- lt[vapply(lt, function(sp) {
+      ub <- sim$visual$truth$sp_params[[sp]]$use_bft
+      if (is.null(ub)) has_bft else isTRUE(ub)
+    }, logical(1))]
+  }
+  stopifnot(all(bft_species %in% lt))
+  # With any species on the covariate, bin every species to the same levels
+  # (use_bft = TRUE in the visual formatter); the switch is set per species below.
+  any_bft <- length(bft_species) > 0
   vd <- lapply(setNames(lt, lt), function(sp)
-    format_stan_data_visual(sim$visual, sp, HSGP_M = HSGP_M, use_bft = FALSE))
+    format_stan_data_visual(sim$visual, sp, HSGP_M = HSGP_M, use_bft = any_bft))
+  stopifnot(all(vapply(vd, function(v) identical(v$seg_bft, vd[[1]]$seg_bft) &&
+                         identical(v$bft_level, vd[[1]]$bft_level), logical(1))))
   stopifnot(isTRUE(all.equal(vd[[1]]$B_bathy, vd[[length(vd)]]$B_bathy)),
             ncol(vd[[1]]$B_bathy) == ed$K_bathy)
   pick <- function(field) vapply(vd, function(v) as.numeric(v[[field]]), numeric(1))
@@ -240,6 +265,12 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     det_key = as.array(picki("det_key")),
     log_b_prior_mean = as.array(pick("log_b_prior_mean")),
     log_b_prior_sd = as.array(pick("log_b_prior_sd")),
+    use_bft_covar = as.array(as.integer(lt %in% bft_species)),
+    n_bft = vd[[1]]$n_bft, bft_level = as.array(vd[[1]]$bft_level),
+    seg_bft = as.array(vd[[1]]$seg_bft),
+    det_bft = as.array(as.integer(unlist(lapply(vd, `[[`, "det_bft"), use.names = FALSE))),
+    beta_bft_prior_mean = as.array(pick("beta_bft_prior_mean")),
+    beta_bft_prior_sd = as.array(pick("beta_bft_prior_sd")),
     S_max = as.array(picki("S_max")), group_size_dist = as.array(picki("group_size_dist")),
     mu_s_prior_shape = as.array(pick("mu_s_prior_shape")),
     mu_s_prior_rate = as.array(pick("mu_s_prior_rate")),

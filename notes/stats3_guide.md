@@ -220,6 +220,17 @@ CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3      # second wave, once the firs
 CMP_SEEDS="1" tools/stats3_reruns.sh stage 3        # seed 1 (needs the data-based start)
 ```
 
+**Sea-state comparison** (ROADMAP 6.2, item 5). Simulations with segment
+Beaufort, fitted visual-only, joint and joint with free conversion factors,
+each with the Beaufort covariate and without it (6 jobs, 24 cores per seed):
+
+```bash
+CMP_SEA=1 CMP_SEEDS="1" tools/stats3_reruns.sh stage 3
+```
+
+Results go to `outputs/joint/compare_sea_s<seed>/` and
+`compare_sea_nobft_s<seed>/`.
+
 A single fit can be relaunched by name, e.g.
 `tools/stats3_reruns.sh launch cmp_s3_joint`. The tables and figure for a seed
 are rebuilt by `finish` (stage 5); for the presentation it is quicker to pull

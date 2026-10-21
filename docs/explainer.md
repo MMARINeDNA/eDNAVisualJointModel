@@ -879,9 +879,10 @@ mode with very large junk noise), which is why joint fits now run 4 chains.
 > **[REVIEW] What is not yet shown here.**
 > (1) Prior and posterior predictive checks for the joint model, in the style of
 > Sections 3 and 4: not produced. (2) The joint model has not been fitted to the
-> real MURI data. (3) The joint model's visual part does not yet include the
-> **Beaufort covariate** that the PWSD real-data fit uses, and the real eDNA fit
-> showed the diagnostics that need attention first (very large noise terms,
+> real MURI data. (3) The joint model's visual part now includes the
+> **Beaufort covariate** that the PWSD real-data fit uses (added 2026-10-20;
+> its simulation check is ROADMAP 6.2, item 5), but the real eDNA fit showed
+> the diagnostics that need attention first (very large noise terms,
 > length-scales at the floor, no Ct values, one flat water-column offset).
 > Item (3) is the main reason I would treat a real-data joint fit as a
 > demonstration rather than an analysis.

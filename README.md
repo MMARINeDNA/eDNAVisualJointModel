@@ -208,9 +208,13 @@ bottom-depth spline, in animals/km². Two observation models share it:
   zero-inflated beta-binomial metabarcoding for all species, and the
   between-bottle and junk noise terms. The metabarcoding assumes equal
   amplification efficiency across species (ROADMAP 6.2, item 6).
-- **Visual:** the line-transect model for humpback and PWSD, without the
-  sea-state covariate. Its half-normal or hazard-rate key and per-species
-  truncation carry through.
+- **Visual:** the line-transect model for humpback and PWSD. Its half-normal
+  or hazard-rate key and per-species truncation carry through, and the
+  Beaufort sea-state covariate on detection can be switched on per species
+  (`bft_species`; on by default when the segments carry Beaufort).
+  `simulate_joint(sea_state = TRUE)` simulates it. With the covariate off the
+  log density is identical to the model without it, and with eDNA off it
+  equals the single-species visual models (`tests/joint_exactness.R`).
 
 Data switches turn the eDNA or the visual likelihood off, and free the
 cetaceans' conversion factors. So the eDNA-only, visual-only and joint fits use

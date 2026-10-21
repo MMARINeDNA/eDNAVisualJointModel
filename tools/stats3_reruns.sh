@@ -14,7 +14,10 @@
 #
 # Env: SESSION (tmux session name, default "reruns"), NICE (default 10),
 #      CMP_SEEDS (joint-comparison seeds for stage 3, default "2 3"; e.g.
-#      CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3 for a second wave)
+#      CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3 for a second wave),
+#      CMP_SEA (1: stage 3 runs the sea-state comparison instead: visual-only,
+#      joint and joint_conv on simulate_joint(sea_state = TRUE), fitted with
+#      the Beaufort covariate and, for contrast, without it; 24 cores per seed)
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -22,7 +25,9 @@ ROOT=$PWD
 SESSION=${SESSION:-reruns}
 NICE=${NICE:-10}
 CMP_SEEDS=${CMP_SEEDS:-2 3}
+CMP_SEA=${CMP_SEA:-0}
 CMP_MODES="visual edna joint joint_conv"
+SEA_MODES="visual joint joint_conv"        # the eDNA-only fit does not use sea state
 mkdir -p logs
 
 # Stage 1 must finish first: it rebuilds the real data and compiles the models.
@@ -34,7 +39,12 @@ mkdir -p logs
 STAGE1="prep"
 STAGE2="hsgp_nobathy hsgp_bathysp_surface hsgp_bathysp_depthspref hsgp_bathygp_surface
         visual_val visual_val_sea joint_sim"
-STAGE3=$(for s in $CMP_SEEDS; do for m in $CMP_MODES; do printf 'cmp_s%s_%s ' "$s" "$m"; done; done)
+if [ "$CMP_SEA" = 1 ]; then
+  STAGE3=$(for s in $CMP_SEEDS; do for m in $SEA_MODES; do
+             printf 'cmpsea_s%s_%s cmpseanobft_s%s_%s ' "$s" "$m" "$s" "$m"; done; done)
+else
+  STAGE3=$(for s in $CMP_SEEDS; do for m in $CMP_MODES; do printf 'cmp_s%s_%s ' "$s" "$m"; done; done)
+fi
 STAGE4="expl_edna_sim expl_visual_sim expl_real_humpback expl_real_pwsd
         expl_real1600_humpback expl_real1600_pwsd"
 STAGE5="finish"
@@ -84,6 +94,12 @@ job() {
       [[ $1 =~ ^cmp_s([0-9]+)_(edna|visual|joint|joint_conv)$ ]] ||
         { echo "bad job name $1 (cmp_s<seed>_<edna|visual|joint|joint_conv>)"; exit 2; }
       SEED=${BASH_REMATCH[1]} MODES=${BASH_REMATCH[2]} Rscript R/compare_joint.r ;;
+    # ---- stage 3 with CMP_SEA=1: sea-state comparison, with and without the covariate
+    cmpsea_s*|cmpseanobft_s*)
+      [[ $1 =~ ^cmpsea(nobft)?_s([0-9]+)_(visual|joint|joint_conv)$ ]] ||
+        { echo "bad job name $1 (cmpsea[nobft]_s<seed>_<visual|joint|joint_conv>)"; exit 2; }
+      local nobft=${BASH_REMATCH[1]} seed=${BASH_REMATCH[2]} mode=${BASH_REMATCH[3]}
+      SEA_STATE=1 SEED=$seed MODES=$mode BFT_SPECIES=${nobft:+none} Rscript R/compare_joint.r ;;
     # ---- stage 4: explainer fits (2-3 cores each; expl_edna_real waits for the 6.1 data)
     expl_edna_sim)
       Rscript docs/explainer/01_fit_edna_sim.R
@@ -99,12 +115,18 @@ job() {
       Rscript docs/explainer/09_fig_edna_real.R ;;
     # ---- stage 5: comparison tables and the remaining figures (minutes)
     finish)
-      # tables and figure for every seed with comparison fits
-      for d in outputs/joint/compare_s*; do
+      # tables and figure for every seed with comparison fits (with sea state:
+      # compare_sea_s<seed>, compare_sea_nobft_s<seed>)
+      for d in outputs/joint/compare_s[0-9]* outputs/joint/compare_sea_s[0-9]* \
+               outputs/joint/compare_sea_nobft_s[0-9]*; do
         [ -d "$d" ] && ls "$d"/fit_*.rds > /dev/null 2>&1 || continue
-        seed=${d##*compare_s}
-        SEED=$seed MODES= Rscript R/compare_joint.r
-        cp "$d/compare_joint.png" "docs/figures/joint_compare_s$seed.png"
+        b=$(basename "$d"); seed=${b##*_s}
+        case "$b" in
+          compare_sea_nobft_s*) SEA_STATE=1 BFT_SPECIES=none SEED=$seed MODES= Rscript R/compare_joint.r ;;
+          compare_sea_s*)       SEA_STATE=1 SEED=$seed MODES= Rscript R/compare_joint.r ;;
+          *)                    SEED=$seed MODES= Rscript R/compare_joint.r ;;
+        esac
+        cp "$d/compare_joint.png" "docs/figures/joint_${b}.png"
       done
       Rscript docs/explainer/07_fig_visual.R
       Rscript docs/explainer/08_fig_key_choice.R
@@ -151,7 +173,8 @@ case "${1:-list}" in
 stage 1  (run alone first; ~1 h)                 $STAGE1
 stage 2  (~23 cores; hours to ~2 days)           $(echo $STAGE2)
 stage 3  (16 cores per seed; ~4-6 h per job)     $(echo $STAGE3)
-         seeds from CMP_SEEDS (now "$CMP_SEEDS")
+         seeds from CMP_SEEDS (now "$CMP_SEEDS"); CMP_SEA=1 for the sea-state
+         comparison (now CMP_SEA=$CMP_SEA; 24 cores per seed)
 stage 4  (~14 cores; hours)                      $(echo $STAGE4)
 stage 5  (after 3 and 4; minutes)                $STAGE5
 not in a stage (needs ROADMAP 6.1 data): expl_edna_real

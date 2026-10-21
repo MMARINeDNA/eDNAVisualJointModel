@@ -87,6 +87,22 @@ eDNA:   log λ_edna = log λ_s + log zsample_eff + log conv_s + log vol   → qP
 visual: λ_groups_s = λ_s / E[group size_s];  seg_count ~ Poisson(2 L esw_pop λ_groups)
 ```
 
+**The demonstration goal: three tiers** (added 2026-10-20). The model is to be
+shown to work on, in order:
+
+1. **An idealised simulation**, *in progress* (Phases 4–6). The truth is
+   drawn from the model's own structure (a GP plus a bottom-depth spline), on
+   uniform eDNA stations and evenly spaced east–west transects across the
+   study domain. This is the joint comparison in Phase 5 and 6.0, now on
+   the 35°N domain.
+2. **A realistic simulation**, *planned* (6.4). The truth is previously
+   modelled density surfaces for PWSD, humpback and hake. Visual and eDNA
+   observations are simulated from them at the **actual** ship transects and
+   eDNA station locations. The test is how well the model recovers the "true"
+   surfaces under the real sampling design, when the truth is not a draw from
+   the model.
+3. **Real data**, *paused* (6.1, 6.3) while additional data are sourced.
+
 Hake has only eDNA data. Humpback and PWSD have both eDNA and LT data, which
 needs an explicit species-index map. The **visual and joint models both use
 `gp2d_bathysp`**: a 2-D HSGP over (X, Y) plus a spline on bottom depth, the
@@ -873,8 +889,57 @@ after the presentation.
      whether the Poisson model reproduces the real fits' floor-following short
      length-scales, and whether a negative-binomial count term removes them.
    - Then carry it into the joint model.
-5. **Beaufort covariate in the joint model.** PWSD needs it on real data;
-   `format_stan_data_joint()` currently warns and ignores `use_bft`.
+5. **Beaufort covariate in the joint model** (in progress, 2026-10-20). PWSD
+   needs it on real data: AIC on the real distances chose half-normal + group
+   size + Beaufort, and the sea-state validation (README) shows that leaving it
+   out reads rough sea as low density, shifting PWSD's field by −0.04 to −0.11
+   log units per Beaufort unit (up to about 0.6 across the survey). Until now
+   the joint model had one ESW per species, and `format_stan_data_joint()`
+   warned and dropped `use_bft`. It was left out of Phase 5 to keep the
+   simulated case simple.
+
+   **Structure** (ported from `stan/hsgp_visual.stan`, which is validated):
+   - **Stan** (`stan/hsgp_joint.stan`): per line-transect species, a switch
+     `use_bft_covar[l]` and a slope `beta_bft` on log σ with its own prior
+     (the visual model's normal(−0.1, 0.2)):
+     log σ = log σ_l + β_size,l (s − s_centre) + β_bft,l (b − 3), where b is
+     the segment's Beaufort. Segments are binned to Beaufort levels (0.5
+     wide) shared by all species, because they share the segments;
+     `seg_bft` / `det_bft` give each segment's and detection's level. The
+     size-averaged ESW is computed per species and level (`esw_bft[l]`)
+     instead of once per species; segments and detections use their level's
+     ESW and σ. A species without the covariate computes one ESW and uses it
+     at every level, which is exactly the old model. `p_det` becomes the mean
+     over segments.
+   - **R**: `format_stan_data_joint()` builds the shared levels from the
+     segments' `bft` column and sets `use_bft_covar` per species from its
+     `use_bft` setting (instead of warning); `simulate_joint()` gains
+     `sea_state = TRUE`, drawing segment Beaufort with the visual simulator's
+     `draw_sea_state()` after the field, so the field and eDNA data match the
+     `sea_state = FALSE` draw for the same seed; `fit_joint()` starts each
+     Beaufort slope near 0; `compare_joint.r` gains `SEA_STATE=1` and a
+     choice of which species use the covariate.
+   - **Checks** (new `tests/joint_exactness.R`): with the covariate off for
+     every species the log density must equal the current joint model's
+     exactly; with eDNA off and the covariate on for PWSD it must equal the
+     sum of the single-species visual fits (`hsgp_visual.stan`, PWSD with
+     `use_bft`) up to a constant. A sea-state case in `tests/smoke.R`.
+
+   **What has to be re-run once it is merged:**
+   - **Nothing already run changes.** With the covariate off the model is
+     identical (the exactness check above), so the seed 1–3 joint
+     comparisons (no sea state) stand.
+   - **New: joint comparison with sea state.** `simulate_joint(sea_state =
+     TRUE)` with seeds 1–3, fitted visual-only, joint and joint with free
+     conversion factors, each with the covariate on for both cetaceans and,
+     for contrast, off (the eDNA-only fit does not use the visual data and
+     does not change). This shows whether the joint model recovers β_bft and
+     what leaving it out costs when eDNA is also in the fit.
+   - **Docs:** the README results and explainer Section 5 gain the sea-state
+     comparison; the explainer's [REVIEW] note about the missing covariate
+     goes.
+   - **Real data (6.3):** the real joint fit uses it for PWSD (humpback had no
+     Beaufort effect by AIC).
 6. **Metabarcoding amplification efficiency** (needs the 6.1 mock-community
    data). Neither the model nor the simulator has species-specific PCR
    efficiency: expected read shares follow aliquot copies relative to junk, so
@@ -916,6 +981,54 @@ after the presentation.
   mis-specification check.
 - **Wrap-up.** Write a final README results table. Re-render or retire
   presentations that reference v-numbers.
+
+#### 6.4 Realistic simulation (validation tier 2; planned, details to follow)
+
+Tier 2 of the demonstration (section 2). It sits between the idealised
+simulation and the real data: the sampling is real, and the truth is known but
+was not generated by the model.
+
+- **Truth: previously modelled density surfaces** for PWSD, humpback and hake,
+  put on the 35°N study domain (UTM 10N, km from the domain origin) in the
+  model's units (animals per km²; hake's unit to decide).
+- **Visual observations** simulated from those surfaces on the **actual 2018
+  effort**: the 1,641 segments north of 35°N, with their real lengths and
+  Beaufort. Detection, group sizes and truncation come from the real-data
+  detection-function fits and the empirical group-size pools.
+- **eDNA observations** simulated on the **actual 2019 stations**: the 551
+  bottles, with their real locations, sampling depths and replicate structure
+  (qPCR and metabarcoding). The conversion factors, volumes, bottle and junk
+  noise, and water-column treatment are either the idealised simulator's or
+  values informed by the 6.1 data, whichever exist at the time.
+- **Fits:** eDNA-only, visual-only, joint and joint with free conversion
+  factors, the same four as the idealised comparison. The model is now
+  mis-specified (the truth is not a GP plus a spline), so this tests
+  robustness as well as sampling.
+- **What to measure:**
+  - recovery of the true surface on a **prediction grid** over the whole
+    domain, not only at sampled locations: R², error and 95% interval
+    coverage, and how they degrade away from effort and stations;
+  - abundance in regions or strata;
+  - recovery of the conversion factors;
+  - several replicate observation draws from the same truth.
+- **Code needed:**
+  - a simulator that takes truth surfaces and the real designs (segments,
+    stations, sampling depths from `data/processed/`) and returns the same
+    object shape as `simulate_joint()`, so the formatters,
+    `fit_joint()` and `compare_joint.r` apply unchanged;
+  - prediction on a grid in the joint model (it has none yet; the visual
+    model's `pred_coords` is the template);
+  - a comparison script that scores the grid predictions.
+- **Depends on:** the Beaufort covariate in the joint model (6.2.5; the real
+  effort carries Beaufort). Ideally also negative-binomial segment counts
+  (6.2.4), if the real sightings are clustered beyond Poisson.
+- **To decide (details to follow):**
+  - which surfaces, and their source, years, season, resolution and units
+    (hake: biomass or numbers, and a conversion to animals per km²);
+  - whether to rescale them to plausible eDNA detection rates;
+  - how to treat sampling depth (19 real depths) and the one-year gap between
+    the 2018 visual and 2019 eDNA surveys (one static truth, or different
+    surfaces per survey year).
 
 ## 5. Decisions for you
 
