@@ -60,13 +60,16 @@ stan/**
 !stan/**/
 !stan/**/*.stan
 
-# Raw MURI inputs that stay private (this repo is public). Only the real-data
-# loader (R/01_load_muri.r) and R/02_check_muri.r read them; copy them to a
-# new clone by hand (notes/stats3_guide.md, Part 4). The derived
+# Raw MURI inputs that stay private (this repo is public). The real-data
+# loader (R/01_load_muri.r), R/02_check_muri.r and docs/dataQs/make_figs.R
+# read them; copy them to a new clone by hand (notes/stats3_guide.md, Part 4;
+# qPCR_2019A.rds is the qPCR lab's file with Ct and standards). The derived
 # data/processed/muri_{edna,visual}.rds and the qPCR, effort and sightings
 # files are tracked.
 data/MV1_MURI_df.csv
 data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv
+data/qPCR_2019*.rds
+data/qPCR_vignette.pdf
 data/obis_seamap_dataset_*/
 
 # Claude Code worktrees

@@ -153,7 +153,11 @@ that nature does:
      because they come from one bottle. The bottle's junk copies are a
      negative-binomial draw, then subsampled into the aliquot like the species'
      copies. That gives about 50 junk copies per aliquot, with a between-sample
-     CV of about 0.2.
+     CV of about 0.2. *(Planned change, HSGP4eDNA's roadmap: redraw the junk
+     copies for each aliquot as for the species, so they also vary between a
+     bottle's replicates. In the real data, the share of a bottle's main junk
+     taxon varies between its replicates a median 570× more than multinomial
+     sampling alone gives.)*
    - Junk has **no spatial structure and no qPCR**: it is the same in
      expectation everywhere, and only metabarcoding sees it.
    - **Reads.** Each replicate draws a sequencing depth: 80% of replicates are
@@ -284,6 +288,15 @@ measured relative to junk.
   of 0.2 implies about 24, and fits give about 13–19, so it is a nuisance
   parameter. The model's independent beta-binomial per category approximates
   the simulator's multinomial split of the reads.
+- **Planned: a mechanistic overdispersion** (HSGP4eDNA v1.7, behind a switch,
+  ported from Shannon Kachel's bbqm). The beta-binomial φ and the read shares
+  would follow from Poisson copies in each aliquot and per-category PCR
+  amplification, instead of a fitted curve. Junk becomes a composite category
+  with a free amplification efficiency, a global offset on log φ checks the
+  mechanism, and amplification efficiencies and per-replicate dilutions enter
+  as data. Because φ then grows with the total copies, the spread between
+  replicates carries information on absolute copies as well as relative
+  abundance.
 - **Known water-column offset.** Depth preferences enter as a fixed offset per
   sample and species; the model does not estimate them.
 
@@ -404,6 +417,10 @@ There are 2663 hake qPCR replicates and 1709 metabarcoding replicates.
 standard curve (slope, intercept, detection efficiency $\kappa$, Ct noise). The
 model's qPCR part is built on Ct, so **it cannot be fitted yet**. Volumes filtered,
 aliquot and elution volume are also missing, and the eDNA files carry no dates.
+*(Update, 2026-10-21: the qPCR lab's file with Ct per well, the hake standards on
+all 33 plates, the filtered volume per bottle and the dates has since arrived;
+`docs/dataQs.md` and ROADMAP_2026-10-21, section 5. It is not in the loader yet,
+so this fit is unchanged.)*
 
 **What I did.** The model was fitted to metabarcoding only: all qPCR rows were
 dropped except one non-detect (the model's data block requires at least one), the
@@ -463,9 +480,11 @@ lie in a long thin band).
 > structure it does not yet represent.
 
 > **[REVIEW]** Open decisions before the real eDNA fit is more than a sanity check:
-> where the Ct values and standard curve are; whether volumes filtered vary by
-> bottle (the model takes one value); and how to treat the 19 sampling depths
-> (a modelling choice: offset, covariate, or separate surfaces).
+> which qPCR wells to use and how to treat late Ct values and flagged samples
+> (the Ct values and standards have now arrived; `docs/dataQs.md`); per-bottle
+> volumes, which vary for a few bottles (the model takes one value); and how to
+> treat the 19 sampling depths (a modelling choice: offset, covariate, or
+> separate surfaces).
 
 # The visual (distance sampling) spatial model
 
@@ -986,21 +1005,29 @@ mode with very large junk noise), which is why joint fits now run 4 chains.
 `R/01_load_muri.r` writes an eDNA object and a visual object with the same
 structure as the simulators' output, on a common domain and UTM origin, so the
 same formatters apply to the joint model. Two data gaps carry over:
-no qPCR Ct values (so the eDNA likelihood would use metabarcoding only, as in
-Section 3.3) and no volumes filtered, which make the absolute conversion factor
-meaningless until they are supplied. The visual data supply the absolute density.
+no qPCR Ct values in the loader yet (so the eDNA likelihood would use
+metabarcoding only, as in Section 3.3), and placeholder volumes, which make the
+absolute conversion factor meaningless until they are supplied. The Ct values,
+standards and filtered volumes have now arrived and are being added
+(ROADMAP_2026-10-21, section 5). The visual data supply the absolute density.
 
 # Limitations and open issues
 
 ## Data
 
-- **No Ct or standard curve** for the real qPCR data, so the qPCR part of the eDNA
-  model cannot be used. Volumes (filtered, aliquot, elution) are placeholders.
-- **eDNA files have no date or cruise**, and the visual and eDNA surveys are
-  different cruises. Both are treated as one snapshot of the same field.
+- **qPCR Ct and standard curve not yet in the loader.** The qPCR lab's file
+  (Ct per well, standards on all 33 plates, filtered volume per bottle, dates)
+  arrived on 2026-10-12; until it is loaded, the qPCR part of the eDNA model
+  cannot be used. Template and elution volumes are still placeholders.
+- **Survey timing.** The eDNA dates are in the qPCR lab's file (from
+  2 July 2019); the visual survey is from 2018. Both are treated as one
+  snapshot of the same field.
 - **Dilutions.** 1162 qPCR replicates were run at dilutions of 0.1 to 0.5 and were
   not corrected; metabarcoding replicates also carry template dilutions of 1 to
-  100-fold that the model ignores.
+  100-fold that the model ignores. Both are planned as log offsets on the
+  aliquot copies.
+- **Contamination.** *Homo sapiens* is 27% of junk reads; dropping human and
+  cattle reads from the junk and the replicate totals is planned.
 - **Perpendicular distance missing** for 73 on-effort sightings, which are excluded.
 - **No amplification efficiencies.** There are no MarVer1 mock-community data or
   PCR cycle numbers yet, so the per-species amplification bias of the
