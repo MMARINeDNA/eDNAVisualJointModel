@@ -21,6 +21,8 @@
 #   joint_sim  simulate_joint() (no fits): one shared field, both formatters
 #   joint   stan/hsgp_joint.stan (one field, eDNA + visual likelihoods) via
 #           R/fit_joint.r on a small simulate_joint() dataset
+#   joint_bft  the joint model with the Beaufort covariate (humpback), on the
+#           same dataset with segment sea state
 #
 # Logs and outputs go to outputs/smoke/ (git-ignored). Exit status is non-zero
 # if any check fails.
@@ -190,6 +192,31 @@ if (!is.null(jt)) {
   check("joint", "hake and humpback field R2 > 0.5", min(r2[c("hake", "humpback")]) > 0.5,
         sprintf("%.2f / %.2f", r2[["hake"]], r2[["humpback"]]))
   check("joint", "bottle theta > 1 (noise not absorbing the field)", isTRUE(th > 1), round(th, 2))
+}
+
+# -----------------------------------------------------------------------------
+# Case 5: joint model with the Beaufort sea-state covariate (humpback only, to
+# keep it quick: PWSD's group-size support makes each sea-state level costly),
+# on the same small simulation with segment sea state.
+# -----------------------------------------------------------------------------
+cat("=== [joint_bft] hsgp_joint with sea state ===\n")
+jb <- NULL
+mins <- timed(jb <- tryCatch({
+  jsb <- simulate_joint(seed = 2L, n_stations = 120L, n_transects = 12L, gp_params = gp_smoke,
+                        sea_state = TRUE)
+  fit_joint(jsb, "joint", chains = 2L, warmup = 250L, sample = 250L, M_max = 64L,
+            bft_species = "humpback")
+}, error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
+cat(sprintf("  %.1f min\n", mins))
+check("joint_bft", "ran", !is.null(jb), if (is.null(jb)) "error" else "ok")
+if (!is.null(jb)) {
+  r2 <- setNames(jb$field$R2, jb$field$species)
+  bb <- jb$recovery$median[jb$recovery$variable == "beta_bft[1]"]
+  check("joint_bft", "divergences == 0", jb$divergences == 0, jb$divergences)
+  check("joint_bft", "max Rhat (hyperparameters) < 1.1", jb$max_rhat < 1.1, round(jb$max_rhat, 3))
+  check("joint_bft", "hake and humpback field R2 > 0.5", min(r2[c("hake", "humpback")]) > 0.5,
+        sprintf("%.2f / %.2f", r2[["hake"]], r2[["humpback"]]))
+  check("joint_bft", "humpback beta_bft estimated, |beta_bft| < 1", isTRUE(abs(bb) < 1), round(bb, 3))
 }
 
 # -----------------------------------------------------------------------------

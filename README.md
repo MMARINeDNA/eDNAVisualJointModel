@@ -43,8 +43,9 @@ southern edge on 35°N.
 > **Re-runs in progress.** The current set-up is the 35°N domain, 50 × 150 km
 > length-scales, 35 transects and an 800-function budget.
 > - **Re-run:** the visual validation and sea-state check (2026-10-12) and
->   the joint comparison for seed 1 (2026-10-13) ([Results](#results)). Seeds
->   2 and 3 of the joint comparison are running.
+>   the joint comparison for seed 1 (2026-10-13) ([Results](#results)). The
+>   joint comparison with sea state (Beaufort covariate) is done for seeds 1
+>   and 2 and paused for seeds 3–5 (`docs/explainer.md`, Section 5).
 > - **Still from the earlier set-up:** HSGP4eDNA's validation. That set-up was
 >   a 500 × 1270 km box (about 37.7–49.2°N), 50 × 300 km length-scales, 25
 >   transects and a 400-function budget.
@@ -208,9 +209,13 @@ bottom-depth spline, in animals/km². Two observation models share it:
   zero-inflated beta-binomial metabarcoding for all species, and the
   between-bottle and junk noise terms. The metabarcoding assumes equal
   amplification efficiency across species (ROADMAP 6.2, item 6).
-- **Visual:** the line-transect model for humpback and PWSD, without the
-  sea-state covariate. Its half-normal or hazard-rate key and per-species
-  truncation carry through.
+- **Visual:** the line-transect model for humpback and PWSD. Its half-normal
+  or hazard-rate key and per-species truncation carry through, and the
+  Beaufort sea-state covariate on detection can be switched on per species
+  (`bft_species`; on by default when the segments carry Beaufort).
+  `simulate_joint(sea_state = TRUE)` simulates it. With the covariate off the
+  log density is identical to the model without it, and with eDNA off it
+  equals the single-species visual models (`tests/joint_exactness.R`).
 
 Data switches turn the eDNA or the visual likelihood off, and free the
 cetaceans' conversion factors. So the eDNA-only, visual-only and joint fits use
@@ -269,8 +274,9 @@ is covered in every fit either way. β_bft is covered but shrunk toward zero
 (median relative bias −29% humpback, −37% PWSD).
 
 **Joint model** (`R/compare_joint.r`, `simulate_joint()` seed 1 on the 35°N
-domain, 4 chains × 800/800, data-based starting field; run 2026-10-13; seeds
-2 and 3 running). The same model and priors are used in each column; only the
+domain, 4 chains × 800/800, data-based starting field; run 2026-10-13; the
+replicates are being run with sea state, see the explainer's Section 5). The
+same model and priors are used in each column; only the
 data differ. Each cell is the field R² over all 200 stations and 2,415
 segments, with the mean 95% CI width of log density in brackets. Coverage of
 the true field is 0.92–0.96 throughout.

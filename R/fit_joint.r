@@ -113,6 +113,8 @@ joint_init <- function(sd) {
                   rnorm(L, 0, 0.1),
       beta_size = rnorm(L, 0, 0.005),
       log_b = (sd$log_b_prior_mean + rnorm(L, 0, 0.1))[sd$det_key == 1L],
+      # sea-state slopes start near 0 (draws nothing when no species uses it)
+      beta_bft = array(rnorm(sum(sd$use_bft_covar), 0, 0.02)),
       mu_s = sd$mu_s_prior_shape / sd$mu_s_prior_rate, phi_s = runif(L, 0.5, 2),
       mu_log_s = sd$mu_log_prior_mean + rnorm(L, 0, 0.1),
       sigma_log_s = sd$sigma_log_prior_shape / sd$sigma_log_prior_rate)
@@ -186,6 +188,14 @@ summarise_joint <- function(fit, sim, sd, mode) {
     lt <- sim$meta$lt_species; p <- sim$visual$truth$sp_params
     vars <- c(vars, sprintf("sigma_c[%d]", seq_len(sd$L)))
     truth_v <- c(truth_v, vapply(lt, function(x) p[[x]]$sigma_det, 0))
+    # Beaufort slopes (beta_bft is indexed over the species that use it); the
+    # truth is the simulator's when the segments carry sea state, else 0
+    bft_lt <- lt[sd$use_bft_covar == 1L]
+    if (length(bft_lt)) {
+      vars <- c(vars, sprintf("beta_bft[%d]", seq_along(bft_lt)))
+      truth_v <- c(truth_v, vapply(bft_lt, function(x)
+        if (isTRUE(sim$visual$meta$sea_state)) p[[x]]$beta_bft_truth else 0, 0))
+    }
   }
   noise <- c(if (sd$use_bottle_noise == 1L) "theta_bottle", if (sd$use_junk_noise == 1L) "theta_junk")
   qs <- summarise_draws(fit$draws(c(vars, noise)), median = stats::median,
@@ -203,6 +213,7 @@ summarise_joint <- function(fit, sim, sd, mode) {
   diag <- fit$diagnostic_summary(quiet = TRUE)
   hyper_rhat <- fit$summary(c("mu_sp", "gp_sigma", "gp_l_raw", "beta_bathy",
                               if (sd$use_visual == 1L) c("log_sigma", "mu_s", "mu_log_s"),
+                              if (sd$use_visual == 1L && sum(sd$use_bft_covar) > 0) "beta_bft",
                               if (sd$n_conv_free > 0) "log_conv_free", noise), "rhat")$rhat
   list(field = field, recovery = recovery, post_mean = post_mean,
        divergences = sum(diag$num_divergent), treedepth_hits = sum(diag$num_max_treedepth),
