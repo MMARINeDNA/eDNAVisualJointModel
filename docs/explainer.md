@@ -418,9 +418,12 @@ standard curve (slope, intercept, detection efficiency $\kappa$, Ct noise). The
 model's qPCR part is built on Ct, so **it cannot be fitted yet**. Volumes filtered,
 aliquot and elution volume are also missing, and the eDNA files carry no dates.
 *(Update, 2026-10-21: the qPCR lab's file with Ct per well, the hake standards on
-all 33 plates, the filtered volume per bottle and the dates has since arrived;
-`docs/dataQs.md` and ROADMAP_2026-10-21, section 5. It is not in the loader yet,
-so this fit is unchanged.)*
+all 33 plates, the filtered volume per bottle and the dates has since arrived,
+with a new metabarcoding table and metadata. The loader now uses them: 513
+bottles, Ct for 1,532 hake wells, per-plate standard curves fitted to the
+standards, dilutions and target depths; `notes/muri_data_formatting.md` and
+ROADMAP_2026-10-21, section 5. This fit was made before that and has not been
+re-run.)*
 
 **What I did.** The model was fitted to metabarcoding only: all qPCR rows were
 dropped except one non-detect (the model's data block requires at least one), the
@@ -1004,30 +1007,34 @@ mode with very large junk noise), which is why joint fits now run 4 chains.
 
 `R/01_load_muri.r` writes an eDNA object and a visual object with the same
 structure as the simulators' output, on a common domain and UTM origin, so the
-same formatters apply to the joint model. Two data gaps carry over:
-no qPCR Ct values in the loader yet (so the eDNA likelihood would use
-metabarcoding only, as in Section 3.3), and placeholder volumes, which make the
-absolute conversion factor meaningless until they are supplied. The Ct values,
-standards and filtered volumes have now arrived and are being added
-(ROADMAP_2026-10-21, section 5). The visual data supply the absolute density.
+same formatters apply to the joint model. Since 2026-10-21 the eDNA object
+carries hake Ct per well with per-plate standard curves, filtered volume per
+bottle, dates, target depths and dilutions (ROADMAP_2026-10-21, section 5).
+The model does not yet use the per-plate curves, per-bottle volumes or
+dilutions (they wait on HSGP4eDNA), and template and elution volumes are still
+assumed, so the absolute conversion factor is not yet meaningful. The visual
+data supply the absolute density.
 
 # Limitations and open issues
 
 ## Data
 
-- **qPCR Ct and standard curve not yet in the loader.** The qPCR lab's file
-  (Ct per well, standards on all 33 plates, filtered volume per bottle, dates)
-  arrived on 2026-10-12; until it is loaded, the qPCR part of the eDNA model
-  cannot be used. Template and elution volumes are still placeholders.
+- **qPCR Ct and standard curves are loaded, not yet used.** Ct per well and
+  per-plate standard curves (fitted to the hake standards) are in the eDNA
+  object since 2026-10-21; the model takes one curve, so per-plate curves wait
+  on HSGP4eDNA. Template and elution volumes are still placeholders. Hake is
+  detected in many field-negative wells (a question for the lab).
 - **Survey timing.** The eDNA dates are in the qPCR lab's file (from
   2 July 2019); the visual survey is from 2018. Both are treated as one
   snapshot of the same field.
-- **Dilutions.** 1162 qPCR replicates were run at dilutions of 0.1 to 0.5 and were
-  not corrected; metabarcoding replicates also carry template dilutions of 1 to
-  100-fold that the model ignores. Both are planned as log offsets on the
-  aliquot copies.
-- **Contamination.** *Homo sapiens* is 27% of junk reads; dropping human and
-  cattle reads from the junk and the replicate totals is planned.
+- **Dilutions.** In the loaded data 393 hake qPCR wells are at 1:5 and
+  metabarcoding replicates are at 1 to 100-fold. Both are in the object as log
+  offsets on the aliquot copies, for the model to use once HSGP4eDNA takes
+  them.
+- **Contamination.** *Gallus* reads are dropped from the junk and the
+  replicate totals; the new MarVer1 table has no human or cattle reads.
+- **30EtOH samples.** 56 of 569 metabarcoded bottles lost about 20 to 30% of
+  their DNA in a lab mix-up; they are dropped for now.
 - **Perpendicular distance missing** for 73 on-effort sightings, which are excluded.
 - **No amplification efficiencies.** There are no MarVer1 mock-community data or
   PCR cycle numbers yet, so the per-species amplification bias of the

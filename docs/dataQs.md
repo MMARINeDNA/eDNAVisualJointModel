@@ -113,11 +113,44 @@ Two other things in analysis A for our samples:
 7. **Bathymetry.** Which depth column (`bathy.bottom.depth` or `bottom.depth.consensus`) do you
    recommend? We currently take bottom depth from ETOPO 2022.
 
-# What we plan to do (pending answers)
+# Answers (Ole, October 2026)
 
-Use `qPCR_2019A.rds` as the hake qPCR source (one triplicate per sample, Ct + dilution); fit the
-multi-plate standard-curve model to the hake standards and use the result as the qPCR observation
-parameters (fixed, or as informative priors); add the log-dilution offset to the qPCR part of the
-joint model; and keep metabarcoding as it is, with dilution recorded for later.
+1. **Design.** Match qPCR and metabarcoding on sample number.
+2. **Reruns / dilution.** Qualify dilution as an offset in the qPCR model (0.1 means 1:10).
+   Metabarcoding needs an offset too.
+3. **30EtOH.** A lab mix-up lost about 20 to 30% of the hake DNA in these samples. Either estimate
+   the loss with hake qPCR and assume it is the same for the other taxa, or exclude them; which
+   depends on how many were metabarcoded (56 of 569, 10%).
+4. **Late Ct.** The 2019 outliers have already been dealt with; use the observations as provided.
+5. **Inhibition.** The 2019 qPCR is cleaned: no inhibited observations remain, and there is one
+   dilution per sample.
+6. **Metabarcoding dilution.** An offset.
+7. **Bathymetry.** Not yet answered.
+
+Since then we have also received `M3_compiled_taxon_table_wide.csv` (reads per taxon for six
+markers; we use MarVer1) and `Hake_2019_metadata.csv`, and use `depth_cat` (target depth) in
+place of recorded depth.
+
+# What we did
+
+- Hake qPCR: all analysis-A wells, Ct and dilution as provided (1,532 wells, 513 bottles after
+  dropping the 30EtOH samples for now).
+- Standard curves per plate, estimated from the hake standards (`stan/qpcr_standards.stan`,
+  after the multi-plate vignette model): intercepts 36.1 to 39.9, slopes 1.45 to 1.49 Ct per
+  log copy (efficiency 0.95 to 1.00), detection rate 0.90 per copy.
+- Dilutions as offsets: log fraction for qPCR, minus log fold for metabarcoding. Where a bottle
+  was metabarcoded at several dilutions, the dilution with the most reads is kept.
+
+# Follow-up questions
+
+- **Hake in field negatives.** 73 of 114 evaporated-DI and 25 of 72 lab-DI field-negative wells
+  detect hake (up to about 12 copies/µL); extraction and PCR controls are clean. Is this known,
+  and should field samples be corrected for it?
+- **Copies/µL.** The `copies_ul` in analysis A run about 20 to 30% below the copies we
+  back-calculate from the per-plate curves, at both dilutions (1 and 1:5). Are they already
+  corrected for dilution? (We model Ct, so this does not affect the fit.)
+- **Template volumes.** 2 µL per qPCR reaction (as for the standards)? Template volume and
+  elution volume for the MarVer1 PCRs?
+- **Bottom depth** (question 7).
 
 *Numbers and figures: `docs/dataQs/make_figs.R`.*

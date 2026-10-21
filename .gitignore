@@ -70,10 +70,18 @@ data/MV1_MURI_df.csv
 data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv
 data/qPCR_2019*.rds
 data/qPCR_vignette.pdf
+data/M3_compiled_taxon_table_wide.csv
+data/Hake_2019_metadata.csv
 data/obis_seamap_dataset_*/
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Cached bathymetry grid (downloaded by R/01_load_muri.r)
+data/processed/etopo2022_60s_cce.rds
+
+# qPCR standard-curve fit outputs (R/fit_qpcr_standards.r)
+outputs/qpcr/
 
 # Visual-model fits and validation (R/fit_visual.r, R/validate_visual.r)
 outputs/visual/
