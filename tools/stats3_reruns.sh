@@ -2,7 +2,8 @@
 # =============================================================================
 # stats3_reruns.sh
 #
-# Runs the ROADMAP Phase 6.0 re-runs as jobs in one tmux session, one window
+# Runs the 35N re-runs (ROADMAP_2026-10-06, 6.0; ROADMAP_2026-10-21, section 3)
+# as jobs in one tmux session, one window
 # per job. Every job runs under nice from the repo root (HSGP4eDNA jobs from
 # the submodule) and logs to logs/<job>.log. See notes/stats3_guide.md.
 #
@@ -34,8 +35,8 @@ mkdir -p logs
 # Stages 2 to 4 only need stage 1; stage 5 needs 3 and 4. Stage 3 is the joint
 # comparison: one job per seed in CMP_SEEDS and mode, 4 chains each (16 cores
 # per seed; the visual-only job ends after about 30 min).
-# expl_edna_real is in no stage: the real eDNA fit waits for the ROADMAP 6.1
-# data (launch it on its own when they are in).
+# expl_edna_real is in no stage: the real eDNA fit waits for the data in
+# ROADMAP_2026-10-21, section 5 (launch it on its own when they are in).
 STAGE1="prep"
 STAGE2="hsgp_nobathy hsgp_bathysp_surface hsgp_bathysp_depthspref hsgp_bathygp_surface
         visual_val visual_val_sea joint_sim"
@@ -177,7 +178,7 @@ stage 3  (16 cores per seed; ~4-6 h per job)     $(echo $STAGE3)
          comparison (now CMP_SEA=$CMP_SEA; 24 cores per seed)
 stage 4  (~14 cores; hours)                      $(echo $STAGE4)
 stage 5  (after 3 and 4; minutes)                $STAGE5
-not in a stage (needs ROADMAP 6.1 data): expl_edna_real
+not in a stage (needs the ROADMAP_2026-10-21 section 5 data): expl_edna_real
 EOF
     ;;
   *) echo "usage: $0 list | stage <1-5> | launch <job> | run <job> | status" >&2; exit 2 ;;

@@ -28,7 +28,7 @@ number-sections: true
 > | Real-data domain | 1360 × 2600 km | 690 × 1770 km |
 >
 > **Every number and figure below predates these changes** and will be
-> regenerated after the re-runs listed in ROADMAP Phase 6.0, **except the
+> regenerated after the re-runs listed in ROADMAP_2026-10-21, section 3, **except the
 > joint model's simulation results (Section 5), which are on the current
 > set-up** (seed 1, 2026-10-13). The real eDNA bottles (all north of 35°N) are
 > unchanged; the real eDNA fit's numbers still change through the new domain
@@ -920,7 +920,7 @@ segment (rougher to the north and offshore), and detection falls with it
 and the eDNA data are identical to the calm-sea simulation; only the sightings
 change. Every fit includes the covariate for both cetaceans. Seeds 1 and 2 are
 done. Seeds 3–5 will be run after the next model change, negative-binomial
-segment counts on the visual side (ROADMAP 6.2, item 4), so that the replicate
+segment counts on the visual side (ROADMAP_2026-10-21, section 3), so that the replicate
 table comes from the model that will go forward.
 
 Field R² (mean 95% interval width):
@@ -975,7 +975,7 @@ mode with very large junk noise), which is why joint fits now run 4 chains.
 > Sections 3 and 4: not produced. (2) The joint model has not been fitted to the
 > real MURI data. (3) The joint model's visual part now includes the
 > **Beaufort covariate** that the PWSD real-data fit uses (added 2026-10-20;
-> its simulation check is ROADMAP 6.2, item 5), but the real eDNA fit showed
+> its simulation check is in Section 5 above), but the real eDNA fit showed
 > the diagnostics that need attention first (very large noise terms,
 > length-scales at the floor, no Ct values, one flat water-column offset).
 > Item (3) is the main reason I would treat a real-data joint fit as a
@@ -1024,7 +1024,7 @@ meaningless until they are supplied. The visual data supply the absolute density
   it is absorbed into the conversion factor, which then means copies per animal
   times the species' relative amplification bias. If cycles or dilutions vary
   between samples, the bias also enters the spatial pattern. Mock-community
-  estimates would separate the two (ROADMAP 6.1 and 6.2, item 6).
+  estimates would separate the two (ROADMAP_2026-10-21, section 5).
 - **Projection.** Effort to about -114.5 degrees longitude is far from UTM zone 10's
   central meridian, so distances there are distorted by a few percent.
 - **Sampling cost.** The reference eDNA fit takes about 15 hours; real-data fits of

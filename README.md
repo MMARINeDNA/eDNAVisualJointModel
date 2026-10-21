@@ -12,8 +12,9 @@ visual: λ_groups_s = λ_s / E[group size_s]                          → half-n
 ```
 
 The repo is being restructured toward **one eDNA model, one visual model, and
-one joint model**. See [`ROADMAP.md`](ROADMAP.md) for the plan and the
-per-phase checks. Everything removed in the restructure is preserved at the git
+one joint model**. See [`ROADMAP_2026-10-21.md`](ROADMAP_2026-10-21.md) for the
+planned work, and [`ROADMAP_2026-10-06.md`](ROADMAP_2026-10-06.md) (archived) for
+the restructure plan and its per-phase checks. Everything removed in the restructure is preserved at the git
 tag [`pre-restructure`](https://github.com/MMARINeDNA/eDNAVisualJointModel/tree/pre-restructure)
 (the v1–v4.1 eDNA models and pipelines, the `distance/` line-transect models,
 their outputs and notebooks).
@@ -46,13 +47,13 @@ southern edge on 35°N.
 >   the joint comparison for seed 1 (2026-10-13) ([Results](#results)). The
 >   joint comparison with sea state (Beaufort covariate) is done for seeds 1
 >   and 2 (`docs/explainer.md`, Section 5); seeds 3–5 follow the move to
->   negative-binomial segment counts (ROADMAP 6.2, item 4).
+>   negative-binomial segment counts (ROADMAP_2026-10-21, section 3).
 > - **Still from the earlier set-up:** HSGP4eDNA's validation. That set-up was
 >   a 500 × 1270 km box (about 37.7–49.2°N), 50 × 300 km length-scales, 25
 >   transects and a 400-function budget.
 >
 > The rest runs on the stats3 server or a laptop (`notes/stats3_guide.md`);
-> ROADMAP Phase 6.0 lists it.
+> ROADMAP_2026-10-21, section 3, lists it.
 
 ## Simulated species
 
@@ -209,7 +210,7 @@ bottom-depth spline, in animals/km². Two observation models share it:
 - **eDNA:** HSGP4eDNA's v1.5 model, run unchanged. It has qPCR for hake,
   zero-inflated beta-binomial metabarcoding for all species, and the
   between-bottle and junk noise terms. The metabarcoding assumes equal
-  amplification efficiency across species (ROADMAP 6.2, item 6).
+  amplification efficiency across species (ROADMAP_2026-10-21, section 5).
 - **Visual:** the line-transect model for humpback and PWSD. Its half-normal
   or hazard-rate key and per-species truncation carry through, and the
   Beaufort sea-state covariate on detection can be switched on per species
@@ -254,7 +255,7 @@ Median relative bias:
 The north–south length-scale is the one to watch: the floor check flags it in
 4 of 5 humpback fits and 2 of 5 PWSD fits (posterior near the prior's
 117 km floor against a truth of 150 km). That is the narrow 1.28× visual
-north–south margin recorded in ROADMAP 6.0; the truth stays covered.
+north–south margin recorded in ROADMAP_2026-10-06, 6.0; the truth stays covered.
 
 **Sea-state covariate** (`SEA_STATE=1 SEEDS=1:3`; truth β_bft = −0.08
 humpback, −0.15 PWSD). Each species fitted with and without the covariate.
@@ -300,7 +301,7 @@ the true field is 0.92–0.96 throughout.
   5.30 [5.05, 5.53] (truth 5.30), PWSD 4.77 [4.45, 5.08] (truth 4.70). eDNA
   alone cannot identify them, because only density × conversion enters its
   likelihood. They assume equal amplification efficiency across species in
-  the metabarcoding (ROADMAP 6.2, item 6).
+  the metabarcoding (ROADMAP_2026-10-21, section 5).
 - **Convergence.** 0 divergences in every fit; max Rhat 1.007 (visual), 1.019
   (joint), 1.06 (conversion free) and 1.11 for eDNA-only, on θ_bottle, the
   slowly mixing noise term.
@@ -310,7 +311,7 @@ the true field is 0.92–0.96 throughout.
 - **Starting values.** From a flat starting field this dataset's eDNA side got
   stuck at its extreme hake hot spots (hake R² 0.19, θ_bottle 1.6 against 10).
   Joint fits now start the field from the data (`edna_field_start()`), which
-  recovers it (ROADMAP 6.0). Joint fits also run 4 chains, so a stuck chain
+  recovers it (ROADMAP_2026-10-06, 6.0). Joint fits also run 4 chains, so a stuck chain
   shows in Rhat.
 - **Runtime** on a laptop: eDNA-only, joint and conversion-free about 2 h each;
   visual-only about 45 min.
@@ -346,7 +347,8 @@ domain extent and the basis budget. Observed outcomes never enter
 
 ```
 .
-├── ROADMAP.md              restructure plan + per-phase results
+├── ROADMAP_2026-10-21.md   planned work (current)
+├── ROADMAP_2026-10-06.md   restructure plan + per-phase results (archived)
 ├── external/HSGP4eDNA/     submodule: eDNA model, HSGP helpers, simulators
 ├── R/                      drivers: fit_edna.r, functions_visual.R, functions_joint.R,
 │                           fit_visual.r, validate_visual.r, validate_joint_sim.r,
@@ -398,7 +400,7 @@ survey data and write them to `figures/`. Run them as
 - `docs/explainer.md` (rendered `docs/explainer.html`) walks through every model
   with simulated and real data, prior and posterior predictive checks, and the
   open issues. It was written on the set-up before the 35°N study domain (see
-  its status note) and will be regenerated after the ROADMAP 6.0 re-runs. Figure scripts are in `docs/explainer/`; re-render with
+  its status note) and will be regenerated after the re-runs in ROADMAP_2026-10-21, section 3. Figure scripts are in `docs/explainer/`; re-render with
   `quarto render docs/explainer.md --to html --embed-resources`.
 - `docs/history/` has two self-contained write-ups. `v3.2_notebook.html` is
   the eDNA sampler-pathology debugging case study, and
