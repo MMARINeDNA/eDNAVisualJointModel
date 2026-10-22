@@ -242,8 +242,14 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
   `etoh_wash`); 513 kept, at 167 stations. 16 station x depth locations have two bottles.
 - **Depth**: `Z_sample` = `depth_cat` from analysis A (target depth: 0 169, 50 146, 150 65,
   300 67, 500 66 bottles), also as an ordered factor `depth_cat` and `depth_idx`; recorded depth
-  kept as `depth_recorded` (recorded minus target: -36 to +3 m). 3 bottles have
-  `Z_sample > Z_bathy` (ETOPO). `location` = station x `depth_cat`.
+  kept as `depth_recorded` (recorded minus target: -36 to +3 m). `location` = station x
+  `depth_cat`.
+- **Bottom depth** (`Z_bathy`): the metadata's `bottom.depth.consensus`, as the lab recommends;
+  ETOPO 2022 at the bottle is kept as `Z_bathy_etopo`. Consensus minus ETOPO: median -7.6 m,
+  median absolute difference 13 m, 90% within 46 m, extremes -150 and +320 m (steep slope
+  stations). Visual segments still use ETOPO (there is no consensus value off the stations).
+  5 bottles have `Z_sample > Z_bathy`: all 500 m targets at stations 474-499 m deep, recorded
+  at 464-491 m, i.e. near-bottom samples.
 - **qPCR**: all analysis-A hake wells of these bottles, as provided (cleaned by the lab: one
   dilution per sample, no inhibited wells, late Ct kept). 1,532 wells on 25 plates; 3 per bottle
   for 458 bottles; detection rate 0.858; Ct 26.7-44.7; dilution 1 (1,139 wells) or 0.2 (393).

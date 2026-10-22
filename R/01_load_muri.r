@@ -170,8 +170,10 @@ samples <- tibble(
   station = match(stn_key, unique(stn_key)), station_name = bot$station, niskin = bot$Niskin,
   lat = bot$lat, lon = bot$lon) |>
   bind_cols(xy) |>
-  mutate(Z_bathy = bottom_depth(lon, lat),
-         bottom_depth_consensus = bot$bottom.depth.consensus,
+  # bottom depth: the metadata's bottom.depth.consensus (the lab's choice);
+  # ETOPO at the bottle kept for comparison (segments use ETOPO)
+  mutate(Z_bathy = bot$bottom.depth.consensus,
+         Z_bathy_etopo = bottom_depth(lon, lat),
          # target sampling depth: an ordered category (m); the recorded depth is kept
          Z_sample  = as.numeric(bot$depth_cat),
          depth_cat = factor(bot$depth_cat, levels = DEPTH_LEVELS, ordered = TRUE),
@@ -236,7 +238,7 @@ edna <- list(
     mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads", MB_MARKER),
     mb_contaminants_dropped = CONTAMINANTS,
     etoh = ETOH, flow = flow,
-    bathy_source = BATHY_SOURCE,
+    bathy_source = "Hake_2019_metadata.csv bottom.depth.consensus (ETOPO in Z_bathy_etopo)",
     sample_depths = DEPTH_LEVELS, depth_levels = DEPTH_LEVELS
   ),
   design = list(samples = samples),

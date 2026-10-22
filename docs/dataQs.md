@@ -125,7 +125,7 @@ Two other things in analysis A for our samples:
 5. **Inhibition.** The 2019 qPCR is cleaned: no inhibited observations remain, and there is one
    dilution per sample.
 6. **Metabarcoding dilution.** An offset.
-7. **Bathymetry.** Not yet answered.
+7. **Bathymetry.** Use `bottom.depth.consensus`.
 
 Since then we have also received `M3_compiled_taxon_table_wide.csv` (reads per taxon for six
 markers; we use MarVer1) and `Hake_2019_metadata.csv`, and use `depth_cat` (target depth) in
@@ -153,6 +153,5 @@ place of recorded depth.
   than 1,000 reads in total and 47 fewer than 100; they detect hake less often (49% under 100
   reads, 69% over 10,000). Do you use a minimum total-read cutoff below which a replicate counts
   as failed, and if so, what is it?
-- **Bottom depth** (question 7).
 
 *Numbers and figures: `docs/dataQs/make_figs.R`.*
