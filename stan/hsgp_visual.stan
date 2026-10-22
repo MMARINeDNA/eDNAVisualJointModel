@@ -6,6 +6,7 @@
 //   log lambda(x_j) = mu_sp + f(X_j, Y_j) + B_bathy_j . beta_bathy      animals / km^2
 //   f ~ GP(0, K_SE(lx, ly)),  2-D HSGP over normalised (X, Y)
 //   seg_count_j ~ Poisson(lambda_j / E[s] * 2 * L_j * esw_pop(b_j))
+//                 (or negative binomial with size phi_nb, use_nb = 1)
 //   x_i ~ half-normal or hazard-rate (det_key) detection, scale sigma_i, truncated at w,
 //         log sigma_i = log_sigma + beta_size (s_i - s_centre) + beta_bft (b_i - b_centre)
 //   s_i ~ group-size distribution, size-bias corrected for detection
@@ -22,6 +23,9 @@
 //   K_bathy = 0  drops the bottom-depth spline
 //   use_bft_covar = 0  drops the sea-state term (n_bft = 1, bft_level = 0):
 //                      exactly the single-ESW model
+//   use_nb  = 1  negative-binomial segment counts (clustered sightings), with
+//                1 / sqrt(phi_nb) ~ half-normal(0, prior_nb_inv_sqrt_sd);
+//                use_nb = 0 is exactly the Poisson model (phi_nb has size 0)
 // With both off this is the non-spatial v4.1 model, re-parameterised on animal
 // density (lambda = exp(mu_sp)) instead of group density.
 //
@@ -78,6 +82,8 @@ data {
   vector<lower=0>[n_seg] seg_l;            // segment length (km)
   array[n_seg] int<lower=1, upper=n_bft> seg_bft;  // sea-state level per segment
   array[n] int<lower=1, upper=n_bft> det_bft;      // ... per detection (its segment's)
+  int<lower=0, upper=1> use_nb;            // 1 = negative-binomial segment counts
+  real<lower=0> prior_nb_inv_sqrt_sd;      // half-normal sd on 1 / sqrt(phi_nb)
 
   // ---- Latent field ---------------------------------------------------------
   int<lower=0, upper=1> use_gp;
@@ -134,6 +140,9 @@ parameters {
   vector[use_bft_covar] beta_bft;          // change in log sigma per Beaufort unit
   vector[det_key] log_b;                   // hazard-rate shape (size 0 if half-normal)
 
+  // Segment-count overdispersion (size 0 unless use_nb)
+  vector<lower=0>[use_nb] inv_sqrt_phi_nb;
+
   // Group size (both families sampled; only group_size_dist's enters the data
   // likelihood, the other sits at its prior - same convention as v4.1)
   real<lower=0> mu_s;
@@ -162,6 +171,8 @@ transformed parameters {
                                 beta_size, s_centre, b_hr, w, log_xq, ksz_bin, n_kbin);
   }
   real<lower=1> mean_group_size = dot_product(k_support, pk);
+  real phi_nb = 1e300;                      // NB size; unused unless use_nb
+  if (use_nb == 1) phi_nb = inv_square(inv_sqrt_phi_nb[1]);
 }
 
 model {
@@ -179,6 +190,7 @@ model {
   beta_size   ~ normal(beta_size_prior_mean, beta_size_prior_sd);
   beta_bft    ~ normal(beta_bft_prior_mean, beta_bft_prior_sd);
   log_b       ~ normal(log_b_prior_mean, log_b_prior_sd);
+  inv_sqrt_phi_nb ~ normal(0, prior_nb_inv_sqrt_sd);
   mu_s        ~ gamma(mu_s_prior_shape, mu_s_prior_rate);
   phi_s       ~ gamma(phi_s_prior_shape, phi_s_prior_rate);
   mu_log_s    ~ normal(mu_log_prior_mean, mu_log_prior_sd);
@@ -188,8 +200,13 @@ model {
   target += sum(lt_detection_loglik(x, s, w, use_size_covar, det_key, log_sigma_bft[det_bft],
                                     beta_size, s_centre, b_hr, group_size_dist,
                                     mu_s, phi_s, mu_log_s, sigma_log_s, esw_bft[det_bft]));
-  target += sum(lt_segment_loglik(seg_count, seg_l, log_lambda,
-                                  log(mean_group_size), esw_bft[seg_bft]));
+  if (use_nb == 1) {
+    target += sum(lt_segment_loglik_nb(seg_count, seg_l, log_lambda,
+                                       log(mean_group_size), esw_bft[seg_bft], phi_nb));
+  } else {
+    target += sum(lt_segment_loglik(seg_count, seg_l, log_lambda,
+                                    log(mean_group_size), esw_bft[seg_bft]));
+  }
 }
 
 generated quantities {
@@ -204,13 +221,14 @@ generated quantities {
   vector[n]     log_lik_det = lt_detection_loglik(x, s, w, use_size_covar, det_key,
                                 log_sigma_bft[det_bft], beta_size, s_centre, b_hr, group_size_dist,
                                 mu_s, phi_s, mu_log_s, sigma_log_s, esw_bft[det_bft]);
-  vector[n_seg] log_lik_seg = lt_segment_loglik(seg_count, seg_l, log_lambda,
-                                log(mean_group_size), esw_bft[seg_bft]);
+  vector[n_seg] log_lik_seg = use_nb == 1
+    ? lt_segment_loglik_nb(seg_count, seg_l, log_lambda, log(mean_group_size), esw_bft[seg_bft], phi_nb)
+    : lt_segment_loglik(seg_count, seg_l, log_lambda, log(mean_group_size), esw_bft[seg_bft]);
 
   array[n_seg] int pp_seg_count;
   for (j in 1:n_seg) {
-    pp_seg_count[j] = poisson_log_rng(log_lambda[j] - log(mean_group_size)
-                                      + log(2 * seg_l[j] * esw_bft[seg_bft[j]]));
+    real eta_j = log_lambda[j] - log(mean_group_size) + log(2 * seg_l[j] * esw_bft[seg_bft[j]]);
+    pp_seg_count[j] = use_nb == 1 ? neg_binomial_2_log_rng(eta_j, phi_nb) : poisson_log_rng(eta_j);
   }
 
   vector[N_pred] log_lambda_pred = mu_sp + B_bathy_pred * beta_bathy;
