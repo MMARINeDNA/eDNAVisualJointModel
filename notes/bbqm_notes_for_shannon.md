@@ -88,7 +88,27 @@ absolute anchor.
    range where your README says scale is identified. Human and cattle shares
    vary even more (median 600×), which fits contamination added
    per replicate rather than DNA in the extract.
-7. **A departure in the simulator.** `simulate_marker()` generates exactly
+7. **With few taxa, the others can all be absent.** The zero inflation
+   conditions the focal taxon on presence, and `mech_phi_pi` marginalises
+   the others. With 15–30 taxa they are never all absent at once. With our
+   four categories they often are: an aliquot with no hake or cetacean
+   copies gives junk every read. A beta-binomial can't put mass at
+   reads = total, so the fit pulls that category's φ down. On simulated
+   reads, junk's best β0 at the true copies was −1.0; it was +0.1 with those
+   replicates left out. Our fix mirrors the zero inflation on the other side.
+   Each taxon's reads are:
+   - 0 if it is absent;
+   - all the reads if it is present and every other taxon is absent
+     (probability e^−F_o, with F_o the others' total copies);
+   - otherwise beta-binomial, with the others' mean and variance taken given
+     at least one of them is present: mean Σ w F / p_o, and variance
+     Σ w² F / p_o − mean² (1 − p_o), where p_o = 1 − e^−F_o.
+
+   When the others always have copies, this reduces exactly to your φ. It
+   only matters with few taxa, or in low-concentration samples where every
+   taxon but one can drop out. It could matter in your lowest dilution
+   rungs.
+8. **A departure in the simulator.** `simulate_marker()` generates exactly
    from the mechanism, so it shows that β0 and ε aren't needed when the
    mechanism is true. An option to generate a departure (clumped copies or
    random per-replicate PCR efficiency) would show the other half: how
