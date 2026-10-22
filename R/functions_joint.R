@@ -21,7 +21,9 @@
 #   visual simulate_lt_sightings(): half-normal detection, empirical group
 #          sizes, for the cetaceans (lt_species); with sea_state = TRUE,
 #          segment Beaufort (draw_sea_state()) scales each detection scale by
-#          exp(beta_bft_truth * (Beaufort - BFT_CENTRE))
+#          exp(beta_bft_truth * (Beaufort - BFT_CENTRE)); with visibility =
+#          TRUE, segment visibility (draw_visibility()) likewise by
+#          exp(beta_vis_truth * (visibility - VIS_CENTRE))
 # Because each sub-object has its single-source shape, every eDNA-only and
 # visual-only fitting tool works on it unchanged.
 # =============================================================================
@@ -34,7 +36,7 @@ simulate_joint <- function(seed = 1L, n_stations = 200L,
                            gp_params  = default_gp_params(),
                            lt_species = c("humpback", "pwsd"),
                            sp_params  = lt_species_params(),
-                           sea_state  = FALSE) {
+                           sea_state  = FALSE, visibility = FALSE) {
   set.seed(seed)
   dom <- LT_DOMAIN
   S <- length(gp_params)
@@ -89,13 +91,15 @@ simulate_joint <- function(seed = 1L, n_stations = 200L,
   # Sea state is drawn after the field and the eDNA data, so those match the
   # sea_state = FALSE draw for the same seed.
   if (sea_state) segments$bft <- draw_sea_state(segments, dom)
+  if (visibility) segments$vis <- draw_visibility(segments, dom)   # after the sea state
   pick <- function(m) { m <- m[sgi, match(lt_species, names(gp_params)), drop = FALSE]
                         colnames(m) <- lt_species; m }
   log_lambda_seg <- pick(field$log_lambda_si)
   observed_lt <- lapply(setNames(lt_species, lt_species), function(sp)
     simulate_lt_sightings(segments, exp(log_lambda_seg[, sp]), sp_params[[sp]], w))
   visual <- list(
-    meta = list(seed = seed, species = lt_species, w = w, domain = dom, sea_state = sea_state),
+    meta = list(seed = seed, species = lt_species, w = w, domain = dom, sea_state = sea_state,
+                visibility = visibility),
     design = list(segments = segments),
     truth = list(log_lambda = log_lambda_seg, gp_field = pick(field$gp_field_si),
                  bathy_effect = pick(field$bathy_effect_si),
@@ -145,6 +149,13 @@ joint_field_agreement <- function(sim, max_km = 10) {
 #                         setting in sp_params if present, else every species
 #                         whenever the segments carry a `bft` column (as
 #                         format_stan_data_visual()). character(0) = none.
+#   vis_species           line-transect species with the visibility covariate
+#                         on detection. Default: each species' `use_vis` setting
+#                         in sp_params (none if unset). character(0) = none.
+#   nb_species            line-transect species with negative-binomial segment
+#                         counts. Default: each species' `use_nb` setting in
+#                         sp_params (none if unset). character(0) = none.
+#   nb_inv_sqrt_sd        half-normal prior sd on 1 / sqrt(phi_nb)
 #
 # Coordinates of both sources are normalised by the DOMAIN extents, and the
 # design-based GP prior is built from the union of station and segment
@@ -161,6 +172,8 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
                                    prior_log_conv = c(mu = log(100), sig = 2),
                                    prior_mu_sp = NULL,
                                    bft_species = NULL,
+                                   vis_species = NULL,
+                                   nb_species = NULL, nb_inv_sqrt_sd = 1.0,
                                    HSGP_M = NULL, HSGP_C = c(1.5, 1.5),
                                    M_max = GP_BASIS_BUDGET) {
   dom    <- sim$meta$domain
@@ -194,13 +207,22 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     }, logical(1))]
   }
   stopifnot(all(bft_species %in% lt))
+  if (is.null(vis_species))
+    vis_species <- lt[vapply(lt, function(sp) isTRUE(sim$visual$truth$sp_params[[sp]]$use_vis), logical(1))]
+  stopifnot(all(vis_species %in% lt))
+  if (is.null(nb_species))
+    nb_species <- lt[vapply(lt, function(sp) isTRUE(sim$visual$truth$sp_params[[sp]]$use_nb == 1L), logical(1))]
+  stopifnot(all(nb_species %in% lt))
   # With any species on the covariate, bin every species to the same levels
   # (use_bft = TRUE in the visual formatter); the switch is set per species below.
+  # Likewise for visibility: the cells are shared, the switch is per species.
   any_bft <- length(bft_species) > 0
+  any_vis <- length(vis_species) > 0
   vd <- lapply(setNames(lt, lt), function(sp)
-    format_stan_data_visual(sim$visual, sp, HSGP_M = HSGP_M, use_bft = any_bft))
+    format_stan_data_visual(sim$visual, sp, HSGP_M = HSGP_M, use_bft = any_bft, use_vis = any_vis))
   stopifnot(all(vapply(vd, function(v) identical(v$seg_bft, vd[[1]]$seg_bft) &&
-                         identical(v$bft_level, vd[[1]]$bft_level), logical(1))))
+                         identical(v$bft_level, vd[[1]]$bft_level) &&
+                         identical(v$vis_level, vd[[1]]$vis_level), logical(1))))
   stopifnot(isTRUE(all.equal(vd[[1]]$B_bathy, vd[[length(vd)]]$B_bathy)),
             ncol(vd[[1]]$B_bathy) == ed$K_bathy)
   pick <- function(field) vapply(vd, function(v) as.numeric(v[[field]]), numeric(1))
@@ -271,6 +293,10 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     det_bft = as.array(as.integer(unlist(lapply(vd, `[[`, "det_bft"), use.names = FALSE))),
     beta_bft_prior_mean = as.array(pick("beta_bft_prior_mean")),
     beta_bft_prior_sd = as.array(pick("beta_bft_prior_sd")),
+    use_vis_covar = as.array(as.integer(lt %in% vis_species)), vis_level = as.array(vd[[1]]$vis_level),
+    beta_vis_prior_mean = as.array(pick("beta_vis_prior_mean")),
+    beta_vis_prior_sd = as.array(pick("beta_vis_prior_sd")),
+    use_nb = as.array(as.integer(lt %in% nb_species)), prior_nb_inv_sqrt_sd = nb_inv_sqrt_sd,
     S_max = as.array(picki("S_max")), group_size_dist = as.array(picki("group_size_dist")),
     mu_s_prior_shape = as.array(pick("mu_s_prior_shape")),
     mu_s_prior_rate = as.array(pick("mu_s_prior_rate")),

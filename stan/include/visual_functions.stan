@@ -147,3 +147,18 @@
     }
     return ll;
   }
+
+  // Negative-binomial version (clustered sightings): the same mean, variance
+  // mu + mu^2 / phi_nb. A gamma(phi_nb, phi_nb) multiplier on the groups in a
+  // segment's strip, thinned by detection, gives exactly this.
+  vector lt_segment_loglik_nb(array[] int seg_count, vector seg_l,
+                              vector log_lambda_animals, real log_mean_group_size,
+                              vector esw_pop, real phi_nb) {
+    int J = size(seg_count);
+    vector[J] ll;
+    for (j in 1:J) {
+      ll[j] = neg_binomial_2_log_lpmf(seg_count[j] | log_lambda_animals[j] - log_mean_group_size
+                                                     + log(2 * seg_l[j] * esw_pop[j]), phi_nb);
+    }
+    return ll;
+  }

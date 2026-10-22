@@ -18,6 +18,10 @@
 #           transects) via R/fit_visual.r, both species of simulate_visual()
 #   visual_bft  the same model with the Beaufort sea-state covariate, humpback
 #           on simulate_visual(sea_state = TRUE)
+#   visual_nb  the same model with negative-binomial segment counts, humpback
+#           on clustered sightings (simulate_visual(nb_size = 1))
+#   visual_vis the same model with the visibility and Beaufort covariates,
+#           humpback on simulate_visual(sea_state = TRUE, visibility = TRUE)
 #   joint_sim  simulate_joint() (no fits): one shared field, both formatters
 #   joint   stan/hsgp_joint.stan (one field, eDNA + visual likelihoods) via
 #           R/fit_joint.r on a small simulate_joint() dataset
@@ -144,6 +148,55 @@ if (!is.null(vb)) {
   check("visual_bft", "max Rhat < 1.1", vb$max_rhat < 1.1, round(vb$max_rhat, 3))
   check("visual_bft", "beta_bft truth in 95% CI", isTRUE(bb$covered),
         sprintf("%.3g in [%.3g, %.3g]", bb$truth, bb$q025, bb$q975))
+}
+
+# -----------------------------------------------------------------------------
+# Case 2c: visual with negative-binomial segment counts (clustered sightings,
+# NB size 1), humpback only
+# -----------------------------------------------------------------------------
+cat("=== [visual_nb] hsgp_visual + negative-binomial counts ===\n")
+vn <- NULL
+mins <- timed({
+  # more groups, so phi_nb is informed; long length-scales, so the small basis
+  # represents the field (an unrepresented field reads as overdispersion)
+  ngp <- default_gp_params(); ngp$humpback$mu <- log(0.03)
+  ngp$humpback$lx <- 150; ngp$humpback$ly <- 400
+  nsim <- simulate_visual(seed = 1L, gp_params = ngp, nb_size = c(humpback = 1))
+  if (!is.null(vmod)) vn <- tryCatch(
+    fit_visual(nsim, "humpback", mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
+               M_max = 32L, use_nb = 1L),
+    error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL })
+})
+cat(sprintf("  %.1f min\n", mins))
+check("visual_nb", "ran", !is.null(vn), if (is.null(vn)) "error" else "ok")
+if (!is.null(vn)) {
+  pn <- vn$recovery[vn$recovery$param == "phi_nb", ]
+  check("visual_nb", "divergences == 0", vn$divergences == 0, vn$divergences)
+  check("visual_nb", "max Rhat < 1.1", vn$max_rhat < 1.1, round(vn$max_rhat, 3))
+  check("visual_nb", "phi_nb truth in 95% CI", isTRUE(pn$covered),
+        sprintf("%.3g in [%.3g, %.3g]", pn$truth, pn$q025, pn$q975))
+}
+
+# -----------------------------------------------------------------------------
+# Case 2d: visual with the visibility (and Beaufort) covariate, humpback only
+# -----------------------------------------------------------------------------
+cat("=== [visual_vis] hsgp_visual + visibility covariate ===\n")
+vv <- NULL
+mins <- timed({
+  vsim2 <- simulate_visual(seed = 1L, sea_state = TRUE, visibility = TRUE)
+  if (!is.null(vmod)) vv <- tryCatch(
+    fit_visual(vsim2, "humpback", mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
+               M_max = 32L, use_bft = TRUE, use_vis = TRUE),
+    error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL })
+})
+cat(sprintf("  %.1f min\n", mins))
+check("visual_vis", "ran", !is.null(vv), if (is.null(vv)) "error" else "ok")
+if (!is.null(vv)) {
+  bv <- vv$recovery[vv$recovery$param == "beta_vis[1]", ]
+  check("visual_vis", "divergences == 0", vv$divergences == 0, vv$divergences)
+  check("visual_vis", "max Rhat < 1.1", vv$max_rhat < 1.1, round(vv$max_rhat, 3))
+  check("visual_vis", "beta_vis truth in 95% CI", isTRUE(bv$covered),
+        sprintf("%.3g in [%.3g, %.3g]", bv$truth, bv$q025, bv$q975))
 }
 
 # -----------------------------------------------------------------------------

@@ -44,7 +44,9 @@ visual_init <- function(sd) {
     log_sigma = ls0 + rnorm(1, 0, 0.2),
     beta_size = rnorm(1, 0, 0.005),
     beta_bft = array(rnorm(sd$use_bft_covar, 0, 0.02), sd$use_bft_covar),
+    beta_vis = array(rnorm(sd$use_vis_covar, 0, 0.02), sd$use_vis_covar),
     log_b = array(sd$log_b_prior_mean + rnorm(sd$det_key, 0, 0.1), sd$det_key),
+    inv_sqrt_phi_nb = array(runif(sd$use_nb, 0.3, 0.7), sd$use_nb),
     mu_s = sd$mu_s_prior_shape / sd$mu_s_prior_rate, phi_s = runif(1, 0.5, 2),
     mu_log_s = sd$mu_log_prior_mean + rnorm(1, 0, 0.1),
     sigma_log_s = sd$sigma_log_prior_shape / sd$sigma_log_prior_rate)
@@ -86,6 +88,14 @@ summarise_visual <- function(fit, sim, sp, sd) {
     vars  <- c(vars, "gp_sigma[1]", "gp_l[1]", "gp_l[2]")
     truth <- c(truth, gp$sigma, gp$lx, gp$ly)
   }
+  if (sd$use_vis_covar == 1L) {
+    vars  <- c(vars, "beta_vis[1]")
+    truth <- c(truth, if (!is.null(sim$design$segments$vis) && !is.null(p$beta_vis_truth)) p$beta_vis_truth else NA)
+  }
+  if (sd$use_nb == 1L) {
+    vars  <- c(vars, "phi_nb")
+    truth <- c(truth, if (is.null(p$nb_size_truth) || !is.finite(p$nb_size_truth)) NA else p$nb_size_truth)
+  }
   has_bft <- !is.null(sim$design$segments$bft)   # simulated sea state (truth exists)
   if (sd$use_bft_covar == 1L) {
     vars  <- c(vars, "beta_bft[1]")
@@ -111,7 +121,9 @@ summarise_visual <- function(fit, sim, sp, sd) {
   if (has_bft) field$err_bft_slope <- unname(coef(lm(I(post_ll - true_ll) ~ sim$design$segments$bft))[2])
   all_rhat <- fit$summary(c("mu_sp", "gp_sigma", "gp_l_raw", "beta_bathy", "log_sigma",
                             "beta_size", "mu_s", "phi_s", "mu_log_s", "sigma_log_s",
-                            if (sd$use_bft_covar == 1L) "beta_bft"),
+                            if (sd$use_bft_covar == 1L) "beta_bft",
+                            if (sd$use_nb == 1L) "inv_sqrt_phi_nb",
+                            if (sd$use_vis_covar == 1L) "beta_vis"),
                           "rhat")$rhat
   # Truth-free check that the basis budget is not limiting the fit
   gp_prior <- attr(sd, "gp_prior")

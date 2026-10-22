@@ -16,13 +16,19 @@
 //
 // Visual (the L line-transect species, lt_species_idx maps them into 1..S;
 // the hsgp_visual.stan observation model):
-//   seg_count_lj ~ Poisson(lambda_l(x_j) / E[s_l] * 2 L_j * esw_l(b_j))
+//   seg_count_lj ~ Poisson(lambda_l(x_j) / E[s_l] * 2 L_j * esw_l(b_j)), or
+//                  negative binomial with size phi_nb_l for species with
+//                  use_nb[l] = 1 (clustered sightings); use_nb[l] = 0 is the
+//                  Poisson model exactly
 //   detections: half-normal or hazard-rate distances (det_key; optional
 //   group-size covariate) + size-bias-corrected group sizes, with
 //   log sigma = log_sigma_l + beta_size_l (s - s_centre) + beta_bft_l (b - b_centre)
-//   b = Beaufort sea state of the segment, binned to n_bft levels shared by all
-//   species (bft_level = level - centre). use_bft_covar[l] = 0 drops the
-//   sea-state term for species l, giving its single-ESW model exactly.
+//               + beta_vis_l (v - v_centre)
+//   b = Beaufort sea state and v = visibility of the segment; segments are
+//   grouped into n_bft detection-condition cells shared by all species
+//   (bft_level, vis_level = cell value - centre). use_bft_covar[l] = 0 /
+//   use_vis_covar[l] = 0 drops the term for species l, giving its model
+//   without it exactly.
 //
 // Switches (data):
 //   use_edna = 0    drop the eDNA likelihood (visual-only fit)
@@ -143,6 +149,15 @@ data {
   array[n_det_total] int<lower=1, upper=n_bft> det_bft;  // ... per detection (its segment's)
   vector[L] beta_bft_prior_mean;
   vector<lower=0>[L] beta_bft_prior_sd;
+  // Visibility covariate on log sigma, per species, over the same cells
+  array[L] int<lower=0, upper=1> use_vis_covar;
+  vector[n_bft] vis_level;                 // visibility - centre, per cell
+  vector[L] beta_vis_prior_mean;
+  vector<lower=0>[L] beta_vis_prior_sd;
+  // Negative-binomial segment counts per species; 1 / sqrt(phi_nb) ~
+  // half-normal(0, prior_nb_inv_sqrt_sd)
+  array[L] int<lower=0, upper=1> use_nb;
+  real<lower=0> prior_nb_inv_sqrt_sd;
   array[L] int<lower=1> S_max;
   array[L] int<lower=0, upper=1> group_size_dist;
   vector<lower=0>[L] mu_s_prior_shape;
@@ -193,6 +208,20 @@ transformed data {
     int j = 0;
     for (l in 1:L) if (use_bft_covar[l] == 1) { j += 1; bft_pos[l] = j; }
   }
+  // Species with the visibility covariate get a visibility slope
+  int n_vis_sp = sum(use_vis_covar);
+  array[L] int vis_pos = rep_array(0, L);
+  {
+    int j = 0;
+    for (l in 1:L) if (use_vis_covar[l] == 1) { j += 1; vis_pos[l] = j; }
+  }
+  // Species with negative-binomial counts get an overdispersion parameter
+  int n_nb_sp = sum(use_nb);
+  array[L] int nb_pos = rep_array(0, L);
+  {
+    int j = 0;
+    for (l in 1:L) if (use_nb[l] == 1) { j += 1; nb_pos[l] = j; }
+  }
 }
 
 parameters {
@@ -218,6 +247,8 @@ parameters {
   vector[L] beta_size;
   vector[n_hr] log_b;                      // hazard-rate shape (hazard-rate species only)
   vector[n_bft_sp] beta_bft;               // change in log sigma per Beaufort unit (bft species only)
+  vector[n_vis_sp] beta_vis;               // change in log sigma per visibility unit (vis species only)
+  vector<lower=0>[n_nb_sp] inv_sqrt_phi_nb; // segment-count overdispersion (NB species only)
   vector<lower=0>[L] mu_s;
   vector<lower=0>[L] phi_s;
   vector[L] mu_log_s;
@@ -259,8 +290,9 @@ transformed parameters {
     vector[S_max[l]] pk = group_size_pmf(S_max[l], group_size_dist[l], mu_s[l], phi_s[l],
                                          mu_log_s[l], sigma_log_s[l]);
     log_sigma_bft[l] = rep_vector(log_sigma[l], n_bft);
-    if (use_bft_covar[l] == 1) {
-      log_sigma_bft[l] += beta_bft[bft_pos[l]] * bft_level;
+    if (use_bft_covar[l] == 1 || use_vis_covar[l] == 1) {
+      if (use_bft_covar[l] == 1) log_sigma_bft[l] += beta_bft[bft_pos[l]] * bft_level;
+      if (use_vis_covar[l] == 1) log_sigma_bft[l] += beta_vis[vis_pos[l]] * vis_level;
       for (b in 1:n_bft)
         esw_bft[l][b] = esw_population(pk, use_size_covar[l], det_key[l], log_sigma_bft[l][b],
                                        beta_size[l], s_centre[l], b_hr[l], w[l], log_xq[l],
@@ -308,6 +340,9 @@ model {
   for (l in 1:L) if (det_key[l] == 1) log_b[hr_pos[l]] ~ normal(log_b_prior_mean[l], log_b_prior_sd[l]);
   for (l in 1:L) if (use_bft_covar[l] == 1)
     beta_bft[bft_pos[l]] ~ normal(beta_bft_prior_mean[l], beta_bft_prior_sd[l]);
+  for (l in 1:L) if (use_vis_covar[l] == 1)
+    beta_vis[vis_pos[l]] ~ normal(beta_vis_prior_mean[l], beta_vis_prior_sd[l]);
+  inv_sqrt_phi_nb ~ normal(0, prior_nb_inv_sqrt_sd);
   mu_s        ~ gamma(mu_s_prior_shape, mu_s_prior_rate);
   phi_s       ~ gamma(phi_s_prior_shape, phi_s_prior_rate);
   mu_log_s    ~ normal(mu_log_prior_mean, mu_log_prior_sd);
@@ -336,10 +371,18 @@ model {
           s_centre[l], b_hr[l], group_size_dist[l], mu_s[l], phi_s[l], mu_log_s[l], sigma_log_s[l],
           esw_bft[l][db]));
       }
-      target += sum(lt_segment_loglik(seg_count[l], seg_l,
-                                      log_lambda_seg[, lt_species_idx[l]],
-                                      log(mean_group_size[l]),
-                                      esw_bft[l][seg_bft]));
+      if (use_nb[l] == 1) {
+        target += sum(lt_segment_loglik_nb(seg_count[l], seg_l,
+                                           log_lambda_seg[, lt_species_idx[l]],
+                                           log(mean_group_size[l]),
+                                           esw_bft[l][seg_bft],
+                                           inv_square(inv_sqrt_phi_nb[nb_pos[l]])));
+      } else {
+        target += sum(lt_segment_loglik(seg_count[l], seg_l,
+                                        log_lambda_seg[, lt_species_idx[l]],
+                                        log(mean_group_size[l]),
+                                        esw_bft[l][seg_bft]));
+      }
     }
   }
 }
@@ -355,4 +398,5 @@ generated quantities {
   vector[L] b_shape = b_hr;                // hazard-rate shape (1 if half-normal)
   vector[L] p_det;                         // mean detection prob. in the strip (over segments)
   for (l in 1:L) p_det[l] = mean(esw_bft[l][seg_bft]) / w[l];
+  vector[n_nb_sp] phi_nb = inv_square(inv_sqrt_phi_nb);   // NB size (NB species only)
 }
