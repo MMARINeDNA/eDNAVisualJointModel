@@ -1,7 +1,7 @@
 ---
 title: "Joint eDNA and visual survey modelling: what we built and what we tested"
 subtitle: "An explainer for the eDNAVisualJointModel repository (draft for review)"
-date: "2026-10-11"
+date: "2026-10-22"
 toc: true
 toc-depth: 3
 number-sections: true
@@ -24,7 +24,7 @@ number-sections: true
 > | Simulated length-scales | 50 km E–W × 300 km N–S | 50 km E–W × 150 km N–S |
 > | Simulated transects | 25 (1250 segments) | 35 (2415 segments) |
 > | Basis budget | 400 functions | 800 functions |
-> | Real visual effort | 2779 segments (12,967 km), from 27.4°N | 1641 segments (7,561 km), north of 35°N |
+> | Real visual effort | 2779 segments (12,967 km), from 27.4°N | 1617 segments (7,441 km), north of 35°N, Beaufort ≤ 5 |
 > | Real-data domain | 1360 × 2600 km | 690 × 1770 km |
 >
 > **Every number and figure below predates these changes** and will be
@@ -33,6 +33,23 @@ number-sections: true
 > set-up** (seed 1, 2026-10-13). The real eDNA bottles (all north of 35°N) are
 > unchanged; the real eDNA fit's numbers still change through the new domain
 > and budget.
+
+> **Added on 2026-10-22** (eDNAVisualJointModel #103, #104): the newer material
+> is marked "35°N" or dated, and sits alongside the older sections.
+>
+> - **Visual model:** optional **negative-binomial segment counts** (clustered
+>   sightings) and a **visibility** covariate on detection, both per species
+>   and switched off exactly (Section 4). A simulation check of whether
+>   clustered sightings explain the real fits' short length-scales (they do
+>   not; Section 4.4.2).
+> - **Real visual data:** effort restricted to Beaufort ≤ 5; PWSD uses
+>   visibility; NB counts for both species; new fits on the 35°N data
+>   (Section 4.5.2), and the decision to keep the 800-function basis and read
+>   the length-scale floor as a resolution limit.
+> - **Real eDNA data:** the qPCR lab's analysis-A file (Ct, standards), the new
+>   metabarcoding table and metadata, per-plate standard curves, dilutions,
+>   target depths, a 1,000-read minimum per replicate and the lab's answers
+>   (Section 3.3). The real eDNA fit shown predates them.
 
 # What this document is
 
@@ -82,7 +99,7 @@ Each data source then has its own observation model on top of $\lambda_s$:
 |---|---|
 | eDNA, qPCR (hake only) | Expected copies in a reaction $=\lambda_s \times$ conversion factor $\times$ litres filtered $\times$ water-column offset $\times$ bottle noise $\times$ aliquot fraction. Detection is $1-\exp(-\kappa \cdot \text{copies})$. Detected replicates have a Ct that falls linearly in the log of copies. |
 | eDNA, metabarcoding (all species) | Zero-inflated beta-binomial on read counts, with read shares proportional to each species' copies relative to a "junk" background of all non-target DNA. |
-| Visual line transects | Detected groups per segment are Poisson with mean $\lambda_s / E[\text{group size}] \times 2 L \times \text{ESW}$, where ESW is the effective strip half-width implied by the detection function. Perpendicular distances follow the detection function. |
+| Visual line transects | Detected groups per segment are Poisson (or negative binomial, for clustered sightings) with mean $\lambda_s / E[\text{group size}] \times 2 L \times \text{ESW}$, where ESW is the effective strip half-width implied by the detection function. Perpendicular distances follow the detection function, whose scale can depend on group size, Beaufort and visibility. |
 
 Everything downstream is about whether this structure can be fitted reliably, and
 whether its parts behave when they meet real data.
@@ -101,7 +118,7 @@ each species' eDNA concentration peaks at a different depth.
 
 | Piece | Where |
 |---|---|
-| eDNA model, HSGP functions, eDNA simulators | `external/HSGP4eDNA` (submodule, v1.3, `fecf3c4`) |
+| eDNA model, HSGP functions, eDNA simulators | `external/HSGP4eDNA` (submodule, v1.5, `fe551de`; HSGP4eDNA's own main has since reached v1.9, not yet adopted here) |
 | Visual model | `stan/hsgp_visual.stan`, `stan/include/visual_functions.stan` |
 | Visual and joint simulators | `R/functions_visual.R`, `R/functions_joint.R` |
 | Joint model | `stan/hsgp_joint.stan`, `R/fit_joint.r`, `R/compare_joint.r` |
@@ -409,9 +426,32 @@ knowing the truth.
 
 ## Test on real data
 
-**What is available.** The MURI eDNA data have 551 bottles at 182 stations and 19
-distinct sampling depths (172 at the surface, then mostly 50, 150, 300 and 500 m).
-There are 2663 hake qPCR replicates and 1709 metabarcoding replicates.
+**What is available.** *The fit in this section used the first eDNA files:*
+551 bottles at 182 stations and 19 distinct sampling depths (172 at the surface,
+then mostly 50, 150, 300 and 500 m), 2663 hake qPCR replicates and 1709
+metabarcoding replicates.
+
+**The current real eDNA data (2026-10-22; not yet fitted).** The loader now
+builds the eDNA object from the qPCR lab's analysis-A file, the compiled
+MarVer1 taxon table and the 2019 sample metadata, matched on sample number
+(`notes/muri_data_formatting.md`, "eDNA from the lab files"):
+
+| | |
+|---|---|
+| Bottles / stations | 513 / 167 (30EtOH samples, 56 of 569, dropped for now: a lab mix-up lost about 20–30% of their DNA) |
+| Sampling depth | target depth `depth_cat`: 0, 50, 150, 300, 500 m (169, 146, 65, 67, 66 bottles); recorded depth is within 36 m of it |
+| Bottom depth | the metadata's consensus bottom depth (the lab's recommendation) |
+| Hake qPCR | 1,532 wells on 25 plates, Ct as provided (cleaned by the lab: one dilution per sample, no inhibited wells); 86% detections |
+| Standard curves | per plate, fitted to the 659 non-inhibited hake standards on 33 plates (`stan/qpcr_standards.stan`, after the qPCR vignette): intercepts 36.1–39.9, slopes 1.45–1.49 Ct per log copy (efficiency 0.95–1.00), $\kappa$ = 0.90 |
+| Metabarcoding | MarVer1, per bottle the dilution with the most reads; replicates with fewer than 1,000 reads dropped as failed PCRs; 1,302 replicates in 500 bottles (13 bottles qPCR only) |
+| Dilutions | log offsets per qPCR well (1 or 1:5) and per metabarcoding replicate (1 to 100-fold) |
+| Volumes | filtered volume per bottle (2.5 L for 511); template 2 µL per reaction for both assays (confirmed); elution 100 µL (assumed) |
+| Contamination | *Gallus* reads removed from junk and totals; hake detected in field negatives, used as provided on the lab's advice |
+| Amplification | MarVer1 amplifies hake, humpback and PWSD equally (confirmed), so no efficiency term is needed |
+
+Fitting these data needs HSGP4eDNA's per-plate curves, dilution offsets and
+per-bottle volumes (its v1.8–v1.9) and a sampling-depth effect, so the real
+eDNA fit waits for the next submodule bump.
 
 **What is not.** The qPCR file holds copies per $\mu$L, not Ct, and there is no
 standard curve (slope, intercept, detection efficiency $\kappa$, Ct noise). The
@@ -519,9 +559,19 @@ The model is `stan/hsgp_visual.stan`, one species at a time:
 - **Field:** $\log\lambda = \mu + f(X,Y) + B(Z)\beta$, the same structure and units
   as the eDNA model, so the two can share it.
 - **Encounters:** segment counts are Poisson with mean
-  $\lambda / E[s] \times 2L \times \text{ESW}$.
+  $\lambda / E[s] \times 2L \times \text{ESW}$, or, with `use_nb`, negative
+  binomial with the same mean and size $\phi$ (variance $\mu + \mu^2/\phi$;
+  prior half-normal(0, 1) on $1/\sqrt\phi$). A gamma-distributed multiplier on
+  the groups in a segment's strip, thinned by detection, gives exactly this.
 - **Distances:** truncated half-normal or hazard-rate detection with
-  $\log\sigma = \log\sigma_0 + \beta_\text{size}(s - \bar s) + \beta_\text{bft}(\text{Beaufort} - 3)$.
+  $\log\sigma = \log\sigma_0 + \beta_\text{size}(s - \bar s) + \beta_\text{bft}(\text{Beaufort} - 3) + \beta_\text{vis}(\text{visibility} - 6)$.
+  Beaufort and visibility are segment means. Segments are grouped into
+  detection-condition cells (Beaufort and visibility each rounded to 0.5, the
+  recording resolution), and the ESW is computed once per cell.
+- **Switches:** each covariate and the NB counts are switched per species; with
+  a switch off the model is exactly the model without it (checked on log
+  densities at random parameter values, `tests/joint_exactness.R` and
+  `tests/visual_nb.R`).
 - **Group sizes:** zero-truncated negative binomial (humpback) or log-normal
   (PWSD), with the size-bias correction.
 - **Priors:** the same design-based GP priors as the eDNA model, built from
@@ -739,22 +789,69 @@ reads poor sighting conditions as low density: the fitted field shifts by up to
 0.58 log units across the survey. The covariate recovers its true effect in 3 of 3
 fits.
 
+The visibility covariate is checked the same way (`tests/visual_detection.R`):
+on a simulation with Beaufort and visibility, the PWSD-like fit recovers
+$\beta_\text{vis}$ = 0.18 [0.13, 0.23] (99% interval; truth 0.2), and the ESW
+per detection-condition cell agrees with numerical integration to 2e-5.
+
+### Clustered sightings and the length-scale floor (35°N)
+
+The real fits (Section 4.5) put the GP length-scales at the prior **floor**:
+the shortest scale the basis can represent, about 42 km east-west by 65 km
+north-south for the 800-function budget on the 35°N effort. One possible cause
+is clustered sightings: counts more variable between segments than Poisson
+allows, which a Poisson model can only fit by making the field wiggly. This was
+tested by simulating sightings on the **real 35°N effort** from a field with
+length-scales of 150 × 250 km (well above the floor), with Poisson or
+negative-binomial counts per segment (`R/check_count_dispersion.r`, seed 1,
+4 chains of 500 + 500; `notes/count_dispersion_check.md`).
+
+| Sightings (humpback) | Variance / mean | Model | Length-scales (km) | Floor flags | Field R² | NB size $\phi$ |
+|---|---|---|---|---|---|---|
+| Poisson | 1.20 | Poisson | 171 × 207 | none | 0.89 | |
+| Poisson | 1.20 | NB | 173 × 212 | none | 0.89 | about 100 |
+| NB, size 1 | 1.60 | Poisson | 130 × 254 | none | 0.83 | |
+| NB, size 0.3 | 3.35 | Poisson | **48 × 92** | **both** | **0.65** | |
+| NB, size 0.3 | 3.35 | NB | 131 × 163 | none | 0.83 | 0.31 [0.24, 0.40] |
+| **Real data** | 2.5 | NB | **35 × 50** | **both** | | 2.9 [1.8, 5.6] |
+
+PWSD gives the same pattern (size 0.3: Poisson model 80 × 139 km and flagged,
+NB model 115 × 267 km; $\phi$ recovered as 0.30).
+
+- **Strong clustering does make a Poisson model follow the floor,** and the NB
+  term removes it, recovering the clustering. Moderate clustering (size 1)
+  does neither. The NB model is harmless on Poisson data.
+- **The real data are different:** the NB model finds moderate overdispersion
+  (humpback $\phi$ ≈ 2.9, PWSD ≈ 1.1, the range where the simulations show no
+  floor-following), and the length-scales stay at the floor. So the real
+  floor-following is not explained by clustering that is independent between
+  segments; the real fields seem to vary on scales of about 30 to 50 km or less
+  (or the clustering is correlated over several segments, which the model
+  cannot tell apart from fine-scale density). NB counts are on by default for
+  both cetaceans on the real data.
+
 ## Real data: the MURI line-transect survey
 
 **Data.** The 2018 CCES cruise: 2779 effort segments of about 5 km (12,967 km of
 effort), with sightings of humpback and PWSD. *(Now restricted to north of
-35°N: 1641 segments, 7,561 km. The fits below used all the effort; see the
-note at the top.)* Perpendicular distances come from
-the survey's own records (`SITEINFO_CCE_2018_Pp_Lo_Mn.csv`; km).
+35°N and to Beaufort ≤ 5: 1617 segments, 7,441 km, with 547 humpback and 89
+PWSD detections within the truncation distances. The first fits below used all
+the effort; Section 4.5.2 has the 35°N fits.)* Perpendicular distances come from
+the survey's own records (`SITEINFO_CCE_2018_Pp_Lo_Mn.csv`; km). **Visibility**
+is the observers' estimate of the distance, in nautical miles, at which a
+dolphin could be seen surfacing against the water (SWFSC DAS format, weather
+event "W"); segment means run from 1 to 7.5 nmi (median 6), in 0.5 nmi steps.
 
 **Decisions made along the way** (all in `notes/muri_data_formatting.md`):
 
 | Decision | Choice |
 |---|---|
-| Truncation | 95th percentile per species: humpback 6.45 km, PWSD 4.64 km (548 and 89 detections kept) |
+| Truncation | 95th percentile per species: humpback 6.45 km, PWSD 4.64 km (548 and 89 detections kept; 6.46 km and 547 after the Beaufort cut) |
 | Detection key | Humpback hazard-rate (about 20 AIC points better than half-normal); PWSD half-normal |
-| Covariates | Humpback: group size (selected by AIC; see the correction in Section 4.3). PWSD: group size and Beaufort (visibility dropped by choice) |
-| Domain | Bounding box of all effort and eDNA, 1360 by 2600 km |
+| Covariates | Humpback: group size (selected by AIC; see the correction in Section 4.3). PWSD: group size and Beaufort in the first fits; **visibility added 2026-10-22** (the AIC selection on the 35°N effort: visibility −6.8, Beaufort −1.9, group size −1.2 AIC) |
+| Sea state | **Beaufort ≤ 5** (2026-10-22): 24 segments (120 km) and one humpback sighting dropped; the usual line-transect limit |
+| Segment counts | Poisson in the first fits; **negative binomial** for both species from 2026-10-22 (Section 4.4.2) |
+| Domain | Bounding box of all effort and eDNA, 1360 by 2600 km; now the 35°N study domain, 690 by 1770 km |
 | Sightings without a distance | Excluded (69 humpback, 4 PWSD) |
 
 ![Humpback hazard-rate vs half-normal: where the choice matters. Real data distances for both species, with the Distance-package fits.](figures/visual_key_choice.png)
@@ -840,7 +937,10 @@ $\ell_\min$ falls to 75 km east-west and 106 km north-south). Neither fit had di
 > HSGP4eDNA documents for unmodelled bottle noise); or the real field really
 > has structure on scales of tens of kilometres. The visual model has no
 > overdispersion term for segment counts. The marginal SD is also above the
-> prior's central 95% (upper bound 2.7) in all four fits.
+> prior's central 95% (upper bound 2.7) in all four fits. *(Resolved
+> 2026-10-22, Sections 4.4.2 and 4.5.2: clustering does not explain it, the
+> pattern holds on the 35°N data, and the decision is to keep the 800 budget
+> and read the flag as a resolution limit of the basis.)*
 
 > **[REVIEW]** The real-data effort extends well beyond the eDNA region: eDNA
 > bottles cover about 20% of the width and 45% of the height of the domain.
@@ -848,6 +948,45 @@ $\ell_\min$ falls to 75 km east-west and 106 km north-south). Neither fit had di
 > height.)* A
 > visual-only fit is informative everywhere; a joint fit will only borrow
 > strength in the eDNA region.
+
+### Fits on the 35°N data, with NB counts and visibility (2026-10-22)
+
+`R/fit_visual_real.r`, 4 chains of 1000 + 1000 unless noted, on the 35°N
+effort before the Beaufort cut (1641 segments; re-runs on the Beaufort ≤ 5
+effort are under way and will replace these numbers; little change is
+expected). Full tables: `notes/real_visual_fits_2026-10-22.md`.
+
+| Species, model | Basis | Floor (km) | Length-scales (km) | Mean density (per km², 90%) | Covariate effects (90%) | NB size $\phi$ |
+|---|---|---|---|---|---|---|
+| Humpback, Poisson (500 + 500) | 792 | 42 × 65 | 33 × 47 | 0.0226 [0.019, 0.027] | | |
+| Humpback, NB (500 + 500) | 792 | 42 × 65 | 35 × 50 | 0.0229 [0.019, 0.028] | | 2.9 |
+| Humpback, NB | 1581 | 30 × 46 | 23 × 32 | 0.0230 [0.019, 0.028] | | 8.3 |
+| PWSD, NB, no visibility | 792 | 42 × 65 | 46 × 76 | 0.099 [0.071, 0.136] | Beaufort −0.10 [−0.26, 0.03] | 1.1 |
+| PWSD, NB + visibility | 792 | 42 × 65 | 46 × 78 | 0.107 [0.076, 0.153] | visibility 0.17 [0.08, 0.27]; Beaufort −0.16 [−0.29, −0.04] | 1.0 |
+| PWSD, NB + visibility | 1581 | 30 × 46 | 29 × 69 | 0.106 [0.076, 0.149] | visibility 0.17 [0.08, 0.26]; Beaufort −0.16 [−0.29, −0.04] | 1.7 |
+
+The mean densities are higher than in the first fits above because the 35°N
+area excludes the empty south.
+
+- **Visibility matters for PWSD.** Its effect is clearly positive (per nmi on
+  log $\sigma$), and with it in, the Beaufort effect is clearer. Mean density
+  rises 8%: by 9% in the southern third of the domain, where visibility is
+  poorest (mean 5.1 nmi), and 3% further north (5.9 to 6.0 nmi). The two
+  surfaces still correlate at 0.999, so it is a modest south-north tilt. The
+  cost is run time: 105 detection-condition cells instead of 13 make the PWSD
+  fit about three times slower (138 against 47 min).
+- **The length-scales follow the basis floor.** Doubling the basis lowers the
+  floor, and humpback's length-scales follow it on both axes, PWSD's on the
+  east-west axis; density, detection and group size do not change.
+- **Overdispersion and fine-scale field trade off:** with the larger basis,
+  humpback $\phi$ rises from 2.9 to 8.3, as the field takes up part of what
+  looked like clustering.
+- **Decision (2026-10-22):** keep the 800-function budget for the real visual
+  and joint fits. The floor flag is read as a resolution limit of the basis,
+  not a fault: maps are resolved to about 40 km east-west by 65 km
+  north-south, finer hot spots are smoothed, and the posterior length-scales
+  and marginal SD describe the basis limit rather than the species'
+  distributions. Revisit if an output needs finer resolution.
 
 # The joint eDNA and visual spatial model
 
@@ -868,8 +1007,10 @@ share it:
   noise terms.
 - **Visual:** the line-transect model for humpback and PWSD, with the detection
   key (half-normal or hazard-rate) and per-species truncation of the visual
-  model. A species map ties the cetaceans' eDNA fields to their line-transect
-  data.
+  model, and per species the Beaufort and visibility covariates and
+  negative-binomial segment counts (all switches; the detection-condition cells
+  are shared by the species). A species map ties the cetaceans' eDNA fields to
+  their line-transect data.
 
 ![Joint model. One density field per species feeds both observation models. The eDNA side is the HSGP4eDNA model above (bottle and junk noise, replicates), with conversion factors fixed or, optionally, free for the cetaceans. The visual side is the line-transect model for humpback and PWSD. The likelihood switches drop either side without changing anything else.](figures/model_joint.svg)
 
@@ -881,7 +1022,10 @@ identical priors, basis and starting values, and differ only in the data.
 the log density equals HSGP4eDNA's `hsgp_2d_bathysp.stan` up to a constant; with
 the eDNA likelihood off it equals the sum of the two single-species visual fits,
 for both half-normal and hazard-rate detection. The spread over random draws is
-at most 3e-11.
+at most 3e-11. With the NB counts and visibility off, the joint model equals its
+version before them exactly; with the eDNA likelihood off and PWSD on Beaufort,
+visibility and NB counts, it equals the two visual models to 1.7e-12
+(`tests/joint_exactness.R`, 2026-10-22).
 
 ## Results on simulated data
 
@@ -1009,11 +1153,13 @@ mode with very large junk noise), which is why joint fits now run 4 chains.
 structure as the simulators' output, on a common domain and UTM origin, so the
 same formatters apply to the joint model. Since 2026-10-21 the eDNA object
 carries hake Ct per well with per-plate standard curves, filtered volume per
-bottle, dates, target depths and dilutions (ROADMAP_2026-10-21, section 5).
-The model does not yet use the per-plate curves, per-bottle volumes or
-dilutions (they wait on HSGP4eDNA). The metabarcoding template and elution
-volumes are still assumed, so the absolute conversion factor is not yet
-meaningful in physical units. The visual
+bottle, dates, target depths and dilutions (Section 3.3; ROADMAP_2026-10-21,
+section 5). The model does not yet use the per-plate curves, per-bottle
+volumes or dilutions (HSGP4eDNA has them from v1.8–v1.9; the submodule is not
+yet bumped). The template volume is confirmed (2 µL); the elution volume is
+still assumed, so the absolute conversion factor is not yet meaningful in
+physical units. The visual object carries the Beaufort ≤ 5 effort, segment
+visibility and the per-species detection and count settings. The visual
 data supply the absolute density.
 
 # Limitations and open issues
@@ -1022,10 +1168,23 @@ data supply the absolute density.
 
 - **qPCR Ct and standard curves are loaded, not yet used.** Ct per well and
   per-plate standard curves (fitted to the hake standards) are in the eDNA
-  object since 2026-10-21; the model takes one curve, so per-plate curves wait
-  on HSGP4eDNA. The template volume is 2 µL for both assays (confirmed);
-  the elution volume (assumed 100 µL) is a placeholder. Hake is
-  detected in many field-negative wells (a question for the lab).
+  object since 2026-10-21; the model here takes one fixed curve. HSGP4eDNA v1.9
+  estimates the per-plate curves in the model from the standards (the chosen
+  approach); it reaches this repository at the next bump. The template volume
+  is 2 µL for both assays (confirmed); the elution volume (assumed 100 µL) is a
+  placeholder.
+- **Hake in field negatives.** 73 of 114 evaporated-DI and 25 of 72 lab-DI
+  field-negative wells detect hake (about 1–2 copies/µL on average, up to 12;
+  a third of the field bottles hold less). The lab advises ignoring it. For the
+  cetaceans, which use hake only as a quantitative anchor, this is harmless if
+  the hake DNA is in the extract (qPCR copies and hake reads rise together and
+  cancel), but biases cetacean copies upward in low-hake bottles if it enters
+  only the qPCR (e.g. from the synthetic standards), and it adds hake
+  variability to the shared bottle-noise term. A sensitivity fit without the
+  lowest-hake bottles is planned (ROADMAP_2026-10-21, section 6).
+- **Read depth.** MarVer1 replicates with fewer than 1,000 reads are dropped as
+  failed PCRs (136 of 1,438); low read depth is unrelated to the bottles' hake
+  DNA, so the cut does not remove the low end selectively.
 - **Survey timing.** The eDNA dates are in the qPCR lab's file (from
   2 July 2019); the visual survey is from 2018. Both are treated as one
   snapshot of the same field.
@@ -1038,16 +1197,28 @@ data supply the absolute density.
 - **30EtOH samples.** 56 of 569 metabarcoded bottles lost about 20 to 30% of
   their DNA in a lab mix-up; they are dropped for now.
 - **Perpendicular distance missing** for 73 on-effort sightings, which are excluded.
+- **Sea state.** Visual effort is restricted to Beaufort ≤ 5 (1.6% of the
+  effort removed).
 
 ## Models
 
 - **g(0) = 1** in the visual model; there is no availability or perception bias
   correction.
-- **Beaufort is the segment mean**, not the value at each sighting.
+- **Beaufort and visibility are segment means**, not the values at each
+  sighting, rounded to 0.5 for the detection-condition cells. Visibility is
+  treated as a continuous scale on $\sigma$; where it is shorter than the
+  truncation distance (660 km of humpback effort, 59 km for PWSD) it could cut
+  detection off rather than only narrow it.
+- **The length-scale floor.** The real visual fits put the length-scales at the
+  shortest scale the basis represents (Section 4.5.2); maps are resolved to
+  about 40 × 65 km, and the length-scale and marginal-SD estimates describe the
+  basis limit.
 - **Unidentified animals** (baleen whales, unidentified dolphins) are not
   apportioned to species.
 - **Water-column depth** is a known fixed offset in the eDNA model; on real data it
-  is set to 1 because the real profiles are unknown.
+  is set to 1 because the real profiles are unknown. A per-species smooth over
+  the target depths (a centred natural spline, 2–3 df) is decided and being
+  built in HSGP4eDNA.
 - **Equal amplification efficiency.** The metabarcoding model makes expected read
   shares follow aliquot copies relative to junk, so it assumes MarVer1 amplifies
   every species and the junk background equally. With a fixed cycle number a
@@ -1080,6 +1251,8 @@ SP=humpback Rscript docs/explainer/03_fit_visual_real.R   # real visual fit (als
 SP=humpback M_MAX=800 TAG=real800 Rscript docs/explainer/03_fit_visual_real.R   # refit at twice the basis budget
 Rscript docs/explainer/08_fig_key_choice.R     # detection-key comparison on the real distances
 Rscript docs/explainer/04_fit_edna_real.R      # real eDNA fit (metabarcoding only)
+Rscript R/check_count_dispersion.r            # clustered-sightings check (Section 4.4.2; also USE_NB=1, NB_SIZES=0.3)
+SPECIES=pwsd Rscript R/fit_visual_real.r       # 35°N real visual fits (Section 4.5.2; M_MAX=1600, USE_VIS=0 for the comparisons)
 Rscript docs/explainer/07_fig_visual.R         # visual figures
 SEED=1 Rscript R/compare_joint.r               # joint vs single-source fits (Section 5; ~7 h on a laptop)
 cp outputs/joint/compare_s1/compare_joint.png docs/figures/joint_compare_s1.png
