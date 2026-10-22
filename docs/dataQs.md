@@ -151,6 +151,11 @@ place of recorded depth.
   corrected for dilution? (We model Ct, so this does not affect the fit.)
 - **Template volumes.** 2 µL per qPCR reaction (as for the standards)? Template volume and
   elution volume for the MarVer1 PCRs?
+- **Minimum read depth.** We treat a MarVer1 replicate with no reads at all as a failed PCR
+  and drop it (in 7 bottles every replicate failed). Of the replicates we keep, 136 have fewer
+  than 1,000 reads in total and 47 fewer than 100; they detect hake less often (49% under 100
+  reads, 69% over 10,000). Do you use a minimum total-read cutoff below which a replicate counts
+  as failed, and if so, what is it?
 - **Bottom depth** (question 7).
 
 *Numbers and figures: `docs/dataQs/make_figs.R`.*
