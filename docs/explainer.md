@@ -1023,8 +1023,8 @@ data supply the absolute density.
 - **qPCR Ct and standard curves are loaded, not yet used.** Ct per well and
   per-plate standard curves (fitted to the hake standards) are in the eDNA
   object since 2026-10-21; the model takes one curve, so per-plate curves wait
-  on HSGP4eDNA. The metabarcoding template volume (assumed 2 µL, as for qPCR)
-  and the elution volume (assumed 100 µL) are placeholders. Hake is
+  on HSGP4eDNA. The template volume is 2 µL for both assays (confirmed);
+  the elution volume (assumed 100 µL) is a placeholder. Hake is
   detected in many field-negative wells (a question for the lab).
 - **Survey timing.** The eDNA dates are in the qPCR lab's file (from
   2 July 2019); the visual survey is from 2018. Both are treated as one

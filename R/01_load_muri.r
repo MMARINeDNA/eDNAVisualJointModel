@@ -228,15 +228,14 @@ edna <- list(
     # The eDNA model (HSGP4eDNA v1.5) takes one filtered volume; per-bottle
     # volumes are in design$samples$vol_filtered (2.5 L for almost every bottle).
     vol_filtered = stats::median(samples$vol_filtered),
-    vol_aliquot  = 2,      # uL of template per qPCR reaction (qPCR vignette); the
-                           # metabarcoding template volume is assumed the same
+    vol_aliquot  = 2,      # uL of template per reaction: qPCR (qPCR vignette) and
+                           # MarVer1 PCRs (confirmed by the lab, 2026-10-22)
     vol_elution  = 100,    # uL, assumed (HSGP4eDNA's value); a constant, so it only
                            # rescales conv_factor
     N = N, N_qpcr_long = nrow(q), N_mb_long = nrow(mb),
     X_km_max = DOMAIN$X_km_max, Y_km_max = DOMAIN$Y_km_max, lat_min = LAT_MIN,
     utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
-    placeholders = c("conv_factor", "metabarcoding template volume (assumed 2 uL)",
-                     "elution volume (assumed 100 uL)"),
+    placeholders = c("conv_factor", "elution volume (assumed 100 uL)"),
     ct_available = TRUE,
     qpcr_source = "qPCR_2019A.rds, hake, analysis A",
     mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads", MB_MARKER),

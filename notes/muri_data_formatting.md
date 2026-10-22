@@ -277,7 +277,7 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
   cattle and pig, none present. Junk = total - contaminants - the three targets.
 - **Volumes, dates**: `vol_filtered` per bottle (2.5 L for 511; one 2.0, one 2.4); `meta$vol_filtered`
   is the median, for the formatter. `date` 2019-07-02 to 2019-08-17. Template volume 2 uL for
-  qPCR (the vignette); the MarVer1 template volume is assumed the same (asked). Elution volume
+  qPCR (the vignette) and for every MarVer1 PCR (confirmed by the lab, 2026-10-22). Elution volume
   100 uL, assumed: common to both assays, it only rescales `conv_factor`. `cruise` = "52193"
   (project ID; one survey). `conv_factor` still the simulator placeholder.
 
