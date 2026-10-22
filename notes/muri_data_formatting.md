@@ -270,6 +270,21 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
   rule); a duplicated sample x fold x replicate keeps the larger. 1,438 replicates (3 for 402
   bottles); folds kept 1 (787), 5 (195), 10 (419), 19-100 (37). 7 bottles have no replicate with
   reads and keep only their qPCR (`meta$flow$bottles_without_mb`). 136 replicates have < 1000 reads.
+  **Minimum read depth (2026-10-22):** every MarVer1 replicate of the kept dilution with fewer than
+  1,000 reads (after contaminant removal) is treated as a failed PCR and dropped (`MB_MIN_READS`,
+  applied after the dilution is chosen; `meta$flow$mb_reps_below_min_reads`). This drops 136 of
+  1,438 replicates; 1,302 remain in 500 bottles (3 replicates: 354 bottles, 2: 94, 1: 52), and 13
+  bottles have qPCR only (7 with no reads at all, 6 whose only replicate with reads had 1-540).
+  The lab's own rule (Pedro: 1,000 reads summed over a sample's replicates) would have dropped
+  only those 6 bottles; the per-replicate rule is stricter by choice.
+  - Why: the model conditions on each replicate's total, so low-read replicates already carry
+    little weight, but a partly failed PCR can have a distorted, not just noisy, composition, which
+    the overdispersion term treats as a normal draw.
+  - Checks: low read depth is not related to the bottle's hake DNA (7-10% of replicates below 1,000
+    at every level of hake qPCR copies, including none), so dropping them does not remove the low
+    end selectively; it rises mildly with sampling depth (6% at the surface, 12-14% at 150-300 m)
+    and is not related to dilution. Cetacean-positive replicates lost: humpback 3 of 47, PWSD 2 of
+    65; replicates with reads now: hake 889, humpback 44, PWSD 63.
 - **Dilution offsets**: `qpcr_log_dilution` = log(fraction); `mb_log_dilution` = -log(fold).
   Neither is used by the HSGP4eDNA v1.5 likelihood yet.
 - **Contamination**: *Gallus* (127,162 of 98.4 M MarVer1 reads) is removed from both the junk
@@ -277,7 +292,7 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
   cattle and pig, none present. Junk = total - contaminants - the three targets.
 - **Volumes, dates**: `vol_filtered` per bottle (2.5 L for 511; one 2.0, one 2.4); `meta$vol_filtered`
   is the median, for the formatter. `date` 2019-07-02 to 2019-08-17. Template volume 2 uL for
-  qPCR (the vignette); the MarVer1 template volume is assumed the same (asked). Elution volume
+  qPCR (the vignette) and for every MarVer1 PCR (confirmed by the lab, 2026-10-22). Elution volume
   100 uL, assumed: common to both assays, it only rescales `conv_factor`. `cruise` = "52193"
   (project ID; one survey). `conv_factor` still the simulator placeholder.
 
@@ -303,3 +318,28 @@ negatives. Not used yet; a question for the lab.
 (-1.9) + group size (-1.2). The PWSD set in use (group size + Beaufort, no visibility) is 9.7 AIC
 worse than that and 0.2 better than no covariates. Decision (2026-10-21): add visibility to the visual
 model and use the AIC set for PWSD (ROADMAP_2026-10-21, section 5 item 5).
+
+## Visual effort and covariates (2026-10-22)
+
+- **Beaufort ≤ 5.** Segments with mean Beaufort above 5 are dropped (`BFT_MAX`
+  in `R/01_load_muri.r`): 24 of 1,641 segments (120 of 7,561 km) and 1
+  humpback sighting (`sight_flow$n_bft_above_max`); 1,617 segments and
+  7,441 km remain. The domain is built from all effort north of 35°N
+  before this filter, so it and the eDNA object are unchanged. Humpback's
+  truncation distance moves from 6.454 to 6.461 km (547 detections within
+  it); PWSD is unchanged (4.644 km, 89). Effort by Beaufort (rounded segment
+  mean, before the cut): 0: 146 km, 1: 622, 2: 886, 3: 1,749, 4: 2,174,
+  5: 1,896, 6: 88.
+- **Visibility** (`avgvis`, segment mean; `vis` in the segments): the
+  observers' estimate of the distance in **nautical miles** at which a
+  dolphin could be seen surfacing against the water (SWFSC DAS format,
+  "DasAll Events and Associated Data Fields", updated 2020 by J. Carretta,
+  weather event "W" field 5; bundled with the swfscDAS R package as
+  `inst/DAS_Format.pdf`). The OBIS-SEAMAP metadata only call it "a measure
+  of air/atmospheric clarity", range 0.5–7.5. Recorded in about 0.5 nmi
+  steps; segments range 1–7.5 nmi (1.9–13.9 km), median 6 nmi. The model
+  treats it as a continuous covariate on log σ (per nmi). Visibility below
+  the truncation distance (where it could cut detection off, not only scale
+  it) is limited: 660 km of the 7,441 km for humpback (below 6.46 km = 3.5 nmi)
+  and 59 km for PWSD (below 4.64 km = 2.5 nmi).
+

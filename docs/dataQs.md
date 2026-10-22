@@ -146,14 +146,15 @@ place of recorded depth.
 - **Hake in field negatives.** 73 of 114 evaporated-DI and 25 of 72 lab-DI field-negative wells
   detect hake (up to about 12 copies/µL); extraction and PCR controls are clean. Is this known,
   and should field samples be corrected for it?
-- **Metabarcoding template volume.** How many µL of extract went into each MarVer1 PCR? We
-  assume 2 µL, as for qPCR (the vignette). It matters because the qPCR standard curve fixes the
-  absolute copies, and the chance a species appears in the reads depends on the copies in the
-  metabarcoding reaction.
+- **Metabarcoding template volume.** How many µL of extract went into each MarVer1 PCR?
+  *Answered (2026-10-22): always 2 µL, as for qPCR.*
 - **Minimum read depth.** We treat a MarVer1 replicate with no reads at all as a failed PCR
   and drop it (in 7 bottles every replicate failed). Of the replicates we keep, 136 have fewer
   than 1,000 reads in total and 47 fewer than 100; they detect hake less often (49% under 100
   reads, 69% over 10,000). Do you use a minimum total-read cutoff below which a replicate counts
-  as failed, and if so, what is it?
+  as failed, and if so, what is it? *Answered (Pedro, 2026-10-22): 1,000 reads summed over a
+  sample's replicates. We apply it more strictly, to each replicate: 136 of 1,438 replicates
+  are dropped, 6 bottles lose their metabarcoding (their qPCR is kept), and some bottles keep
+  fewer than three replicates.*
 
 *Numbers and figures: `docs/dataQs/make_figs.R`.*

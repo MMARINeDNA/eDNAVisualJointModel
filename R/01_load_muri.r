@@ -43,6 +43,8 @@ source("R/functions_visual.R")   # lt_species_params(), HSGP4eDNA functions
 TRUNC_QUANTILE <- 0.95           # truncation: drop the largest 5% of distances, per species
 UTM_EPSG     <- STUDY_DOMAIN$utm_epsg   # 32610 (HSGP4eDNA R/functions.R)
 LAT_MIN      <- STUDY_DOMAIN$lat_min    # 35°N: every analysis is restricted to north of this
+BFT_MAX      <- 5                       # visual effort: segments with mean Beaufort above this are
+                                        # dropped (and their sightings); the domain is unaffected
 DOMAIN_BUFFER_KM <- 10           # margin around the data (km)
 DOMAIN_ROUND_KM  <- 10           # origin and extent are multiples of this (km)
 RAW_DIR      <- Sys.getenv("RAW_DIR", "data")
@@ -52,6 +54,9 @@ raw <- function(f) {
   p
 }
 ETOH         <- match.arg(Sys.getenv("ETOH", "drop"), c("drop", "keep"))
+MB_MIN_READS <- 1000                      # MarVer1 replicates with fewer reads (after contaminant
+                                          # removal) are treated as failed PCRs and dropped
+                                          # (decided 2026-10-22)
 MB_MARKER    <- "MV1"                     # MarVer1; the compiled table also has MFU, C16, DL, ...
 # Taxa dropped from the junk column AND the replicate total (contamination;
 # exact for the remaining categories). Human and cattle are already absent.
@@ -208,8 +213,14 @@ mb <- mb[order(-total)][!duplicated(mb[order(-total), .(sampleID, fold, rep)])]
 best <- mb[, .(reads = sum(total - contam)), by = .(sampleID, fold)][order(-reads)][!duplicated(sampleID)]
 flow$mb_bottles_several_dilutions <- sum(mb[, uniqueN(fold), by = sampleID]$V1 > 1)
 mb <- mb[best, on = .(sampleID, fold), nomatch = NULL][order(match(sampleID, samples$sampleID), rep)]
+# minimum read depth: replicates of the kept dilution with fewer than
+# MB_MIN_READS reads are treated as failed PCRs and dropped, so some bottles
+# keep fewer than three replicates; a bottle left with none keeps its qPCR.
+# (Applied after choosing the dilution, which uses all its replicates' reads.)
+flow$mb_reps_below_min_reads <- sum(mb$total - mb$contam < MB_MIN_READS)
+mb <- mb[total - contam >= MB_MIN_READS]
 flow$mb_reps_kept <- nrow(mb)
-# bottles whose metabarcoding replicates all had no reads keep their qPCR
+# bottles whose metabarcoding replicates all had no reads, or too few, keep their qPCR
 flow$bottles_without_mb <- sum(!samples$sampleID %in% mb$sampleID)
 mb_reads <- t(cnt[SP_TARGET, mb$col, drop = FALSE]); colnames(mb_reads) <- names(SP_TARGET)
 mb_reads <- cbind(mb_reads, junk = mb$total - mb$contam - rowSums(mb_reads))
@@ -226,18 +237,17 @@ edna <- list(
     # The eDNA model (HSGP4eDNA v1.5) takes one filtered volume; per-bottle
     # volumes are in design$samples$vol_filtered (2.5 L for almost every bottle).
     vol_filtered = stats::median(samples$vol_filtered),
-    vol_aliquot  = 2,      # uL of template per qPCR reaction (qPCR vignette); the
-                           # metabarcoding template volume is assumed the same
+    vol_aliquot  = 2,      # uL of template per reaction: qPCR (qPCR vignette) and
+                           # MarVer1 PCRs (confirmed by the lab, 2026-10-22)
     vol_elution  = 100,    # uL, assumed (HSGP4eDNA's value); a constant, so it only
                            # rescales conv_factor
     N = N, N_qpcr_long = nrow(q), N_mb_long = nrow(mb),
     X_km_max = DOMAIN$X_km_max, Y_km_max = DOMAIN$Y_km_max, lat_min = LAT_MIN,
     utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
-    placeholders = c("conv_factor", "metabarcoding template volume (assumed 2 uL)",
-                     "elution volume (assumed 100 uL)"),
+    placeholders = c("conv_factor", "elution volume (assumed 100 uL)"),
     ct_available = TRUE,
     qpcr_source = "qPCR_2019A.rds, hake, analysis A",
-    mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads", MB_MARKER),
+    mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads; replicates with at least %d reads", MB_MARKER, MB_MIN_READS),
     mb_contaminants_dropped = CONTAMINANTS,
     etoh = ETOH, flow = flow,
     bathy_source = "Hake_2019_metadata.csv bottom.depth.consensus (ETOPO in Z_bathy_etopo)",
@@ -288,8 +298,10 @@ ef_all <- read.csv("data/effort.csv", stringsAsFactors = FALSE) |>
          t_mid   = as.POSIXct(mdatetime,      tz = "UTC")) |>
   arrange(t_begin)
 stopifnot(all(ef_all$ds_type == "lneff"))   # on-effort line-transect rows only
-# Study area: segments whose midpoint is at or north of LAT_MIN
-ef <- ef_all |> filter(mlat >= LAT_MIN)
+# Study area: segments whose midpoint is at or north of LAT_MIN, with mean
+# Beaufort at most BFT_MAX (the usual line-transect limit; decided 2026-10-22).
+# The domain above is built from all effort north of LAT_MIN, so it does not move.
+ef <- ef_all |> filter(mlat >= LAT_MIN, avgbft <= BFT_MAX)
 
 xy_seg <- lonlat_to_model(ef$mlon, ef$mlat)
 segments <- bind_cols(
@@ -315,14 +327,16 @@ si <- read.csv(raw("SITEINFO_CCE_2018_Pp_Lo_Mn.csv"), stringsAsFactors = FALSE) 
 stopifnot(!anyDuplicated(si[, c("sightno", "sp_code")]))
 
 # On effort := sighting time lies inside an effort segment's [begin, end].
-# Matched against ALL effort, then sightings on segments south of LAT_MIN are
-# dropped (counted in sight_flow as n_south_of_lat_min).
+# Matched against ALL effort, then sightings on segments south of LAT_MIN or
+# above BFT_MAX are dropped (counted in sight_flow as n_south_of_lat_min and
+# n_bft_above_max).
 seg_of_all <- vapply(sg$t, function(x) {
   w <- which(ef_all$t_begin <= x & x <= ef_all$t_end); if (length(w)) w[1] else NA_integer_
 }, integer(1))
 south <- !is.na(seg_of_all) & ef_all$mlat[seg_of_all] < LAT_MIN
+rough <- !is.na(seg_of_all) & !south & ef_all$avgbft[seg_of_all] > BFT_MAX
 seg_of <- match(ef_all$row_id[seg_of_all], ef$row_id)      # index among kept segments
-sg <- sg |> mutate(seg_id = seg_of, south_of_lat_min = south) |>
+sg <- sg |> mutate(seg_id = seg_of, south_of_lat_min = south, bft_above_max = rough) |>
   left_join(si, by = c("sightno", "sp_code")) |>
   mutate(size = as.integer(round(gsspbest)))
 
@@ -336,6 +350,7 @@ W_SP <- vapply(SPECIES_CODE, function(code)
 
 sight_flow <- sg |> group_by(sp_code) |>
   summarise(n_all = n(), n_south_of_lat_min = sum(south_of_lat_min),
+            n_bft_above_max = sum(bft_above_max),
             n_on_effort = sum(!is.na(seg_id)),
             n_on_effort_with_pdist = sum(!is.na(seg_id) & !is.na(pdist)),
             n_on_effort_pdist_missing = sum(!is.na(seg_id) & is.na(pdist)),
@@ -365,7 +380,10 @@ observed_vis <- lapply(SPECIES_CODE, function(code) {
 #   pwsd      half-normal key; group size + Beaufort + visibility (the AIC set; visibility
 #             added 2026-10-21, ROADMAP_2026-10-21 section 5 item 5)
 # Beaufort is the segment-level `bft` column and visibility the `vis` column (segment
-# means, binned by the formatter).
+# means, binned by the formatter). Visibility is the observers' estimate of the distance
+# in nautical miles at which a dolphin could be seen surfacing against the water (SWFSC
+# DAS format, "DasAll Events and Associated Data Fields", event W field 5; the swfscDAS
+# package's inst/DAS_Format.pdf).
 # Segment counts: negative binomial for both species (use_nb; decided 2026-10-21,
 # notes/count_dispersion_check.md: harmless on Poisson data, needed if sightings cluster).
 sp_params <- lt_species_params()[names(SPECIES_CODE)]
@@ -380,7 +398,7 @@ sp_params$pwsd$use_nb     <- 1L
 visual <- list(
   meta = list(seed = NA, species = names(SPECIES_CODE), w = W_SP,
               trunc_quantile = TRUNC_QUANTILE,
-              domain = DOMAIN, lat_min = LAT_MIN,
+              domain = DOMAIN, lat_min = LAT_MIN, bft_max = BFT_MAX,
               utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
               bathy_source = BATHY_SOURCE,
               pdist_source = "data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv (pdist, km), joined on sightno x species",
