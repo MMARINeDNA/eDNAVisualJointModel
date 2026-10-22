@@ -270,6 +270,13 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
   rule); a duplicated sample x fold x replicate keeps the larger. 1,438 replicates (3 for 402
   bottles); folds kept 1 (787), 5 (195), 10 (419), 19-100 (37). 7 bottles have no replicate with
   reads and keep only their qPCR (`meta$flow$bottles_without_mb`). 136 replicates have < 1000 reads.
+  **Minimum read depth (2026-10-22):** a bottle's metabarcoding is used only if its kept dilution has
+  at least 1,000 reads summed over replicates (`MB_MIN_READS`, the lab's practice). This drops 6
+  bottles (each with one replicate with reads, 1-540 reads; `meta$flow$mb_bottles_below_min_reads`),
+  which keep their qPCR: 1,432 replicates in 500 bottles remain, and 13 bottles have qPCR only.
+  Low-read replicates inside bottles above the cutoff are kept (the model weights each replicate by
+  its total). The same rule across all dilutions would flag 37 sample x dilution groups, 28 of them
+  in bottles with a better dilution, which the best-dilution rule already discards.
 - **Dilution offsets**: `qpcr_log_dilution` = log(fraction); `mb_log_dilution` = -log(fold).
   Neither is used by the HSGP4eDNA v1.5 likelihood yet.
 - **Contamination**: *Gallus* (127,162 of 98.4 M MarVer1 reads) is removed from both the junk
