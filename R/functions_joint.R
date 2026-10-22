@@ -145,6 +145,10 @@ joint_field_agreement <- function(sim, max_km = 10) {
 #                         setting in sp_params if present, else every species
 #                         whenever the segments carry a `bft` column (as
 #                         format_stan_data_visual()). character(0) = none.
+#   nb_species            line-transect species with negative-binomial segment
+#                         counts. Default: each species' `use_nb` setting in
+#                         sp_params (none if unset). character(0) = none.
+#   nb_inv_sqrt_sd        half-normal prior sd on 1 / sqrt(phi_nb)
 #
 # Coordinates of both sources are normalised by the DOMAIN extents, and the
 # design-based GP prior is built from the union of station and segment
@@ -161,6 +165,7 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
                                    prior_log_conv = c(mu = log(100), sig = 2),
                                    prior_mu_sp = NULL,
                                    bft_species = NULL,
+                                   nb_species = NULL, nb_inv_sqrt_sd = 1.0,
                                    HSGP_M = NULL, HSGP_C = c(1.5, 1.5),
                                    M_max = GP_BASIS_BUDGET) {
   dom    <- sim$meta$domain
@@ -194,6 +199,9 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     }, logical(1))]
   }
   stopifnot(all(bft_species %in% lt))
+  if (is.null(nb_species))
+    nb_species <- lt[vapply(lt, function(sp) isTRUE(sim$visual$truth$sp_params[[sp]]$use_nb == 1L), logical(1))]
+  stopifnot(all(nb_species %in% lt))
   # With any species on the covariate, bin every species to the same levels
   # (use_bft = TRUE in the visual formatter); the switch is set per species below.
   any_bft <- length(bft_species) > 0
@@ -271,6 +279,7 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     det_bft = as.array(as.integer(unlist(lapply(vd, `[[`, "det_bft"), use.names = FALSE))),
     beta_bft_prior_mean = as.array(pick("beta_bft_prior_mean")),
     beta_bft_prior_sd = as.array(pick("beta_bft_prior_sd")),
+    use_nb = as.array(as.integer(lt %in% nb_species)), prior_nb_inv_sqrt_sd = nb_inv_sqrt_sd,
     S_max = as.array(picki("S_max")), group_size_dist = as.array(picki("group_size_dist")),
     mu_s_prior_shape = as.array(pick("mu_s_prior_shape")),
     mu_s_prior_rate = as.array(pick("mu_s_prior_rate")),

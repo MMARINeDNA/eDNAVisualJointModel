@@ -20,9 +20,11 @@
 #      density for PWSD; log(0.07), so detections are near the real 89),
 #      CHAINS, WARMUP, SAMPLE (4 x 500/500), M_MAX (basis budget; 800),
 #      REAL (1: also fit the real 35N data, the reference; default 1),
+#      USE_NB (1: fit the negative-binomial model instead of the Poisson; 0),
 #      OUT (outputs/visual/count_dispersion)
-# Out: <OUT>/fit_<species>_k<size>_s<seed>.rds (summary per fit; existing
-#      ones are skipped), <OUT>/count_dispersion_{runs,floor,recovery}.csv
+# Out: <OUT>/fit_<species>_k<size>_s<seed>[_nbmodel].rds (summary per fit;
+#      existing ones are skipped), fit_<species>_real[_nbmodel].rds,
+#      <OUT>/count_dispersion_{runs,floor,recovery}.csv (all fits found)
 # =============================================================================
 
 source("R/fit_visual.r")
@@ -35,6 +37,8 @@ NB_SIZES <- as.numeric(env_vec("NB_SIZES", "Inf,1"))
 LX <- as.numeric(Sys.getenv("LX", "150")); LY <- as.numeric(Sys.getenv("LY", "250"))
 MU_PWSD <- as.numeric(Sys.getenv("MU_PWSD", as.character(log(0.07))))
 M_MAX <- env_int("M_MAX", as.character(GP_BASIS_BUDGET))
+USE_NB <- env_int("USE_NB", "0")
+TAG <- if (USE_NB == 1L) "_nbmodel" else ""
 OUT <- Sys.getenv("OUT", "outputs/visual/count_dispersion")
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 
@@ -49,9 +53,9 @@ mod <- compile_visual()
 if (env_int("REAL", "1") == 1L) {
   vis <- readRDS("data/processed/muri_visual.rds")
   for (sp in SPECIES) {
-    f <- file.path(OUT, sprintf("fit_%s_real.rds", sp))
+    f <- file.path(OUT, sprintf("fit_%s_real%s.rds", sp, TAG))
     if (file.exists(f)) next
-    sd <- format_stan_data_visual(vis, sp, M_max = M_MAX)
+    sd <- format_stan_data_visual(vis, sp, M_max = M_MAX, use_nb = USE_NB)
     t0 <- Sys.time()
     fit <- mod$sample(data = sd, chains = env_int("CHAINS", "4"), parallel_chains = env_int("CHAINS", "4"),
                       iter_warmup = env_int("WARMUP", "500"), iter_sampling = env_int("SAMPLE", "500"),
@@ -60,12 +64,13 @@ if (env_int("REAL", "1") == 1L) {
     fl <- cbind(species = sp, floor_check(fit$draws(c("gp_l[1]", "gp_l[2]"), format = "draws_matrix"),
                                           attr(sd, "gp_prior")))
     cnt <- sd$seg_count
-    r <- list(setting = data.frame(seed = NA, species = sp, nb_size = NA, lx = NA, ly = NA, n_det = sd$n,
-                                   var_mean = var(cnt) / mean(cnt)),
+    r <- list(setting = data.frame(seed = NA, species = sp, nb_size = NA, nb_model = USE_NB, lx = NA, ly = NA,
+                                   n_det = sd$n, var_mean = var(cnt) / mean(cnt)),
               runtime_min = as.numeric(Sys.time() - t0, units = "mins"),
               divergences = sum(fit$diagnostic_summary(quiet = TRUE)$num_divergent),
               max_rhat = max(fit$summary(c("mu_sp", "gp_sigma", "gp_l_raw", "log_sigma"), "rhat")$rhat),
-              floor = fl, gp = fit$summary(c("gp_sigma[1]", "gp_l[1]", "gp_l[2]", "D_mean")))
+              floor = fl, gp = fit$summary(c("gp_sigma[1]", "gp_l[1]", "gp_l[2]", "D_mean",
+                                             if (USE_NB == 1L) "phi_nb")))
     saveRDS(r, f)
     cat(sprintf("REAL %-8s n_det=%d | %.1f min div=%d maxRhat=%.3f | l = %s (floor %s) flags %d\n", sp, sd$n,
                 r$runtime_min, r$divergences, r$max_rhat, paste(round(fl$post_median), collapse = ", "),
@@ -78,16 +83,16 @@ for (seed in SEEDS) for (k in NB_SIZES) {
   sim <- simulate_visual(seed = seed, gp_params = gp, segments = real_seg,
                          nb_size = setNames(rep(k, 2), c("humpback", "pwsd")))
   for (sp in SPECIES) {
-    f <- file.path(OUT, sprintf("fit_%s_k%s_s%d.rds", sp, format(k), seed))
-    if (file.exists(f)) { res[[f]] <- readRDS(f); next }
+    f <- file.path(OUT, sprintf("fit_%s_k%s_s%d%s.rds", sp, format(k), seed, TAG))
+    if (file.exists(f)) next
     cnt <- sim$observed[[sp]]$seg_count
-    r <- fit_visual(sim, sp, mod = mod, M_max = M_MAX,
+    r <- fit_visual(sim, sp, mod = mod, M_max = M_MAX, use_nb = USE_NB,
                     chains = env_int("CHAINS", "4"), warmup = env_int("WARMUP", "500"),
                     sample = env_int("SAMPLE", "500"), seed = 42L + seed)
     r$fit <- NULL
-    r$setting <- data.frame(seed = seed, species = sp, nb_size = k, lx = LX, ly = LY,
+    r$setting <- data.frame(seed = seed, species = sp, nb_size = k, nb_model = USE_NB, lx = LX, ly = LY,
                             n_det = r$n_det, var_mean = var(cnt) / mean(cnt))
-    saveRDS(r, f); res[[f]] <- r
+    saveRDS(r, f)
     cat(sprintf("seed %d %-8s k=%-4s n_det=%4d var/mean %.2f | %.1f min div=%d maxRhat=%.3f R2=%.3f | l = %s (floor %s) flags %d\n",
                 seed, sp, format(k), r$n_det, var(cnt) / mean(cnt), r$runtime_min, r$divergences, r$max_rhat,
                 r$field$R2, paste(round(r$floor$post_median), collapse = ", "),
@@ -95,17 +100,20 @@ for (seed in SEEDS) for (k in NB_SIZES) {
   }
 }
 
-real <- lapply(Filter(file.exists, file.path(OUT, sprintf("fit_%s_real.rds", SPECIES))), readRDS)
+# Summaries of every fit in OUT (earlier runs included)
+add_nb <- function(r) { if (is.null(r$setting$nb_model)) r$setting$nb_model <- 0L; r }
+real <- lapply(list.files(OUT, "^fit_.*_real(_nbmodel)?\\.rds$", full.names = TRUE), function(f) add_nb(readRDS(f)))
 if (length(real)) {
-  cat("\n=== Real 35N data (Poisson model) ===\n")
-  print(do.call(rbind, lapply(real, function(r) cbind(r$setting[, c("species", "n_det", "var_mean")], r$floor[, -1]))),
-        digits = 3, row.names = FALSE)
+  cat("\n=== Real 35N data ===\n")
+  print(do.call(rbind, lapply(real, function(r) cbind(r$setting[, c("species", "nb_model", "n_det", "var_mean")],
+                                                      r$floor[, -1]))), digits = 3, row.names = FALSE)
 }
+res <- lapply(list.files(OUT, "^fit_.*_k.*_s[0-9]+(_nbmodel)?\\.rds$", full.names = TRUE), function(f) add_nb(readRDS(f)))
 runs <- do.call(rbind, lapply(res, function(r) cbind(r$setting,
   runtime_min = r$runtime_min, divergences = r$divergences, max_rhat = r$max_rhat,
   R2 = r$field$R2, rmse = r$field$rmse, bias = r$field$bias, floor_flags = sum(r$floor$flag))))
-floor <- do.call(rbind, lapply(res, function(r) cbind(r$setting[, c("seed", "species", "nb_size")], r$floor[, -1])))
-recov <- do.call(rbind, lapply(res, function(r) cbind(r$setting[, c("seed", "nb_size")], r$recovery)))
+floor <- do.call(rbind, lapply(res, function(r) cbind(r$setting[, c("seed", "species", "nb_size", "nb_model")], r$floor[, -1])))
+recov <- do.call(rbind, lapply(res, function(r) cbind(r$setting[, c("seed", "nb_size", "nb_model")], r$recovery)))
 write.csv(runs,  file.path(OUT, "count_dispersion_runs.csv"), row.names = FALSE)
 write.csv(floor, file.path(OUT, "count_dispersion_floor.csv"), row.names = FALSE)
 write.csv(recov, file.path(OUT, "count_dispersion_recovery.csv"), row.names = FALSE)
