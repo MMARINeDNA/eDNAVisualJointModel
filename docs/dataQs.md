@@ -146,9 +146,6 @@ place of recorded depth.
 - **Hake in field negatives.** 73 of 114 evaporated-DI and 25 of 72 lab-DI field-negative wells
   detect hake (up to about 12 copies/µL); extraction and PCR controls are clean. Is this known,
   and should field samples be corrected for it?
-- **Copies/µL.** The `copies_ul` in analysis A run about 20 to 30% below the copies we
-  back-calculate from the per-plate curves, at both dilutions (1 and 1:5). Are they already
-  corrected for dilution? (We model Ct, so this does not affect the fit.)
 - **Template volumes.** 2 µL per qPCR reaction (as for the standards)? Template volume and
   elution volume for the MarVer1 PCRs?
 - **Minimum read depth.** We treat a MarVer1 replicate with no reads at all as a failed PCR

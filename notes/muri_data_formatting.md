@@ -275,9 +275,15 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
 
 **Checks**: `R/02_check_muri.r` passes (formatter N 513, N_qpcr 1532, N_mb 1438; all bottles in
 the domain). Bottle-level agreement, hake qPCR detected vs metabarcoding reads present:
-both 392, qPCR only 82, metabarcoding only 5, neither 27. The lab's `copies_ul` are about
-20-30% below copies back-calculated from our curves, at both dilutions (median log ratio -0.24
-at 1, -0.36 at 0.2), so they are probably not dilution-corrected.
+both 392, qPCR only 82, metabarcoding only 5, neither 27.
+
+**Lab `copies_ul`** (kept as `qpcr_copies_ul`; not used by the model, which works from Ct). They
+are an exact per-plate log-linear function of Ct with shallower slopes than ours (3.13-3.39 Ct per
+log10 copy, about 105% efficiency, against our 3.33-3.41 with the doubling bound), as the
+vignette's tangent on machine-software curves would predict. So they run 11-40% below copies
+from our curves, the gap growing with Ct, and they are per uL of the template as run (not
+corrected for dilution: the 1:5 wells are not 5x higher). Not a question for the lab unless we
+start using them.
 
 **Negatives**: hake is detected in 73 of 114 evaporated-DI and 25 of 72 lab-DI field-negative
 wells (up to 12 and 10 copies/uL), 1 of 174 extraction controls and 0 of 3 purification
