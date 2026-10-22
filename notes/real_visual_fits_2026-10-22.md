@@ -69,3 +69,6 @@ represent at either budget. The floor flag is then a statement about the
 basis, not a fault in the fit: density, detection and group size are
 stable. A finer basis would cost roughly in proportion (humpback 68 min at
 1600) and the length-scales may keep following it.
+
+**Decision (2026-10-22):** keep the 800 budget; the floor flag is reported as
+a resolution limit of the basis (ROADMAP_2026-10-21, section 6).
