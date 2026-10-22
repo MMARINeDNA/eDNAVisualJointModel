@@ -301,4 +301,5 @@ negatives. Not used yet; a question for the lab.
 89 PWSD detections within w) reproduces the table above: humpback hazard-rate + group size
 (hazard-rate 17 AIC better than half-normal); PWSD half-normal + visibility (-6.8) + Beaufort
 (-1.9) + group size (-1.2). The PWSD set in use (group size + Beaufort, no visibility) is 9.7 AIC
-worse than that and 0.2 better than no covariates.
+worse than that and 0.2 better than no covariates. Decision (2026-10-21): add visibility to the visual
+model and use the AIC set for PWSD (ROADMAP_2026-10-21, section 5 item 5).
