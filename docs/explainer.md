@@ -1038,9 +1038,6 @@ data supply the absolute density.
 - **30EtOH samples.** 56 of 569 metabarcoded bottles lost about 20 to 30% of
   their DNA in a lab mix-up; they are dropped for now.
 - **Perpendicular distance missing** for 73 on-effort sightings, which are excluded.
-- **No amplification efficiencies.** There are no MarVer1 mock-community data or
-  PCR cycle numbers yet, so the per-species amplification bias of the
-  metabarcoding is unknown (see the next section).
 
 ## Models
 
@@ -1059,8 +1056,11 @@ data supply the absolute density.
   for the cetaceans it biases eDNA-only absolute density, and in the joint model
   it is absorbed into the conversion factor, which then means copies per animal
   times the species' relative amplification bias. If cycles or dilutions vary
-  between samples, the bias also enters the spatial pattern. Mock-community
-  estimates would separate the two (ROADMAP_2026-10-21, section 5).
+  between samples, the bias also enters the spatial pattern. *(Update,
+  2026-10-21: MarVer1's amplification efficiency is the same for hake,
+  humpback and PWSD, so for these three species the assumption holds; the
+  planned amplification term in HSGP4eDNA v1.7 will be switched off here.
+  ROADMAP_2026-10-21, section 5.)*
 - **Projection.** Effort to about -114.5 degrees longitude is far from UTM zone 10's
   central meridian, so distances there are distorted by a few percent.
 - **Sampling cost.** The reference eDNA fit takes about 15 hours; real-data fits of
