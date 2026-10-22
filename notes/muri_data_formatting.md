@@ -276,8 +276,10 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
   column and the replicate total (`mb_contaminant_reads`); the list in the loader also has human,
   cattle and pig, none present. Junk = total - contaminants - the three targets.
 - **Volumes, dates**: `vol_filtered` per bottle (2.5 L for 511; one 2.0, one 2.4); `meta$vol_filtered`
-  is the median, for the formatter. `date` 2019-07-02 to 2019-08-17. Template (2 uL) and elution
-  (100 uL) volumes are assumptions; `cruise` NA; `conv_factor` still the simulator placeholder.
+  is the median, for the formatter. `date` 2019-07-02 to 2019-08-17. Template volume 2 uL for
+  qPCR (the vignette); the MarVer1 template volume is assumed the same (asked). Elution volume
+  100 uL, assumed: common to both assays, it only rescales `conv_factor`. `cruise` = "52193"
+  (project ID; one survey). `conv_factor` still the simulator placeholder.
 
 **Checks**: `R/02_check_muri.r` passes (formatter N 513, N_qpcr 1532, N_mb 1438; all bottles in
 the domain). Bottle-level agreement, hake qPCR detected vs metabarcoding reads present:

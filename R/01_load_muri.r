@@ -182,7 +182,7 @@ samples <- tibble(
          location = match(paste(station, depth_cat), unique(paste(station, depth_cat))),
          vol_filtered = bot$volume,                        # litres, per bottle
          date = as.Date(bot$date, format = "%m/%d/%Y"),
-         etoh_wash = bot$etoh, cruise = NA_character_)
+         etoh_wash = bot$etoh, cruise = "52193")   # project ID: the 2019 hake survey
 stopifnot(all(in_domain(samples$X, samples$Y)), !anyNA(samples$vol_filtered), !anyNA(samples$date))
 N <- nrow(samples)
 
@@ -226,13 +226,15 @@ edna <- list(
     # The eDNA model (HSGP4eDNA v1.5) takes one filtered volume; per-bottle
     # volumes are in design$samples$vol_filtered (2.5 L for almost every bottle).
     vol_filtered = stats::median(samples$vol_filtered),
-    vol_aliquot  = 2,      # uL of template per reaction, of a 100 uL extract (qPCR vignette);
-                           # the metabarcoding template volume is assumed the same
-    vol_elution  = 100,    # uL
+    vol_aliquot  = 2,      # uL of template per qPCR reaction (qPCR vignette); the
+                           # metabarcoding template volume is assumed the same
+    vol_elution  = 100,    # uL, assumed (HSGP4eDNA's value); a constant, so it only
+                           # rescales conv_factor
     N = N, N_qpcr_long = nrow(q), N_mb_long = nrow(mb),
     X_km_max = DOMAIN$X_km_max, Y_km_max = DOMAIN$Y_km_max, lat_min = LAT_MIN,
     utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
-    placeholders = c("conv_factor", "metabarcoding template volume (assumed 2 uL)"),
+    placeholders = c("conv_factor", "metabarcoding template volume (assumed 2 uL)",
+                     "elution volume (assumed 100 uL)"),
     ct_available = TRUE,
     qpcr_source = "qPCR_2019A.rds, hake, analysis A",
     mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads", MB_MARKER),

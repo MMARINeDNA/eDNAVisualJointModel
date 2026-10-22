@@ -1011,8 +1011,9 @@ same formatters apply to the joint model. Since 2026-10-21 the eDNA object
 carries hake Ct per well with per-plate standard curves, filtered volume per
 bottle, dates, target depths and dilutions (ROADMAP_2026-10-21, section 5).
 The model does not yet use the per-plate curves, per-bottle volumes or
-dilutions (they wait on HSGP4eDNA), and template and elution volumes are still
-assumed, so the absolute conversion factor is not yet meaningful. The visual
+dilutions (they wait on HSGP4eDNA). The metabarcoding template and elution
+volumes are still assumed, so the absolute conversion factor is not yet
+meaningful in physical units. The visual
 data supply the absolute density.
 
 # Limitations and open issues
@@ -1022,7 +1023,8 @@ data supply the absolute density.
 - **qPCR Ct and standard curves are loaded, not yet used.** Ct per well and
   per-plate standard curves (fitted to the hake standards) are in the eDNA
   object since 2026-10-21; the model takes one curve, so per-plate curves wait
-  on HSGP4eDNA. Template and elution volumes are still placeholders. Hake is
+  on HSGP4eDNA. The metabarcoding template volume (assumed 2 µL, as for qPCR)
+  and the elution volume (assumed 100 µL) are placeholders. Hake is
   detected in many field-negative wells (a question for the lab).
 - **Survey timing.** The eDNA dates are in the qPCR lab's file (from
   2 July 2019); the visual survey is from 2018. Both are treated as one
