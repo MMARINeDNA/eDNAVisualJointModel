@@ -951,12 +951,22 @@ $\ell_\min$ falls to 75 km east-west and 106 km north-south). Neither fit had di
 
 ### Fits on the 35°N data, with NB counts and visibility (2026-10-22)
 
-`R/fit_visual_real.r`, 4 chains of 1000 + 1000 unless noted, on the 35°N
-effort before the Beaufort cut (1641 segments; re-runs on the Beaufort ≤ 5
-effort are under way and will replace these numbers; little change is
-expected). Full tables: `notes/real_visual_fits_2026-10-22.md`.
+`R/fit_visual_real.r`, 4 chains of 1000 + 1000 unless noted. **The current
+fits** are on the Beaufort ≤ 5 effort (1617 segments) with the stored settings:
 
-| Species, model | Basis | Floor (km) | Length-scales (km) | Mean density (per km², 90%) | Covariate effects (90%) | NB size $\phi$ |
+| Species, model (Beaufort ≤ 5) | Basis | Floor (km) | Length-scales (km) | Mean density (per km², 90%) | Covariate effects (90%) | NB size $\phi$ | Run time |
+|---|---|---|---|---|---|---|---|
+| Humpback, NB | 770 | 42 × 67 | 36 × 51 | 0.0231 [0.019, 0.029] | | 2.8 [1.7, 5.2] | 27 min |
+| PWSD, NB + Beaufort + visibility | 770 | 42 × 67 | 46 × 78 | 0.108 [0.078, 0.153] | visibility 0.17 [0.09, 0.27]; Beaufort −0.16 [−0.29, −0.04] | 1.0 [0.45, 4.5] | 55 min |
+
+No divergences; max R-hat 1.003. Mean group size: humpback 1.69, PWSD 37.6;
+detection probability in the strip 0.44 and 0.49.
+
+The comparisons behind the decisions were run before the Beaufort cut (1641
+segments; full tables in `notes/real_visual_fits_2026-10-22.md`); the cut
+changes the estimates by about 1% or less:
+
+| Species, model (before the cut) | Basis | Floor (km) | Length-scales (km) | Mean density (per km², 90%) | Covariate effects (90%) | NB size $\phi$ |
 |---|---|---|---|---|---|---|
 | Humpback, Poisson (500 + 500) | 792 | 42 × 65 | 33 × 47 | 0.0226 [0.019, 0.027] | | |
 | Humpback, NB (500 + 500) | 792 | 42 × 65 | 35 × 50 | 0.0229 [0.019, 0.028] | | 2.9 |
@@ -973,8 +983,8 @@ area excludes the empty south.
   rises 8%: by 9% in the southern third of the domain, where visibility is
   poorest (mean 5.1 nmi), and 3% further north (5.9 to 6.0 nmi). The two
   surfaces still correlate at 0.999, so it is a modest south-north tilt. The
-  cost is run time: 105 detection-condition cells instead of 13 make the PWSD
-  fit about three times slower (138 against 47 min).
+  cost in run time is small: about 100 detection-condition cells instead of 13
+  make the PWSD fit about 1.2 times slower (55 against 47 min).
 - **The length-scales follow the basis floor.** Doubling the basis lowers the
   floor, and humpback's length-scales follow it on both axes, PWSD's on the
   east-west axis; density, detection and group size do not change.
