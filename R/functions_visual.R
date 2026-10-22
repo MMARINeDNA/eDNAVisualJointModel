@@ -17,7 +17,9 @@
 # half-normal detection (PWSD with a group-size covariate), group sizes
 # resampled from the empirical pools in data/grpsz/. With sea_state = TRUE each
 # segment also gets a Beaufort sea state with a spatial trend, and detection
-# scales as exp(beta_bft * (Beaufort - BFT_CENTRE)).
+# scales as exp(beta_bft * (Beaufort - BFT_CENTRE)). With a finite
+# `nb_size_truth` per species, groups per segment are negative binomial
+# (clustered sightings); the default (Inf) is Poisson.
 # =============================================================================
 
 HSGP4EDNA_DIR <- "external/HSGP4eDNA"
@@ -95,7 +97,7 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
     humpback = list(
       common_name = "Humpback whale", group_size_pool = pool_h, mean_group_size = mean_h,
       sigma_det = 2.5, use_size_covar = 0L, beta_size_truth = 0.0, s_centre = mean_h,
-      beta_bft_truth = -0.08,
+      beta_bft_truth = -0.08, nb_size_truth = Inf,
       det_key = 0L, hr_b_truth = 3, log_b_prior_mean = log(3), log_b_prior_sd = 0.7,
       model_group_dist = 0L, S_max = 50L,
       log_sigma_prior_mean = log(2.5), log_sigma_prior_sd = 0.6,
@@ -109,7 +111,7 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
     pwsd = list(
       common_name = "Pacific white-sided dolphin", group_size_pool = pool_p, mean_group_size = mean_p,
       sigma_det = 1.5, use_size_covar = 1L, beta_size_truth = 0.01, s_centre = mean_p,
-      beta_bft_truth = -0.15,
+      beta_bft_truth = -0.15, nb_size_truth = Inf,
       det_key = 0L, hr_b_truth = 3, log_b_prior_mean = log(3), log_b_prior_sd = 0.7,
       model_group_dist = 1L, S_max = 1000L,
       log_sigma_prior_mean = log(1.5), log_sigma_prior_sd = 0.6,
@@ -128,11 +130,18 @@ lt_species_params <- function(grpsz_dir = "data/grpsz") {
 # perpendicular distance, half-normal detection (v4.1 logic). If segments has
 # a `bft` column, each segment's detection scale is multiplied by
 # exp(beta_bft_truth * (bft - BFT_CENTRE)); without it the draws are v4.1's.
+# Clustering: with a finite p$nb_size_truth (k), each segment's expected
+# groups are multiplied by a gamma(k, k) draw (mean 1, variance 1/k), so
+# groups per segment are negative binomial with size k; with k = Inf (or
+# unset) no gamma draws are made and the Poisson draws are unchanged.
 # lambda_animals: animals / km^2 per segment.
 # -----------------------------------------------------------------------------
 simulate_lt_sightings <- function(segments, lambda_animals, p, w) {
   lambda_groups <- lambda_animals / p$mean_group_size
-  n_strip <- rpois(nrow(segments), lambda_groups * 2 * w * segments$seg_l)
+  mean_strip <- lambda_groups * 2 * w * segments$seg_l
+  k <- if (is.null(p$nb_size_truth)) Inf else p$nb_size_truth
+  if (is.finite(k)) mean_strip <- mean_strip * rgamma(nrow(segments), shape = k, rate = k)
+  n_strip <- rpois(nrow(segments), mean_strip)
   rows <- vector("list", nrow(segments))
   for (j in which(n_strip > 0)) {
     x_true  <- runif(n_strip[j], 0, w)
@@ -160,15 +169,26 @@ simulate_lt_sightings <- function(segments, lambda_animals, p, w) {
 # simulate_visual(): one field over the segment design + sightings per species.
 # sea_state = TRUE adds segment Beaufort (draw_sea_state(), drawn after the
 # field, so the field matches the sea_state = FALSE draw for the same seed).
+# segments: a design to use instead of lt_design() + draw_bathy(), e.g. the
+#   real effort (data/processed/muri_visual.rds design$segments); it needs
+#   seg_id (1..n), transect_id, X, Y (km), seg_l (km) and Z_bathy (m).
+# nb_size: named NB size per species (clustered sightings), overriding
+#   sp_params' nb_size_truth; Inf = Poisson.
 # -----------------------------------------------------------------------------
 simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
                             n_transects = 35L, seg_length = 10, w = 5.0, df = 4L,
                             gp_params = default_gp_params(),
                             sp_params = lt_species_params(),
-                            sea_state = FALSE) {
+                            sea_state = FALSE, segments = NULL, nb_size = NULL) {
   set.seed(seed)
-  segments <- lt_design(n_transects, seg_length)
-  segments$Z_bathy <- draw_bathy(nrow(segments))
+  if (is.null(segments)) {
+    segments <- lt_design(n_transects, seg_length)
+    segments$Z_bathy <- draw_bathy(nrow(segments))
+  } else {
+    segments <- as.data.frame(segments)[, c("seg_id", "transect_id", "X", "Y", "seg_l", "Z_bathy")]
+    stopifnot(identical(segments$seg_id, seq_len(nrow(segments))), !anyNA(segments))
+  }
+  for (sp in intersect(names(nb_size), species)) sp_params[[sp]]$nb_size_truth <- nb_size[[sp]]
   field <- species_field(segments, species, gp_params = gp_params, df = df)
   if (sea_state) segments$bft <- draw_sea_state(segments)
   observed <- lapply(setNames(species, species), function(sp)
@@ -189,6 +209,9 @@ simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
 #             `use_bft` setting in sp_params if present, else whenever the
 #             segments carry a `bft` column). Beaufort is binned to bft_bin
 #             steps; the size-averaged ESW is computed once per level.
+#   use_nb    1 = negative-binomial segment counts (default: the species'
+#             `use_nb` in sp_params, else 0 = Poisson); nb_inv_sqrt_sd is the
+#             half-normal prior sd on 1 / sqrt(phi_nb)
 #   Detection key: sp_params$det_key (0 half-normal, 1 hazard-rate).
 #   Truncation: sim$meta$w, one value or named per species. Detections beyond
 #   it are dropped here and seg_count is rebuilt, so objects may carry all
@@ -204,7 +227,9 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
                                       ub <- sim$truth$sp_params[[sp]]$use_bft
                                       if (is.null(ub)) !is.null(sim$design$segments$bft) else isTRUE(ub)
                                     },
-                                    bft_bin = 0.5, bft_centre = BFT_CENTRE) {
+                                    bft_bin = 0.5, bft_centre = BFT_CENTRE,
+                                    use_nb = as.integer(isTRUE(sim$truth$sp_params[[sp]]$use_nb == 1L)),
+                                    nb_inv_sqrt_sd = 1.0) {
   seg <- sim$design$segments
   p   <- sim$truth$sp_params[[sp]]
   dom <- sim$meta$domain
@@ -251,6 +276,7 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
     beta_bft_prior_mean = if (is.null(p$beta_bft_prior_mean)) -0.1 else p$beta_bft_prior_mean,
     beta_bft_prior_sd   = if (is.null(p$beta_bft_prior_sd))   0.2 else p$beta_bft_prior_sd,
     seg_bft = as.integer(seg_bft), det_bft = as.array(as.integer(det_bft)),
+    use_nb = as.integer(use_nb), prior_nb_inv_sqrt_sd = nb_inv_sqrt_sd,
     S_max = p$S_max, group_size_dist = p$model_group_dist,
     mu_s_prior_shape = p$mu_s_prior_shape, mu_s_prior_rate = p$mu_s_prior_rate,
     phi_s_prior_shape = p$phi_s_prior_shape, phi_s_prior_rate = p$phi_s_prior_rate,
