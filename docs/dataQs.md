@@ -153,7 +153,8 @@ place of recorded depth.
   than 1,000 reads in total and 47 fewer than 100; they detect hake less often (49% under 100
   reads, 69% over 10,000). Do you use a minimum total-read cutoff below which a replicate counts
   as failed, and if so, what is it? *Answered (Pedro, 2026-10-22): 1,000 reads summed over a
-  sample's replicates. At the best dilution this drops 6 more bottles' metabarcoding (each with
-  one replicate with reads, 1 to 540 reads); their qPCR is kept.*
+  sample's replicates. We apply it more strictly, to each replicate: 136 of 1,438 replicates
+  are dropped, 6 bottles lose their metabarcoding (their qPCR is kept), and some bottles keep
+  fewer than three replicates.*
 
 *Numbers and figures: `docs/dataQs/make_figs.R`.*

@@ -54,9 +54,9 @@ raw <- function(f) {
   p
 }
 ETOH         <- match.arg(Sys.getenv("ETOH", "drop"), c("drop", "keep"))
-MB_MIN_READS <- 1000                      # a bottle's MarVer1 data are used only if its kept dilution
-                                          # has at least this many reads summed over replicates
-                                          # (the lab's practice; decided 2026-10-22)
+MB_MIN_READS <- 1000                      # MarVer1 replicates with fewer reads (after contaminant
+                                          # removal) are treated as failed PCRs and dropped
+                                          # (decided 2026-10-22)
 MB_MARKER    <- "MV1"                     # MarVer1; the compiled table also has MFU, C16, DL, ...
 # Taxa dropped from the junk column AND the replicate total (contamination;
 # exact for the remaining categories). Human and cattle are already absent.
@@ -213,11 +213,12 @@ mb <- mb[order(-total)][!duplicated(mb[order(-total), .(sampleID, fold, rep)])]
 best <- mb[, .(reads = sum(total - contam)), by = .(sampleID, fold)][order(-reads)][!duplicated(sampleID)]
 flow$mb_bottles_several_dilutions <- sum(mb[, uniqueN(fold), by = sampleID]$V1 > 1)
 mb <- mb[best, on = .(sampleID, fold), nomatch = NULL][order(match(sampleID, samples$sampleID), rep)]
-# minimum read depth: bottles whose kept dilution has fewer than MB_MIN_READS
-# reads summed over replicates are treated as failed (their qPCR is kept)
-low <- mb[, .(reads = sum(total - contam)), by = sampleID][reads < MB_MIN_READS, sampleID]
-flow$mb_bottles_below_min_reads <- length(low)
-mb <- mb[!sampleID %in% low]
+# minimum read depth: replicates of the kept dilution with fewer than
+# MB_MIN_READS reads are treated as failed PCRs and dropped, so some bottles
+# keep fewer than three replicates; a bottle left with none keeps its qPCR.
+# (Applied after choosing the dilution, which uses all its replicates' reads.)
+flow$mb_reps_below_min_reads <- sum(mb$total - mb$contam < MB_MIN_READS)
+mb <- mb[total - contam >= MB_MIN_READS]
 flow$mb_reps_kept <- nrow(mb)
 # bottles whose metabarcoding replicates all had no reads, or too few, keep their qPCR
 flow$bottles_without_mb <- sum(!samples$sampleID %in% mb$sampleID)
@@ -246,7 +247,7 @@ edna <- list(
     placeholders = c("conv_factor", "elution volume (assumed 100 uL)"),
     ct_available = TRUE,
     qpcr_source = "qPCR_2019A.rds, hake, analysis A",
-    mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads, if at least %d reads over its replicates", MB_MARKER, MB_MIN_READS),
+    mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads; replicates with at least %d reads", MB_MARKER, MB_MIN_READS),
     mb_contaminants_dropped = CONTAMINANTS,
     etoh = ETOH, flow = flow,
     bathy_source = "Hake_2019_metadata.csv bottom.depth.consensus (ETOPO in Z_bathy_etopo)",

@@ -270,13 +270,21 @@ from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv`
   rule); a duplicated sample x fold x replicate keeps the larger. 1,438 replicates (3 for 402
   bottles); folds kept 1 (787), 5 (195), 10 (419), 19-100 (37). 7 bottles have no replicate with
   reads and keep only their qPCR (`meta$flow$bottles_without_mb`). 136 replicates have < 1000 reads.
-  **Minimum read depth (2026-10-22):** a bottle's metabarcoding is used only if its kept dilution has
-  at least 1,000 reads summed over replicates (`MB_MIN_READS`, the lab's practice). This drops 6
-  bottles (each with one replicate with reads, 1-540 reads; `meta$flow$mb_bottles_below_min_reads`),
-  which keep their qPCR: 1,432 replicates in 500 bottles remain, and 13 bottles have qPCR only.
-  Low-read replicates inside bottles above the cutoff are kept (the model weights each replicate by
-  its total). The same rule across all dilutions would flag 37 sample x dilution groups, 28 of them
-  in bottles with a better dilution, which the best-dilution rule already discards.
+  **Minimum read depth (2026-10-22):** every MarVer1 replicate of the kept dilution with fewer than
+  1,000 reads (after contaminant removal) is treated as a failed PCR and dropped (`MB_MIN_READS`,
+  applied after the dilution is chosen; `meta$flow$mb_reps_below_min_reads`). This drops 136 of
+  1,438 replicates; 1,302 remain in 500 bottles (3 replicates: 354 bottles, 2: 94, 1: 52), and 13
+  bottles have qPCR only (7 with no reads at all, 6 whose only replicate with reads had 1-540).
+  The lab's own rule (Pedro: 1,000 reads summed over a sample's replicates) would have dropped
+  only those 6 bottles; the per-replicate rule is stricter by choice.
+  - Why: the model conditions on each replicate's total, so low-read replicates already carry
+    little weight, but a partly failed PCR can have a distorted, not just noisy, composition, which
+    the overdispersion term treats as a normal draw.
+  - Checks: low read depth is not related to the bottle's hake DNA (7-10% of replicates below 1,000
+    at every level of hake qPCR copies, including none), so dropping them does not remove the low
+    end selectively; it rises mildly with sampling depth (6% at the surface, 12-14% at 150-300 m)
+    and is not related to dilution. Cetacean-positive replicates lost: humpback 3 of 47, PWSD 2 of
+    65; replicates with reads now: hake 889, humpback 44, PWSD 63.
 - **Dilution offsets**: `qpcr_log_dilution` = log(fraction); `mb_log_dilution` = -log(fold).
   Neither is used by the HSGP4eDNA v1.5 likelihood yet.
 - **Contamination**: *Gallus* (127,162 of 98.4 M MarVer1 reads) is removed from both the junk
