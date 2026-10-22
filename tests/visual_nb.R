@@ -11,6 +11,9 @@
 #      dnbinom(size = phi_nb, mu) at the model's expected detected groups.
 #   3. Recovery (RECOVERY=1, the default): NB groups per segment (size 1)
 #      simulated on a small design; the true phi_nb lies in the 99% interval.
+#      The field's length-scales (150 x 400 km) are long enough for the small
+#      basis: a field the basis cannot represent reads as extra overdispersion
+#      and pulls phi_nb down.
 #
 #   Rscript tests/visual_nb.R
 # Env: BASE_REF (default origin/main), N_POINTS (default 10), TOL (1e-8),
@@ -28,6 +31,7 @@ TOL      <- as.numeric(Sys.getenv("TOL", "1e-8"))
 
 # ---- Data -------------------------------------------------------------------
 gp <- default_gp_params(); gp$humpback$mu <- log(0.03)
+gp$humpback$lx <- 150; gp$humpback$ly <- 400
 sim <- simulate_visual(seed = 3L, n_transects = 12L, gp_params = gp,
                        nb_size = c(humpback = 1, pwsd = 1))
 d0 <- format_stan_data_visual(sim, "humpback", M_max = 64L, use_nb = 0L)

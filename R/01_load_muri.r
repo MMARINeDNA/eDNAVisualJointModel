@@ -364,11 +364,15 @@ observed_vis <- lapply(SPECIES_CODE, function(code) {
 #             lt_species_params() has it off for humpback (the simulation truth)
 #   pwsd      half-normal key; group size + Beaufort (visibility dropped by choice)
 # Beaufort is the segment-level `bft` column (segment mean, binned by the formatter).
+# Segment counts: negative binomial for both species (use_nb; decided 2026-10-21,
+# notes/count_dispersion_check.md: harmless on Poisson data, needed if sightings cluster).
 sp_params <- lt_species_params()[names(SPECIES_CODE)]
 sp_params$humpback$det_key        <- 1L
 sp_params$humpback$use_size_covar <- 1L   # group size selected by AIC (the simulator's humpback truth has none)
 sp_params$humpback$use_bft        <- FALSE
 sp_params$pwsd$use_bft      <- TRUE
+sp_params$humpback$use_nb <- 1L
+sp_params$pwsd$use_nb     <- 1L
 
 visual <- list(
   meta = list(seed = NA, species = names(SPECIES_CODE), w = W_SP,

@@ -155,7 +155,10 @@ if (!is.null(vb)) {
 cat("=== [visual_nb] hsgp_visual + negative-binomial counts ===\n")
 vn <- NULL
 mins <- timed({
-  ngp <- default_gp_params(); ngp$humpback$mu <- log(0.03)   # more groups, so phi_nb is informed
+  # more groups, so phi_nb is informed; long length-scales, so the small basis
+  # represents the field (an unrepresented field reads as overdispersion)
+  ngp <- default_gp_params(); ngp$humpback$mu <- log(0.03)
+  ngp$humpback$lx <- 150; ngp$humpback$ly <- 400
   nsim <- simulate_visual(seed = 1L, gp_params = ngp, nb_size = c(humpback = 1))
   if (!is.null(vmod)) vn <- tryCatch(
     fit_visual(nsim, "humpback", mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
