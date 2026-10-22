@@ -20,6 +20,8 @@
 #           on simulate_visual(sea_state = TRUE)
 #   visual_nb  the same model with negative-binomial segment counts, humpback
 #           on clustered sightings (simulate_visual(nb_size = 1))
+#   visual_vis the same model with the visibility and Beaufort covariates,
+#           humpback on simulate_visual(sea_state = TRUE, visibility = TRUE)
 #   joint_sim  simulate_joint() (no fits): one shared field, both formatters
 #   joint   stan/hsgp_joint.stan (one field, eDNA + visual likelihoods) via
 #           R/fit_joint.r on a small simulate_joint() dataset
@@ -173,6 +175,28 @@ if (!is.null(vn)) {
   check("visual_nb", "max Rhat < 1.1", vn$max_rhat < 1.1, round(vn$max_rhat, 3))
   check("visual_nb", "phi_nb truth in 95% CI", isTRUE(pn$covered),
         sprintf("%.3g in [%.3g, %.3g]", pn$truth, pn$q025, pn$q975))
+}
+
+# -----------------------------------------------------------------------------
+# Case 2d: visual with the visibility (and Beaufort) covariate, humpback only
+# -----------------------------------------------------------------------------
+cat("=== [visual_vis] hsgp_visual + visibility covariate ===\n")
+vv <- NULL
+mins <- timed({
+  vsim2 <- simulate_visual(seed = 1L, sea_state = TRUE, visibility = TRUE)
+  if (!is.null(vmod)) vv <- tryCatch(
+    fit_visual(vsim2, "humpback", mod = vmod, chains = 2L, warmup = 300L, sample = 300L,
+               M_max = 32L, use_bft = TRUE, use_vis = TRUE),
+    error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL })
+})
+cat(sprintf("  %.1f min\n", mins))
+check("visual_vis", "ran", !is.null(vv), if (is.null(vv)) "error" else "ok")
+if (!is.null(vv)) {
+  bv <- vv$recovery[vv$recovery$param == "beta_vis[1]", ]
+  check("visual_vis", "divergences == 0", vv$divergences == 0, vv$divergences)
+  check("visual_vis", "max Rhat < 1.1", vv$max_rhat < 1.1, round(vv$max_rhat, 3))
+  check("visual_vis", "beta_vis truth in 95% CI", isTRUE(bv$covered),
+        sprintf("%.3g in [%.3g, %.3g]", bv$truth, bv$q025, bv$q975))
 }
 
 # -----------------------------------------------------------------------------

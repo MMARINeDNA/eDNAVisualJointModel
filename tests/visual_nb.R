@@ -36,7 +36,8 @@ sim <- simulate_visual(seed = 3L, n_transects = 12L, gp_params = gp,
                        nb_size = c(humpback = 1, pwsd = 1))
 d0 <- format_stan_data_visual(sim, "humpback", M_max = 64L, use_nb = 0L)
 d1 <- modifyList(d0, list(use_nb = 1L))
-d_old <- d0[setdiff(names(d0), c("use_nb", "prior_nb_inv_sqrt_sd"))]
+d_old <- d0[setdiff(names(d0), c("use_nb", "prior_nb_inv_sqrt_sd", "use_vis_covar", "vis_level",
+                                 "beta_vis_prior_mean", "beta_vis_prior_sd"))]
 
 # ---- Models with methods, in a temporary directory --------------------------
 tmp <- file.path(tempdir(), "visual_nb"); dir.create(file.path(tmp, "old", "include"), recursive = TRUE)

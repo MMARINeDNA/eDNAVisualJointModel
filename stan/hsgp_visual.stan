@@ -9,9 +9,12 @@
 //                 (or negative binomial with size phi_nb, use_nb = 1)
 //   x_i ~ half-normal or hazard-rate (det_key) detection, scale sigma_i, truncated at w,
 //         log sigma_i = log_sigma + beta_size (s_i - s_centre) + beta_bft (b_i - b_centre)
+//                       + beta_vis (v_i - v_centre)
 //   s_i ~ group-size distribution, size-bias corrected for detection
-// b = Beaufort sea state of the segment (binned to levels; bft_level holds
-// b - b_centre per level), so ESW differs between segments.
+// b = Beaufort sea state and v = visibility of the segment. Segments are
+// grouped into detection-condition cells (binned Beaufort x binned
+// visibility; bft_level and vis_level hold b - b_centre and v - v_centre per
+// cell), so ESW differs between segments and is computed once per cell.
 //
 // The latent field has the same structure and units as the eDNA model
 // (HSGP4eDNA stan/hsgp_2d_bathysp.stan), so the two can share it in the
@@ -23,6 +26,9 @@
 //   K_bathy = 0  drops the bottom-depth spline
 //   use_bft_covar = 0  drops the sea-state term (n_bft = 1, bft_level = 0):
 //                      exactly the single-ESW model
+//   use_vis_covar = 0  drops the visibility term (vis_level is then 0 and the
+//                      cells are the Beaufort levels): exactly the model
+//                      without it
 //   use_nb  = 1  negative-binomial segment counts (clustered sightings), with
 //                1 / sqrt(phi_nb) ~ half-normal(0, prior_nb_inv_sqrt_sd);
 //                use_nb = 0 is exactly the Poisson model (phi_nb has size 0)
@@ -56,13 +62,18 @@ data {
   int<lower=0, upper=1> det_key;           // 0 = half-normal, 1 = hazard-rate
   real log_b_prior_mean;                   // hazard-rate shape b, log scale
   real<lower=0> log_b_prior_sd;
-  // Sea-state (Beaufort) covariate on log sigma. Segments are binned into
-  // n_bft levels; the size-averaged ESW is computed once per level.
+  // Sea-state (Beaufort) and visibility covariates on log sigma. Segments are
+  // binned into n_bft detection-condition cells; the size-averaged ESW is
+  // computed once per cell.
   int<lower=0, upper=1> use_bft_covar;
   int<lower=1> n_bft;
-  vector[n_bft] bft_level;                 // Beaufort - centre, per level
+  vector[n_bft] bft_level;                 // Beaufort - centre, per cell
   real beta_bft_prior_mean;
   real<lower=0> beta_bft_prior_sd;
+  int<lower=0, upper=1> use_vis_covar;
+  vector[n_bft] vis_level;                 // visibility - centre, per cell
+  real beta_vis_prior_mean;
+  real<lower=0> beta_vis_prior_sd;
 
   // ---- Group-size distribution ---------------------------------------------
   int<lower=1> S_max;                      // pmf support 1..S_max
@@ -138,6 +149,7 @@ parameters {
   real log_sigma;                          // log(sigma) at s = s_centre, Beaufort = centre
   real beta_size;
   vector[use_bft_covar] beta_bft;          // change in log sigma per Beaufort unit
+  vector[use_vis_covar] beta_vis;          // change in log sigma per visibility unit
   vector[det_key] log_b;                   // hazard-rate shape (size 0 if half-normal)
 
   // Segment-count overdispersion (size 0 unless use_nb)
@@ -165,6 +177,7 @@ transformed parameters {
   if (det_key == 1) b_hr = exp(log_b[1]);
   vector[n_bft] log_sigma_bft = rep_vector(log_sigma, n_bft);
   if (use_bft_covar == 1) log_sigma_bft += beta_bft[1] * bft_level;
+  if (use_vis_covar == 1) log_sigma_bft += beta_vis[1] * vis_level;
   vector<lower=0>[n_bft] esw_bft;          // population-average ESW per sea-state level
   for (b in 1:n_bft) {
     esw_bft[b] = esw_population(pk, use_size_covar, det_key, log_sigma_bft[b],
@@ -189,6 +202,7 @@ model {
   log_sigma   ~ normal(log_sigma_prior_mean, log_sigma_prior_sd);
   beta_size   ~ normal(beta_size_prior_mean, beta_size_prior_sd);
   beta_bft    ~ normal(beta_bft_prior_mean, beta_bft_prior_sd);
+  beta_vis    ~ normal(beta_vis_prior_mean, beta_vis_prior_sd);
   log_b       ~ normal(log_b_prior_mean, log_b_prior_sd);
   inv_sqrt_phi_nb ~ normal(0, prior_nb_inv_sqrt_sd);
   mu_s        ~ gamma(mu_s_prior_shape, mu_s_prior_rate);
