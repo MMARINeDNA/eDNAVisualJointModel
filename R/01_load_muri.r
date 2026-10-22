@@ -16,11 +16,21 @@
 # it, and their sightings, are dropped; all eDNA bottles are north of it. The
 # domain box is HSGP4eDNA's STUDY_DOMAIN (checked against the data).
 #
-# Inputs (data/):
-#   hake_qPCR_MURI_df.csv          qPCR, hake, copies/uL per replicate
-#   MV1_MURI_df.csv                metabarcoding reads, long (taxon x PCR rep)
-#   effort.csv, sightings.csv      OBIS-SEAMAP dataset 2147 (SWFSC CCES 2018, cruise 1651)
-#   SITEINFO_CCE_2018_Pp_Lo_Mn.csv per-sighting perpendicular distance (pdist, km)
+# Inputs. Private raw files (git-ignored) are read from RAW_DIR (env var;
+# default data/); the tracked ones from data/:
+#   Hake_2019_metadata.csv          [RAW_DIR] 2019 eDNA bottles: sample number,
+#                                   station, Niskin, depth, volume, date, flags
+#   M3_compiled_taxon_table_wide.csv [RAW_DIR] metabarcoding reads, taxon x PCR
+#                                   replicate, several markers (MV1 used)
+#   qPCR_2019A.rds                  [RAW_DIR] the qPCR lab's 2019 analysis A:
+#                                   hake wells (Ct, plate, dilution, ...),
+#                                   standards, controls; depth_cat per sample
+#   data/processed/qpcr_standard_curves.rds  per-plate hake standard curves
+#                                   (run R/fit_qpcr_standards.r first)
+#   effort.csv, sightings.csv       OBIS-SEAMAP dataset 2147 (SWFSC CCES 2018, cruise 1651)
+#   SITEINFO_CCE_2018_Pp_Lo_Mn.csv  [RAW_DIR] per-sighting perpendicular distance (pdist, km)
+# Env: RAW_DIR; ETOH ("drop", default, or "keep": the bottles washed with 30%
+#   ethanol by mistake, flagged 30EtOH / 30EtOHpaired).
 # Bathymetry: NOAA ETOPO 2022 60-arc-second bedrock, downloaded once via marmap
 #   and cached in data/processed/.
 # =============================================================================
@@ -35,6 +45,17 @@ UTM_EPSG     <- STUDY_DOMAIN$utm_epsg   # 32610 (HSGP4eDNA R/functions.R)
 LAT_MIN      <- STUDY_DOMAIN$lat_min    # 35°N: every analysis is restricted to north of this
 DOMAIN_BUFFER_KM <- 10           # margin around the data (km)
 DOMAIN_ROUND_KM  <- 10           # origin and extent are multiples of this (km)
+RAW_DIR      <- Sys.getenv("RAW_DIR", "data")
+raw <- function(f) {
+  p <- file.path(RAW_DIR, f)
+  if (!file.exists(p)) stop("missing ", p, " (private raw file; set RAW_DIR to its folder)")
+  p
+}
+ETOH         <- match.arg(Sys.getenv("ETOH", "drop"), c("drop", "keep"))
+MB_MARKER    <- "MV1"                     # MarVer1; the compiled table also has MFU, C16, DL, ...
+# Taxa dropped from the junk column AND the replicate total (contamination;
+# exact for the remaining categories). Human and cattle are already absent.
+CONTAMINANTS <- c("Gallus", "Gallus gallus", "Homo sapiens", "Bos taurus", "Sus scrofa")
 OUT_DIR      <- "data/processed"
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
@@ -56,9 +77,11 @@ lonlat_to_utm <- function(lon, lat) {
 # is LAT_MIN at the zone's central meridian (123°W), rounded down to the
 # DOMAIN_ROUND_KM grid. It must equal HSGP4eDNA's STUDY_DOMAIN, which the
 # simulators use, so simulated and real fits share one domain.
-.q    <- read.csv("data/hake_qPCR_MURI_df.csv", stringsAsFactors = FALSE)
+.mv   <- sub("^([^-]+-){2}(\\d+)-(\\d+)-.*$", "\\2-\\3",
+             grep(sprintf("^[^-]+-%s-", MB_MARKER), names(fread(raw("M3_compiled_taxon_table_wide.csv"), nrows = 0)), value = TRUE))
+.q    <- fread(raw("Hake_2019_metadata.csv"))[sampleID %in% .mv]   # the bottles with metabarcoding
 .ef   <- read.csv("data/effort.csv", stringsAsFactors = FALSE)
-stopifnot(all(.q$lat >= LAT_MIN))                      # all bottles are north of 35°N
+stopifnot(nrow(.q) > 0, all(.q$lat >= LAT_MIN))       # all bottles are north of 35°N
 .ef   <- .ef[.ef$mlat >= LAT_MIN, ]
 .pts  <- rbind(lonlat_to_utm(.q$lon, .q$lat),
                lonlat_to_utm(.ef$longitude_begin, .ef$latitude_begin),
@@ -73,7 +96,7 @@ if (!isTRUE(all.equal(c(E0, N0, DOMAIN$X_km_max, DOMAIN$Y_km_max),
                       unlist(STUDY_DOMAIN[c("E0", "N0", "X_km_max", "Y_km_max")], use.names = FALSE))))
   stop("the data's domain (E0 ", E0, ", N0 ", N0, ", ", DOMAIN$X_km_max, " x ", DOMAIN$Y_km_max,
        " km) differs from HSGP4eDNA's STUDY_DOMAIN; update STUDY_DOMAIN there")
-rm(.q, .ef, .pts)
+rm(.q, .ef, .pts, .mv)
 
 lonlat_to_model <- function(lon, lat) {
   en <- lonlat_to_utm(lon, lat)
@@ -97,56 +120,101 @@ bottom_depth <- function(lon, lat) {
 }
 
 # =============================================================================
-# eDNA
+# eDNA (2019): one bottle = one sample number. Each station x depth usually has
+# two bottles (Niskin biological replicates); they are separate samples at the
+# same location. Bottles, qPCR wells and metabarcoding replicates are matched
+# on the sample number (sampleID "52193-<n>"; "52193_<n>" in the qPCR file).
 # =============================================================================
-q  <- read.csv("data/hake_qPCR_MURI_df.csv", stringsAsFactors = FALSE)
-mb <- data.table::fread("data/MV1_MURI_df.csv")
+meta <- fread(raw("Hake_2019_metadata.csv"))[!is.na(sample)]
+stopifnot(!anyDuplicated(meta$sampleID))
+A  <- readRDS(raw("qPCR_2019A.rds"))
+qs <- as.data.table(A$samples)[species == "hake"][, sid := sub("_", "-", sample)]
 
-# One bottle = one location_id (one station x one depth; verified: each
-# location_id has a single lat/lon/depth and is identical across both files).
-stopifnot(all(tapply(q$depth, q$location_id, function(x) length(unique(x))) == 1))
-bottle <- unique(mb[, .(location_id, lat, lon, depth)]) |> as_tibble() |>
-  arrange(location_id)
-stopifnot(!anyDuplicated(bottle$location_id), setequal(bottle$location_id, q$location_id))
-
-qsamp <- q |> group_by(location_id) |>
-  summarise(qpcr_sample_ids = paste(sort(unique(sample)), collapse = ";"),
-            n_qpcr_sample_ids = n_distinct(sample), .groups = "drop")
-
-sample_depths <- sort(unique(bottle$depth))
-stn_key <- paste(round(bottle$lat, 5), round(bottle$lon, 5))
-xy <- lonlat_to_model(bottle$lon, bottle$lat)
-
-samples <- bottle |>
-  transmute(location_id, lat, lon, Z_sample = as.numeric(depth),
-            station = match(stn_key, unique(stn_key))) |>
-  bind_cols(xy) |>
-  mutate(Z_bathy   = bottom_depth(lon, lat),
-         depth_idx = match(Z_sample, sample_depths),
-         sample_id = row_number(),
-         cruise = NA_character_, datetime = as.POSIXct(NA)) |>   # not in the files
-  left_join(qsamp, by = "location_id") |>
-  select(station, X, Y, X_utm, Y_utm, Z_bathy, Z_sample, depth_idx, sample_id,
-         location_id, qpcr_sample_ids, n_qpcr_sample_ids, lat, lon, datetime, cruise)
-N <- nrow(samples)
-
-# ---- qPCR (hake): one entry per replicate row of hake_qPCR_MURI_df.csv ------
-qpcr_sample_idx <- match(q$location_id, samples$location_id)
-stopifnot(!anyNA(qpcr_sample_idx), all(q$detected == as.integer(!is.na(q$hake_copies_ul))))
-
-# ---- metabarcoding: wide reads per PCR replicate -----------------------------
+# ---- metabarcoding columns: <run>-<marker>-<project>-<sample>-d<fold>-<rep>[-sr<k>][_S<n>]
+m3 <- fread(raw("M3_compiled_taxon_table_wide.csv"))
+RE <- "^([A-Za-z0-9]+)-([A-Za-z0-9]+)-(\\d+)-(\\d+)-d(\\d+)-(\\d+)(-sr\\d+)?(_S\\d+)?$"
+stopifnot(all(grepl(RE, names(m3)[-(1:2)])))
+mbcol <- data.table(col = names(m3)[-(1:2)])
+mbcol[, `:=`(run = sub(RE, "\\1", col), marker = sub(RE, "\\2", col),
+             sampleID = paste(sub(RE, "\\3", col), sub(RE, "\\4", col), sep = "-"),
+             fold = as.integer(sub(RE, "\\5", col)), rep = as.integer(sub(RE, "\\6", col)))]
+mbcol <- mbcol[marker == MB_MARKER]
+tax <- m3$BestTaxon
 SP_TARGET <- c(hake = "Merluccius productus", humpback = "Megaptera novaeangliae",
                pwsd = "Lagenorhynchus obliquidens")
-mbrep <- unique(mb[, .(pcr_replicate_id, location_id, Dilution, Rep)])[order(pcr_replicate_id)]
-tot   <- mb[, .(total = sum(Nreads)), by = pcr_replicate_id]
-tgt   <- dcast(mb[species %in% SP_TARGET], pcr_replicate_id ~ species, value.var = "Nreads", fill = 0L)
-mbrep <- Reduce(function(a, b) merge(a, b, by = "pcr_replicate_id", all.x = TRUE),
-                list(mbrep, tot, tgt))
-mb_reads <- as.matrix(mbrep[, ..SP_TARGET]); colnames(mb_reads) <- names(SP_TARGET)
-mb_reads <- cbind(mb_reads, junk = mbrep$total - rowSums(mb_reads))
+stopifnot(all(SP_TARGET %in% tax), !anyDuplicated(tax))
+cnt <- as.matrix(m3[, mbcol$col, with = FALSE]); cnt[is.na(cnt)] <- 0
+rownames(cnt) <- tax
+mbcol[, `:=`(total = colSums(cnt), contam = colSums(cnt[tax %in% CONTAMINANTS, , drop = FALSE]))]
+
+# ---- bottles: metabarcoded samples, not controls, north of LAT_MIN ----------
+flow <- list(mb_samples = uniqueN(mbcol$sampleID))
+bot <- meta[sampleID %in% mbcol$sampleID & control == "no" & is.na(field.negative.type)]
+flow$not_control <- nrow(bot)
+bot[, etoh := !is.na(drop.sample) & grepl("EtOH", drop.sample)]
+flow$etoh <- sum(bot$etoh)
+if (ETOH == "drop") bot <- bot[etoh == FALSE]
+bot <- bot[lat >= LAT_MIN]
+flow$kept <- nrow(bot)
+
+# Target sampling depth (depth_cat, m) from the qPCR file, one per sample
+dcat <- unique(qs[, .(sid, depth_cat)])
+stopifnot(!anyDuplicated(dcat$sid), all(bot$sampleID %in% dcat$sid))
+bot[, depth_cat := dcat$depth_cat[match(sampleID, dcat$sid)]]
+DEPTH_LEVELS <- sort(unique(bot$depth_cat))
+
+stn_key <- paste(round(bot$lat, 5), round(bot$lon, 5))
+xy <- lonlat_to_model(bot$lon, bot$lat)
+samples <- tibble(
+  sample_id = seq_len(nrow(bot)), sampleID = bot$sampleID,
+  station = match(stn_key, unique(stn_key)), station_name = bot$station, niskin = bot$Niskin,
+  lat = bot$lat, lon = bot$lon) |>
+  bind_cols(xy) |>
+  # bottom depth: the metadata's bottom.depth.consensus (the lab's choice);
+  # ETOPO at the bottle kept for comparison (segments use ETOPO)
+  mutate(Z_bathy = bot$bottom.depth.consensus,
+         Z_bathy_etopo = bottom_depth(lon, lat),
+         # target sampling depth: an ordered category (m); the recorded depth is kept
+         Z_sample  = as.numeric(bot$depth_cat),
+         depth_cat = factor(bot$depth_cat, levels = DEPTH_LEVELS, ordered = TRUE),
+         depth_idx = as.integer(depth_cat),
+         depth_recorded = bot$depth,
+         location = match(paste(station, depth_cat), unique(paste(station, depth_cat))),
+         vol_filtered = bot$volume,                        # litres, per bottle
+         date = as.Date(bot$date, format = "%m/%d/%Y"),
+         etoh_wash = bot$etoh, cruise = "52193")   # project ID: the 2019 hake survey
+stopifnot(all(in_domain(samples$X, samples$Y)), !anyNA(samples$vol_filtered), !anyNA(samples$date))
+N <- nrow(samples)
+
+# ---- qPCR (hake): every analysis-A well of the kept bottles ------------------
+# Analysis A is cleaned upstream (no inhibited wells; one dilution per sample;
+# outliers dealt with), so all wells are used as given. Non-detects carry
+# Ct = -99 in the file.
+q <- qs[sid %in% samples$sampleID]
+stopifnot(all(q[, uniqueN(dilution), by = sid]$V1 == 1), all(q$Ct_bin %in% 0:1),
+          all(q$Ct[q$Ct_bin == 1] > 0))
+curves_f <- file.path(OUT_DIR, "qpcr_standard_curves.rds")
+if (!file.exists(curves_f)) stop("run R/fit_qpcr_standards.r first (writes ", curves_f, ")")
+sc <- readRDS(curves_f)
+stopifnot(all(q$qPCR %in% sc$curves$plate))
+q_plate <- match(q$qPCR, sc$curves$plate)
+shared  <- setNames(sc$shared$mean, sc$shared$variable)
+
+# ---- metabarcoding: per bottle, the dilution with the most reads ------------
+mb <- mbcol[sampleID %in% samples$sampleID & total - contam > 0]
+flow$mb_reps_with_reads <- nrow(mb)
+# the same sample x dilution x replicate sequenced twice: keep the larger run
+mb <- mb[order(-total)][!duplicated(mb[order(-total), .(sampleID, fold, rep)])]
+best <- mb[, .(reads = sum(total - contam)), by = .(sampleID, fold)][order(-reads)][!duplicated(sampleID)]
+flow$mb_bottles_several_dilutions <- sum(mb[, uniqueN(fold), by = sampleID]$V1 > 1)
+mb <- mb[best, on = .(sampleID, fold), nomatch = NULL][order(match(sampleID, samples$sampleID), rep)]
+flow$mb_reps_kept <- nrow(mb)
+# bottles whose metabarcoding replicates all had no reads keep their qPCR
+flow$bottles_without_mb <- sum(!samples$sampleID %in% mb$sampleID)
+mb_reads <- t(cnt[SP_TARGET, mb$col, drop = FALSE]); colnames(mb_reads) <- names(SP_TARGET)
+mb_reads <- cbind(mb_reads, junk = mb$total - mb$contam - rowSums(mb_reads))
 storage.mode(mb_reads) <- "integer"
-stopifnot(all(mb_reads >= 0L), all(rowSums(mb_reads) == mbrep$total))
-# Genus-level "Lagenorhynchus" reads stay in junk (see notes).
+stopifnot(all(mb_reads >= 0L), all(rowSums(mb_reads) == mb$total - mb$contam))
 
 edna <- list(
   meta = list(
@@ -155,40 +223,59 @@ edna <- list(
                   pwsd = "Lagenorhynchus_obliquidens"),
     sp_common = c("Pacific hake", "Humpback whale", "Pacific white-sided dolphin"),
     conv_factor  = c(hake = 10, humpback = 200, pwsd = 110, junk = 10),  # PLACEHOLDER (simulator)
-    vol_filtered = 2.5,    # PLACEHOLDER (simulator): litres; real volume not in the data
-    vol_aliquot  = 2,      # PLACEHOLDER (simulator): uL template; real value not in the data
-    vol_elution  = NA_real_,  # uL; model assumes 100
-    N = N, N_qpcr_long = nrow(q), N_mb_long = nrow(mbrep),
+    # The eDNA model (HSGP4eDNA v1.5) takes one filtered volume; per-bottle
+    # volumes are in design$samples$vol_filtered (2.5 L for almost every bottle).
+    vol_filtered = stats::median(samples$vol_filtered),
+    vol_aliquot  = 2,      # uL of template per qPCR reaction (qPCR vignette); the
+                           # metabarcoding template volume is assumed the same
+    vol_elution  = 100,    # uL, assumed (HSGP4eDNA's value); a constant, so it only
+                           # rescales conv_factor
+    N = N, N_qpcr_long = nrow(q), N_mb_long = nrow(mb),
     X_km_max = DOMAIN$X_km_max, Y_km_max = DOMAIN$Y_km_max, lat_min = LAT_MIN,
     utm_origin = c(E0 = E0, N0 = N0), utm_epsg = UTM_EPSG,
-    placeholders = c("conv_factor", "vol_filtered", "vol_aliquot",
-                     "truth$qpcr_params (all NA: no Ct / standard curve available)"),
-    ct_available = FALSE,
-    bathy_source = BATHY_SOURCE,
-    sample_depths = sample_depths
+    placeholders = c("conv_factor", "metabarcoding template volume (assumed 2 uL)",
+                     "elution volume (assumed 100 uL)"),
+    ct_available = TRUE,
+    qpcr_source = "qPCR_2019A.rds, hake, analysis A",
+    mb_source = sprintf("M3_compiled_taxon_table_wide.csv, marker %s; per bottle the dilution with the most reads", MB_MARKER),
+    mb_contaminants_dropped = CONTAMINANTS,
+    etoh = ETOH, flow = flow,
+    bathy_source = "Hake_2019_metadata.csv bottom.depth.consensus (ETOPO in Z_bathy_etopo)",
+    sample_depths = DEPTH_LEVELS, depth_levels = DEPTH_LEVELS
   ),
   design = list(samples = samples),
   observed = list(
-    qpcr_sample_idx = qpcr_sample_idx,
-    qpcr_detect     = as.integer(q$detected),
-    qpcr_ct         = rep(NA_real_, nrow(q)),     # Ct NOT available
-    mb_sample_idx   = match(mbrep$location_id, samples$location_id),
+    qpcr_sample_idx = match(q$sid, samples$sampleID),
+    qpcr_detect     = as.integer(q$Ct_bin),
+    qpcr_ct         = ifelse(q$Ct_bin == 1, q$Ct, NA_real_),
+    mb_sample_idx   = match(mb$sampleID, samples$sampleID),
     mb_reads        = mb_reads,
     mb_total        = as.integer(rowSums(mb_reads)),
-    # extras (ignored by the formatter): per-replicate provenance
-    qpcr_copies_ul = q$hake_copies_ul, qpcr_dilution = q$dilution,
-    qpcr_inhibition = q$inhibition_rate, qpcr_plate = q$qPCR, qpcr_sample_id = q$sample,
-    mb_pcr_replicate_id = mbrep$pcr_replicate_id, mb_dilution = mbrep$Dilution,
-    mb_rep = mbrep$Rep
+    # extras (not used by the v1.5 formatter): per-well and per-replicate detail
+    qpcr_plate = q$qPCR, qpcr_plate_idx = q_plate, qpcr_well = q$well,
+    qpcr_dilution = q$dilution, qpcr_log_dilution = log(q$dilution),   # fraction: 0.2 = 1:5
+    qpcr_inhibition = q$inhibition_rate, qpcr_ipc_ct = q$IPC_Ct, qpcr_copies_ul = q$copies_ul,
+    qpcr_alpha_ct = sc$curves$alpha_ct[q_plate], qpcr_beta_ct = sc$curves$beta_ct[q_plate],
+    mb_column = mb$col, mb_run = mb$run, mb_rep = mb$rep,
+    mb_dilution = mb$fold, mb_log_dilution = -log(mb$fold),             # fold: 5 = 1:5
+    mb_contaminant_reads = as.integer(mb$contam)
   ),
   truth = list(
     zsample_effect = matrix(1, N, 3, dimnames = list(NULL, names(SP_TARGET))),
-    qpcr_params = list(kappa = NA_real_, alpha_ct = NA_real_, beta_ct = NA_real_,
-                       gamma_0 = NA_real_, gamma_1 = NA_real_, sigma_0 = NA_real_),
+    # One curve for the v1.5 model: the mean over plates of the per-plate
+    # curves, with the shared noise and detection terms. Per-plate curves:
+    # qpcr_curves and observed$qpcr_alpha_ct / qpcr_beta_ct.
+    qpcr_params = list(alpha_ct = mean(sc$curves$alpha_ct), beta_ct = mean(sc$curves$beta_ct),
+                       kappa = shared[["kappa"]], gamma_0 = shared[["gamma0"]],
+                       gamma_1 = shared[["gamma1"]], sigma_0 = shared[["sigma0"]]),
+    qpcr_curves = sc$curves,
     bathy_spline = NULL
   )
 )
-stopifnot(!anyNA(edna$observed$mb_sample_idx))
+stopifnot(!anyNA(edna$observed$mb_sample_idx), !anyNA(edna$observed$qpcr_sample_idx))
+message(sprintf("eDNA: %d bottles (%d stations, depths %s m); %d qPCR wells on %d plates; %d metabarcoding replicates",
+                N, max(samples$station), paste(DEPTH_LEVELS, collapse = "/"), nrow(q),
+                length(unique(q$qPCR)), nrow(mb)))
 
 # =============================================================================
 # Visual
@@ -223,7 +310,7 @@ sg <- read.csv("data/sightings.csv", stringsAsFactors = FALSE) |>
   mutate(sp_code = suppressWarnings(as.integer(species_name)),
          t = as.POSIXct(datetime, tz = "UTC")) |>
   filter(sp_code %in% SPECIES_CODE)
-si <- read.csv("data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv", stringsAsFactors = FALSE) |>
+si <- read.csv(raw("SITEINFO_CCE_2018_Pp_Lo_Mn.csv"), stringsAsFactors = FALSE) |>
   transmute(sightno = snum, sp_code = species, pdist)
 stopifnot(!anyDuplicated(si[, c("sightno", "sp_code")]))
 

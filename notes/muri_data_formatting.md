@@ -222,3 +222,83 @@ humpback's mean group size from 1.70 to 1.69 and mean density by -0.8%; `beta_si
 beta_size 0.004, population mean group size 37.0 against a detected mean of 46.6, matching the
 37.4 mean of groups seen within 1 km). Cutting PWSD's group-size support from 1000 to 500 moves
 its mean group size by -1.3% and density by -0.5%.
+
+## eDNA from the lab files (2026-10-21)
+
+This supersedes the eDNA parts above (the summary table's eDNA rows, "Where each field comes
+from: eDNA" and answers 1-4), which describe the earlier `hake_qPCR_MURI_df.csv` /
+`MV1_MURI_df.csv` objects. The visual object is unchanged.
+
+**Inputs** (private, git-ignored; `RAW_DIR` points the loader at them):
+`qPCR_2019A.rds` (hake qPCR, analysis A: wells with Ct, standards, controls),
+`M3_compiled_taxon_table_wide.csv` (reads, taxa x replicate columns, six markers),
+`Hake_2019_metadata.csv` (per sample). `R/fit_qpcr_standards.r` must run before
+`R/01_load_muri.r`; it writes `data/processed/qpcr_standard_curves.rds`.
+
+**Choices** (Ole's answers are in `docs/dataQs.md`):
+- **Bottles** = MarVer1 samples that are not controls or field negatives, north of 35°N; matched
+  across files on sample number (qPCR `52193_282` = metadata / M3 `52193-282`). 569 bottles;
+  56 flagged `30EtOH` / `30EtOHpaired` are dropped (`ETOH=keep` keeps them, flagged in
+  `etoh_wash`); 513 kept, at 167 stations. 16 station x depth locations have two bottles.
+- **Depth**: `Z_sample` = `depth_cat` from analysis A (target depth: 0 169, 50 146, 150 65,
+  300 67, 500 66 bottles), also as an ordered factor `depth_cat` and `depth_idx`; recorded depth
+  kept as `depth_recorded` (recorded minus target: -36 to +3 m). `location` = station x
+  `depth_cat`.
+- **Bottom depth** (`Z_bathy`): the metadata's `bottom.depth.consensus`, as the lab recommends;
+  ETOPO 2022 at the bottle is kept as `Z_bathy_etopo`. Consensus minus ETOPO: median -7.6 m,
+  median absolute difference 13 m, 90% within 46 m, extremes -150 and +320 m (steep slope
+  stations). Visual segments still use ETOPO (there is no consensus value off the stations).
+  5 bottles have `Z_sample > Z_bathy`: all 500 m targets at stations 474-499 m deep, recorded
+  at 464-491 m, i.e. near-bottom samples.
+- **qPCR**: all analysis-A hake wells of these bottles, as provided (cleaned by the lab: one
+  dilution per sample, no inhibited wells, late Ct kept). 1,532 wells on 25 plates; 3 per bottle
+  for 458 bottles; detection rate 0.858; Ct 26.7-44.7; dilution 1 (1,139 wells) or 0.2 (393).
+  `qpcr_ct` is NA for non-detects.
+- **Standard curves**, one per plate: `stan/qpcr_standards.stan` (the vignette's multi-plate model
+  and priors: per-plate beta0, beta1 <= -1/ln 2; shared gamma0, gamma1, sigma0, kappa;
+  lambda = 2 uL x copies/uL) on the 659 hake standards with inhibition < 0.75 (106 dropped, all
+  10^5 standards among them), 33 plates, 26 non-detects. 4 x 1000 draws, no divergences,
+  max R-hat 1.003. alpha_ct 36.1-39.9, beta_ct 1.448-1.493 (efficiency 0.95-1.00), gamma0 0.26,
+  gamma1 -0.37, sigma0 0.14, kappa 0.90. Checks (`outputs/qpcr/checks.txt`): 97.0% of detected
+  standards inside their 95% predictive interval; detection at 1 copy/uL 0.865 observed vs 0.836
+  fitted. Each well carries its plate's posterior-mean curve (`qpcr_alpha_ct`, `qpcr_beta_ct`,
+  `qpcr_plate_idx`; `truth$qpcr_curves`); `truth$qpcr_params` holds the plate means
+  (alpha 37.6, beta 1.46) and the shared terms, for the current single-curve formatter.
+- **Metabarcoding**: MarVer1 columns of the M3 table (column names give sample, dilution fold,
+  replicate and run). Replicates with no reads after contaminant removal are dropped; where a
+  bottle was run at several folds (52 bottles), the fold with the most reads is kept (Ole's
+  rule); a duplicated sample x fold x replicate keeps the larger. 1,438 replicates (3 for 402
+  bottles); folds kept 1 (787), 5 (195), 10 (419), 19-100 (37). 7 bottles have no replicate with
+  reads and keep only their qPCR (`meta$flow$bottles_without_mb`). 136 replicates have < 1000 reads.
+- **Dilution offsets**: `qpcr_log_dilution` = log(fraction); `mb_log_dilution` = -log(fold).
+  Neither is used by the HSGP4eDNA v1.5 likelihood yet.
+- **Contamination**: *Gallus* (127,162 of 98.4 M MarVer1 reads) is removed from both the junk
+  column and the replicate total (`mb_contaminant_reads`); the list in the loader also has human,
+  cattle and pig, none present. Junk = total - contaminants - the three targets.
+- **Volumes, dates**: `vol_filtered` per bottle (2.5 L for 511; one 2.0, one 2.4); `meta$vol_filtered`
+  is the median, for the formatter. `date` 2019-07-02 to 2019-08-17. Template volume 2 uL for
+  qPCR (the vignette); the MarVer1 template volume is assumed the same (asked). Elution volume
+  100 uL, assumed: common to both assays, it only rescales `conv_factor`. `cruise` = "52193"
+  (project ID; one survey). `conv_factor` still the simulator placeholder.
+
+**Checks**: `R/02_check_muri.r` passes (formatter N 513, N_qpcr 1532, N_mb 1438; all bottles in
+the domain). Bottle-level agreement, hake qPCR detected vs metabarcoding reads present:
+both 392, qPCR only 82, metabarcoding only 5, neither 27.
+
+**Lab `copies_ul`** (kept as `qpcr_copies_ul`; not used by the model, which works from Ct). They
+are an exact per-plate log-linear function of Ct with shallower slopes than ours (3.13-3.39 Ct per
+log10 copy, about 105% efficiency, against our 3.33-3.41 with the doubling bound), as the
+vignette's tangent on machine-software curves would predict. So they run 11-40% below copies
+from our curves, the gap growing with Ct, and they are per uL of the template as run (not
+corrected for dilution: the 1:5 wells are not 5x higher). Not a question for the lab unless we
+start using them.
+
+**Negatives**: hake is detected in 73 of 114 evaporated-DI and 25 of 72 lab-DI field-negative
+wells (up to 12 and 10 copies/uL), 1 of 174 extraction controls and 0 of 3 purification
+negatives. Not used yet; a question for the lab.
+
+**Detection function, 35°N re-check**: the forward AIC selection on the kept effort (548 humpback,
+89 PWSD detections within w) reproduces the table above: humpback hazard-rate + group size
+(hazard-rate 17 AIC better than half-normal); PWSD half-normal + visibility (-6.8) + Beaufort
+(-1.9) + group size (-1.2). The PWSD set in use (group size + Beaufort, no visibility) is 9.7 AIC
+worse than that and 0.2 better than no covariates.

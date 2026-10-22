@@ -211,6 +211,11 @@ bottom-depth spline, in animals/km². Two observation models share it:
   zero-inflated beta-binomial metabarcoding for all species, and the
   between-bottle and junk noise terms. The metabarcoding assumes equal
   amplification efficiency across species (ROADMAP_2026-10-21, section 5).
+  HSGP4eDNA v1.6–v1.7 are in progress (its `ROADMAP.md`): a data-based
+  starting field in its drivers, junk redrawn for each aliquot in the
+  simulators, and an optional mechanistic metabarcoding overdispersion with
+  amplification efficiencies and per-replicate dilutions. They reach this
+  repo at the next submodule bump (ROADMAP_2026-10-21, section 3).
 - **Visual:** the line-transect model for humpback and PWSD. Its half-normal
   or hazard-rate key and per-species truncation carry through, and the
   Beaufort sea-state covariate on detection can be switched on per species

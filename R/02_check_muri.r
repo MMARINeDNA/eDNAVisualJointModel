@@ -81,10 +81,10 @@ cat("sightings n =", sum(ok), " cor(mine, BATH$ETOPO1) =", round(cor(bath$mine[o
 
 hdr("perpendicular distance (km) by species, before truncation")
 sg2 <- sg |> mutate(sp = suppressWarnings(as.integer(species_name)))
-si <- read.csv("data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv")
-for (nm in c(humpback = 76, pwsd = 22)) {
-  d <- si$pdist[si$species == nm]
-  cat(names(nm), "n =", length(d), " quantiles(50/80/90/95/99/100) =",
+si <- read.csv(file.path(Sys.getenv("RAW_DIR", "data"), "SITEINFO_CCE_2018_Pp_Lo_Mn.csv"))
+for (sp in c("humpback", "pwsd")) {
+  d <- si$pdist[si$species == c(humpback = 76, pwsd = 22)[[sp]]]
+  cat(sp, "n =", length(d), " quantiles(50/80/90/95/99/100) =",
       paste(round(quantile(d, c(.5, .8, .9, .95, .99, 1)), 2), collapse = " / "),
       "| share > 5 km:", round(mean(d > 5), 3), "\n")
 }
@@ -111,8 +111,17 @@ cat("sighting dates:", format(range(c(vis$observed$humpback$obs$datetime,
                                       vis$observed$pwsd$obs$datetime))), "\n")
 
 hdr("eDNA details")
-print(table(Z_sample = sam$Z_sample))
-cat("bottles with >1 qPCR sample id:", sum(sam$n_qpcr_sample_ids > 1), "\n")
+print(table(depth_cat = sam$depth_cat))
+cat("recorded minus target depth (m):", paste(round(range(sam$depth_recorded - sam$Z_sample, na.rm = TRUE)), collapse = ".."), "\n")
+cat("bottles per location:"); print(table(table(sam$location)))
+cat("vol_filtered (L):"); print(table(sam$vol_filtered))
+cat("dates:", format(range(sam$date)), " | 30EtOH bottles kept:", sum(sam$etoh_wash), "\n")
+cat("sample flow:\n"); str(edna$meta$flow)
+cat(sprintf("qPCR plates %d | per-plate alpha_ct %.2f..%.2f, beta_ct %.3f..%.3f\n",
+            n_distinct(ob$qpcr_plate), min(ob$qpcr_alpha_ct), max(ob$qpcr_alpha_ct),
+            min(ob$qpcr_beta_ct), max(ob$qpcr_beta_ct)))
+stopifnot(all(is.finite(ob$qpcr_log_dilution)), all(is.finite(ob$mb_log_dilution)),
+          all(ob$mb_total >= rowSums(ob$mb_reads[, setdiff(colnames(ob$mb_reads), "junk"), drop = FALSE])))
 print(table(qpcr_dilution = ob$qpcr_dilution))
 print(table(mb_dilution = ob$mb_dilution))
 print(table(reps_per_bottle_qpcr = table(ob$qpcr_sample_idx)))
