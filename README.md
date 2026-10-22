@@ -210,7 +210,8 @@ bottom-depth spline, in animals/km². Two observation models share it:
 - **eDNA:** HSGP4eDNA's v1.5 model, run unchanged. It has qPCR for hake,
   zero-inflated beta-binomial metabarcoding for all species, and the
   between-bottle and junk noise terms. The metabarcoding assumes equal
-  amplification efficiency across species (ROADMAP_2026-10-21, section 5).
+  amplification efficiency across species, which holds for MarVer1 and
+  these three species (ROADMAP_2026-10-21, section 5).
   HSGP4eDNA v1.6–v1.7 are in progress (its `ROADMAP.md`): a data-based
   starting field in its drivers, junk redrawn for each aliquot in the
   simulators, and an optional mechanistic metabarcoding overdispersion with
@@ -306,7 +307,8 @@ the true field is 0.92–0.96 throughout.
   5.30 [5.05, 5.53] (truth 5.30), PWSD 4.77 [4.45, 5.08] (truth 4.70). eDNA
   alone cannot identify them, because only density × conversion enters its
   likelihood. They assume equal amplification efficiency across species in
-  the metabarcoding (ROADMAP_2026-10-21, section 5).
+  the metabarcoding, which holds for MarVer1 and these three species
+  (ROADMAP_2026-10-21, section 5).
 - **Convergence.** 0 divergences in every fit; max Rhat 1.007 (visual), 1.019
   (joint), 1.06 (conversion free) and 1.11 for eDNA-only, on θ_bottle, the
   slowly mixing noise term.
