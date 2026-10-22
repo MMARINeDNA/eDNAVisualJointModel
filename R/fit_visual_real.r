@@ -11,7 +11,9 @@
 #   SPECIES=pwsd Rscript R/fit_visual_real.r
 # Env: SPECIES (humpback | pwsd), M_MAX (basis budget; GP_BASIS_BUDGET = 800),
 #      CHAINS, WARMUP, SAMPLE (4 x 1000/1000), ADAPT_DELTA (0.9), TREEDEPTH (12),
-#      TAG (output name; default "m<M_MAX>"), OUT (outputs/visual/real)
+#      USE_BFT, USE_VIS, USE_NB (0/1: override the stored setting, for
+#      comparisons), TAG (output name; default "m<M_MAX>" plus the
+#      overrides, e.g. "m800_vis0"), OUT (outputs/visual/real)
 # Out: <OUT>/<species>_<TAG>.rds
 # =============================================================================
 
@@ -20,12 +22,17 @@ source("R/fit_visual.r")
 env_int <- function(k, d) as.integer(Sys.getenv(k, d))
 sp    <- Sys.getenv("SPECIES", "humpback")
 M_MAX <- env_int("M_MAX", as.character(GP_BASIS_BUDGET))
-TAG   <- Sys.getenv("TAG", sprintf("m%d", M_MAX))
+ovr <- Filter(nzchar, c(bft = Sys.getenv("USE_BFT"), vis = Sys.getenv("USE_VIS"), nb = Sys.getenv("USE_NB")))
+TAG <- Sys.getenv("TAG", paste0(sprintf("m%d", M_MAX), paste0("_", names(ovr), ovr, collapse = "")[length(ovr) > 0]))
 OUT   <- Sys.getenv("OUT", "outputs/visual/real")
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 
 vis <- readRDS("data/processed/muri_visual.rds")
-sd  <- format_stan_data_visual(vis, sp, M_max = M_MAX)
+args <- list(vis, sp, M_max = M_MAX)
+if (!is.na(ovr["bft"])) args$use_bft <- ovr[["bft"]] == "1"
+if (!is.na(ovr["vis"])) args$use_vis <- ovr[["vis"]] == "1"
+if (!is.na(ovr["nb"]))  args$use_nb  <- as.integer(ovr[["nb"]])
+sd  <- do.call(format_stan_data_visual, args)
 cat(sprintf("%s: n = %d, n_seg = %d, w = %.2f, det_key = %d, use_bft = %d, use_vis = %d, use_nb = %d, cells = %d, M = %d\n",
             sp, sd$n, sd$n_seg, sd$w, sd$det_key, sd$use_bft_covar, sd$use_vis_covar, sd$use_nb,
             sd$n_bft, sd$M))
