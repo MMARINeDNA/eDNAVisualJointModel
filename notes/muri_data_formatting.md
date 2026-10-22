@@ -303,3 +303,28 @@ negatives. Not used yet; a question for the lab.
 (-1.9) + group size (-1.2). The PWSD set in use (group size + Beaufort, no visibility) is 9.7 AIC
 worse than that and 0.2 better than no covariates. Decision (2026-10-21): add visibility to the visual
 model and use the AIC set for PWSD (ROADMAP_2026-10-21, section 5 item 5).
+
+## Visual effort and covariates (2026-10-22)
+
+- **Beaufort ≤ 5.** Segments with mean Beaufort above 5 are dropped (`BFT_MAX`
+  in `R/01_load_muri.r`): 24 of 1,641 segments (120 of 7,561 km) and 1
+  humpback sighting (`sight_flow$n_bft_above_max`); 1,617 segments and
+  7,441 km remain. The domain is built from all effort north of 35°N
+  before this filter, so it and the eDNA object are unchanged. Humpback's
+  truncation distance moves from 6.454 to 6.461 km (547 detections within
+  it); PWSD is unchanged (4.644 km, 89). Effort by Beaufort (rounded segment
+  mean, before the cut): 0: 146 km, 1: 622, 2: 886, 3: 1,749, 4: 2,174,
+  5: 1,896, 6: 88.
+- **Visibility** (`avgvis`, segment mean; `vis` in the segments): the
+  observers' estimate of the distance in **nautical miles** at which a
+  dolphin could be seen surfacing against the water (SWFSC DAS format,
+  "DasAll Events and Associated Data Fields", updated 2020 by J. Carretta,
+  weather event "W" field 5; bundled with the swfscDAS R package as
+  `inst/DAS_Format.pdf`). The OBIS-SEAMAP metadata only call it "a measure
+  of air/atmospheric clarity", range 0.5–7.5. Recorded in about 0.5 nmi
+  steps; segments range 1–7.5 nmi (1.9–13.9 km), median 6 nmi. The model
+  treats it as a continuous covariate on log σ (per nmi). Visibility below
+  the truncation distance (where it could cut detection off, not only scale
+  it) is limited: 660 km of the 7,441 km for humpback (below 6.46 km = 3.5 nmi)
+  and 59 km for PWSD (below 4.64 km = 2.5 nmi).
+
