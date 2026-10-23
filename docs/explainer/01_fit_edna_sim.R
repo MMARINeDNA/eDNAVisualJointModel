@@ -18,8 +18,8 @@ cat(sprintf("N=%d S=%d M=%d (%dx%d) K=%d N_qpcr=%d N_mb=%d\n", sd$N, S, Mtot, sd
             sd$m_hsgp[2], K, sd$N_qpcr_long, sd$N_mb_long))
 saveRDS(sd, file.path(EXPL_OUT, "edna_sim_standata.rds"))
 
-mod <- cmdstan_model(file.path(HSGP4EDNA_DIR, "stan/hsgp_2d_bathysp.stan"),
-                     include_paths = file.path(HSGP4EDNA_DIR, "stan/include"))
+mod <- edna_model(file.path(HSGP4EDNA_DIR, "stan/hsgp_2d_bathysp.stan"),   # recompiles when includes change
+                  file.path(HSGP4EDNA_DIR, "stan/include"))
 init_fn <- function() c(list(mu_sp = c(runif(S, 1.8, 2.0), runif(1, 4.0, 4.1)),
   gp_sigma = runif(S, 0.8, 1.2), gp_l_raw = matrix(runif(S * D1, 0.2, 0.4), S, D1, byrow = TRUE),
   z_beta = matrix(0, S, Mtot), beta_bathy = matrix(0, S, K),

@@ -207,16 +207,16 @@ fit_joint(sim, "joint", conv_free = c("humpback", "pwsd"))   # estimate conversi
 `stan/hsgp_joint.stan` gives each species one field: a 2-D HSGP plus a
 bottom-depth spline, in animals/km². Two observation models share it:
 
-- **eDNA:** HSGP4eDNA's v1.5 model, run unchanged. It has qPCR for hake,
-  zero-inflated beta-binomial metabarcoding for all species, and the
-  between-bottle and junk noise terms. The metabarcoding assumes equal
-  amplification efficiency across species, which holds for MarVer1 and
-  these three species (ROADMAP_2026-10-21, section 5).
-  HSGP4eDNA v1.6–v1.7 are in progress (its `ROADMAP.md`): a data-based
-  starting field in its drivers, junk redrawn for each aliquot in the
-  simulators, and an optional mechanistic metabarcoding overdispersion with
-  amplification efficiencies and per-replicate dilutions. They reach this
-  repo at the next submodule bump (ROADMAP_2026-10-21, section 3).
+- **eDNA:** HSGP4eDNA's eDNA observation model (the submodule is at v1.12):
+  qPCR for hake, zero-inflated beta-binomial metabarcoding for all species,
+  and the between-bottle and junk noise terms. The metabarcoding assumes
+  equal amplification efficiency across species, which holds for MarVer1 and
+  these three species (ROADMAP_2026-10-21, section 5). HSGP4eDNA's own model
+  now also has dilution offsets, filtered volume per bottle, qPCR standard
+  curves estimated from the standards, a sampling-depth smooth, a bounded
+  Ct-noise SD and an optional mechanistic metabarcoding overdispersion;
+  these are still to be ported into the joint model (ROADMAP_2026-10-21,
+  section 3 item 3).
 - **Visual:** the line-transect model for humpback and PWSD. Its half-normal
   or hazard-rate key and per-species truncation carry through, and the
   Beaufort sea-state covariate on detection can be switched on per species
