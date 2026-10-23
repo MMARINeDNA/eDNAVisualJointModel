@@ -31,8 +31,10 @@ Detection: hazard-rate shape b = 0.97, p_det = 0.44, mean group size 1.69,
 | NB + visibility, 1600 | 1581 | 30 × 46 | 29 × 69 | both | 0.106 [0.076, 0.149] | 0.17 [0.08, 0.26] | −0.16 [−0.29, −0.04] | 1.7 [0.6, 27] |
 
 Budget 800 with visibility: 138 min (105 detection-condition cells against
-13 Beaufort levels), 1 divergence, max R-hat 1.002; without visibility (same
-settings otherwise, 4 × 1000/1000): 47 min, 1 divergence, max R-hat 1.002. Budget 1600: 139 min, no
+13 Beaufort levels; this run shared the machine with the smoke test and the
+humpback budget-1600 fit, so its time is inflated), 1 divergence, max R-hat
+1.002; without visibility (same settings otherwise, 4 × 1000/1000): 47 min, 1
+divergence, max R-hat 1.002. Budget 1600: 139 min, no
 divergences, max R-hat 1.003. Mean group size 37.7, p_det 0.49.
 
 ## What this shows
@@ -46,9 +48,10 @@ divergences, max R-hat 1.003. Mean group size 37.7, p_det 0.49.
   in the southern third of the domain (mean segment visibility 5.1) and 1.03
   in the middle and northern thirds (5.9, 6.0); its correlation with segment
   visibility is −0.62. The two surfaces still correlate at 0.999, so the
-  effect is a modest south-north tilt, not a different map. The cost is
-  run time: 105 detection-condition cells instead of 13 make the fit about
-  3 times slower (138 against 47 min).
+  effect is a modest south-north tilt, not a different map. The cost in run
+  time is small: the Beaufort ≤ 5 re-run with visibility (102 cells) took
+  55 min against 47 min without it (the earlier 138 min was a run sharing the
+  machine).
 - **The length-scales follow the basis floor.** Doubling the budget lowers
   the floor from 42 × 65 to 30 × 46 km, and humpback's posterior follows it
   on both axes (35 × 50 → 23 × 32 km), as on the old domain. PWSD's
@@ -72,3 +75,17 @@ stable. A finer basis would cost roughly in proportion (humpback 68 min at
 
 **Decision (2026-10-22):** keep the 800 budget; the floor flag is reported as
 a resolution limit of the basis (ROADMAP_2026-10-21, section 6).
+
+## Re-run on the Beaufort ≤ 5 effort (2026-10-22)
+
+1617 segments, budget 800 (770 functions; floor 42 × 67 km), 4 × 1000/1000,
+stored settings (`outputs/visual/real/*_bft5_m800.rds`):
+
+| Species | Detections | Length-scales (km) | Mean density (/km², 90%) | Effects (90%) | φ (90%) | Run time |
+|---|---|---|---|---|---|---|
+| humpback (NB) | 547 | 36 × 51 | 0.0231 [0.019, 0.029] | β_size 0.03 [−0.05, 0.10]; b = 0.98 | 2.8 [1.7, 5.2] | 27 min |
+| PWSD (NB + Beaufort + visibility, 102 cells) | 89 | 46 × 78 | 0.108 [0.078, 0.153] | β_vis 0.17 [0.09, 0.27]; β_bft −0.16 [−0.29, −0.04] | 1.0 [0.45, 4.5] | 55 min |
+
+No divergences; max R-hat 1.003; both flag the floor, as before. The
+Beaufort cut changes the estimates by about 1% or less.
+
