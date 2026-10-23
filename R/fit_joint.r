@@ -27,7 +27,7 @@ options(cmdstanr_warn_inits = FALSE)   # zero-size parameters are left out of in
 JOINT_STAN    <- "stan/hsgp_joint.stan"
 JOINT_INCLUDE <- c("stan/include", file.path(HSGP4EDNA_DIR, "stan", "include"))
 
-compile_joint <- function(...) cmdstan_model(JOINT_STAN, include_paths = JOINT_INCLUDE, ...)
+compile_joint <- function(...) stan_model_fresh(JOINT_STAN, JOINT_INCLUDE, ...)
 
 # -----------------------------------------------------------------------------
 # Data-based starting field for the eDNA stations.

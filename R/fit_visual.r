@@ -26,9 +26,7 @@ source("R/functions_visual.R")
 VISUAL_STAN    <- "stan/hsgp_visual.stan"
 VISUAL_INCLUDE <- c("stan/include", file.path(HSGP4EDNA_DIR, "stan", "include"))
 
-compile_visual <- function(...) {
-  cmdstan_model(VISUAL_STAN, include_paths = VISUAL_INCLUDE, ...)
-}
+compile_visual <- function(...) stan_model_fresh(VISUAL_STAN, VISUAL_INCLUDE, ...)
 
 visual_init <- function(sd) {
   M <- sd$M; G <- sd$use_gp

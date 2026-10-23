@@ -25,6 +25,18 @@
 # =============================================================================
 
 HSGP4EDNA_DIR <- "external/HSGP4eDNA"
+
+# cmdstan_model() that also recompiles when an included file is newer than the
+# executable (cmdstanr only watches the main .stan file, so a submodule bump or
+# an edit to stan/include/ would otherwise keep running the old functions; as
+# HSGP4eDNA's edna_model()).
+stan_model_fresh <- function(file, include_paths, ...) {
+  exe   <- sub("\\.stan$", "", file)
+  incs  <- unlist(lapply(include_paths, list.files, pattern = "\\.stan$", full.names = TRUE))
+  stale <- file.exists(exe) && any(file.mtime(incs) > file.mtime(exe))
+  cmdstanr::cmdstan_model(file, include_paths = include_paths, force_recompile = stale, ...)
+}
+
 source(file.path(HSGP4EDNA_DIR, "R", "functions.R"))   # default_gp_params(),
                                                        # hsgp_basis_rule(),
                                                        # bathy_spline_basis(),

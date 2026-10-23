@@ -118,7 +118,7 @@ each species' eDNA concentration peaks at a different depth.
 
 | Piece | Where |
 |---|---|
-| eDNA model, HSGP functions, eDNA simulators | `external/HSGP4eDNA` (submodule, v1.5, `fe551de`; HSGP4eDNA's own main has since reached v1.9, not yet adopted here) |
+| eDNA model, HSGP functions, eDNA simulators | `external/HSGP4eDNA` (submodule, v1.12, `5515a04`, from 2026-10-23; the eDNA results in this document were made with v1.3 to v1.5) |
 | Visual model | `stan/hsgp_visual.stan`, `stan/include/visual_functions.stan` |
 | Visual and joint simulators | `R/functions_visual.R`, `R/functions_joint.R` |
 | Joint model | `stan/hsgp_joint.stan`, `R/fit_joint.r`, `R/compare_joint.r` |
@@ -1012,7 +1012,9 @@ Each species has **one** latent field, a 2-D HSGP plus a bottom-depth spline in
 animals per km², exactly as in the single-source models. Two observation models
 share it:
 
-- **eDNA:** HSGP4eDNA's v1.5 model, run unchanged: qPCR for hake, zero-inflated
+- **eDNA:** HSGP4eDNA's eDNA model (v1.5 for the results here; its v1.8–v1.12
+  features, such as dilution offsets and estimated qPCR curves, are still to be
+  ported into the joint model): qPCR for hake, zero-inflated
   beta-binomial metabarcoding for all species, and the between-bottle and junk
   noise terms.
 - **Visual:** the line-transect model for humpback and PWSD, with the detection

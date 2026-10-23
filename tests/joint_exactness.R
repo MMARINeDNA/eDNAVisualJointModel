@@ -17,8 +17,9 @@
 #      model's field priors and coordinates.
 #
 #   Rscript tests/joint_exactness.R
-# Env: BASE_REF (git ref of the joint model before the NB option; default
-#      origin/main), N_POINTS (default 10), TOL (default 1e-8)
+# Env: BASE_REF (git ref of the joint model before the NB and visibility
+#      options; default 0a60f03, the commit before that work), N_POINTS
+#      (default 10), TOL (default 1e-8)
 # Exit status non-zero on failure. Models are compiled in a temporary directory.
 # =============================================================================
 
@@ -27,7 +28,7 @@ source("R/fit_joint.r")
 source("R/fit_visual.r")
 options(cmdstanr_warn_inits = FALSE)
 
-BASE_REF <- Sys.getenv("BASE_REF", "origin/main")
+BASE_REF <- Sys.getenv("BASE_REF", "0a60f03")
 N_POINTS <- as.integer(Sys.getenv("N_POINTS", "10"))
 TOL      <- as.numeric(Sys.getenv("TOL", "1e-8"))
 
