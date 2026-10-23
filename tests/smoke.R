@@ -233,7 +233,10 @@ source("R/fit_joint.r")
 jt <- NULL
 mins <- timed(jt <- tryCatch({
   jsm <- simulate_joint(seed = 2L, n_stations = 120L, n_transects = 12L, gp_params = gp_smoke)
-  fit_joint(jsm, "joint", chains = 2L, warmup = 250L, sample = 250L, M_max = 64L)
+  # adapt_delta 0.9: with HSGP4eDNA v1.12's simulator and wider GP SD prior these
+  # short fits had an occasional divergence at the default 0.85 (2 of 4 seeds)
+  fit_joint(jsm, "joint", chains = 2L, warmup = 250L, sample = 250L, M_max = 64L,
+            adapt_delta = 0.9)
 }, error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
 cat(sprintf("  %.1f min\n", mins))
 check("joint", "ran", !is.null(jt), if (is.null(jt)) "error" else "ok")
@@ -258,7 +261,7 @@ mins <- timed(jb <- tryCatch({
   jsb <- simulate_joint(seed = 2L, n_stations = 120L, n_transects = 12L, gp_params = gp_smoke,
                         sea_state = TRUE)
   fit_joint(jsb, "joint", chains = 2L, warmup = 250L, sample = 250L, M_max = 64L,
-            bft_species = "humpback")
+            bft_species = "humpback", adapt_delta = 0.9)
 }, error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
 cat(sprintf("  %.1f min\n", mins))
 check("joint_bft", "ran", !is.null(jb), if (is.null(jb)) "error" else "ok")
