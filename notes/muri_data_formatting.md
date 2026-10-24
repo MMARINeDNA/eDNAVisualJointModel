@@ -343,3 +343,16 @@ model and use the AIC set for PWSD (ROADMAP_2026-10-21, section 5 item 5).
   it) is limited: 660 km of the 7,441 km for humpback (below 6.46 km = 3.5 nmi)
   and 59 km for PWSD (below 4.64 km = 2.5 nmi).
 
+## qPCR standards in the eDNA object (2026-10-23)
+
+For the qPCR curves estimated in the joint model (HSGP4eDNA v1.9, ported into
+`stan/hsgp_joint.stan`; `format_stan_data_joint(qpcr_curve = "estimated")`),
+the loader adds the hake standards to `observed`: `qpcr_std_plate_idx`,
+`qpcr_std_detect`, `qpcr_std_ct` (NA if not detected) and `qpcr_std_copies_ul`.
+They are the 659 wells `R/fit_qpcr_standards.r` uses (inhibition below 0.75;
+633 detected), indexed on the same plate list as the field wells'
+`qpcr_plate_idx` (all 33 plates, `truth$qpcr_curves$plate`). HSGP4eDNA's
+formatter turns them into `std_log_copies = log(2 uL x copies per uL)`. With the
+depth smooth (`zdepth = "smooth"`), the five target depths get a 3-df natural
+spline anchored at the surface.
+

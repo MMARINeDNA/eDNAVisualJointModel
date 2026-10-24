@@ -211,12 +211,16 @@ bottom-depth spline, in animals/km². Two observation models share it:
   qPCR for hake, zero-inflated beta-binomial metabarcoding for all species,
   and the between-bottle and junk noise terms. The metabarcoding assumes
   equal amplification efficiency across species, which holds for MarVer1 and
-  these three species (ROADMAP_2026-10-21, section 5). HSGP4eDNA's own model
-  now also has dilution offsets, filtered volume per bottle, qPCR standard
-  curves estimated from the standards, a sampling-depth smooth, a bounded
-  Ct-noise SD and an optional mechanistic metabarcoding overdispersion;
-  these are still to be ported into the joint model (ROADMAP_2026-10-21,
-  section 3 item 3).
+  these three species (ROADMAP_2026-10-21, section 5). Ported from
+  HSGP4eDNA v1.8–v1.12, each off by default and exact when off: dilution
+  offsets for both assays and filtered volume per bottle (used whenever the
+  eDNA object carries them), per-plate qPCR standard curves estimated from
+  the standards (`qpcr_curve = "estimated"`), a per-species sampling-depth
+  smooth (`zdepth = "smooth"`) and the bounded Ct-noise SD
+  (`ct_sd = "conditional"`), all `format_stan_data_joint()` arguments. With
+  the visual likelihood off and these on, the joint model equals
+  HSGP4eDNA's own model (`tests/joint_exactness.R`). Not ported: the
+  experimental mechanistic metabarcoding overdispersion.
 - **Visual:** the line-transect model for humpback and PWSD. Its half-normal
   or hazard-rate key and per-species truncation carry through, and the
   Beaufort sea-state covariate on detection can be switched on per species

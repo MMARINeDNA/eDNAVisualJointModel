@@ -7,12 +7,20 @@
 //   log lambda_s(x) = mu_s + f_s(X, Y) + B(Z_bathy) . beta_s       animals / km^2
 //   f_s ~ GP(0, K_SE(lx_s, ly_s)), 2-D HSGP over (X, Y) normalised by the DOMAIN
 //
-// eDNA (all S species + junk; HSGP4eDNA v1.5 gp2d_bathysp, unchanged):
+// eDNA (all S species + junk; HSGP4eDNA v1.12 gp2d_bathysp's observation model,
+// without the mechanistic phi):
 //   log lambda_edna_is = log lambda_s(x_i) + log_zsample_effect_is
-//                        + log_conv_s + log_vol_filtered + log g_is
+//                        + B_zdepth_i . beta_zdepth_s   (sampling-depth smooth)
+//                        + log_conv_s + log_vol_bottle_i + log g_is
 //   -> qPCR hurdle (species 1) + zero-inflated beta-binomial metabarcoding,
 //      g_is between-bottle noise (one shared theta), g_i,junk junk noise
-//      (own theta_junk)
+//      (own theta_junk). Each qPCR well and metabarcoding replicate adds its
+//      log dilution to the aliquot fraction. The qPCR standard curve is fixed
+//      (qpcr_curve_model = 0) or, per plate, estimated jointly from the
+//      standards and the field wells (qpcr_curve_model = 1).
+//   With no dilutions, every bottle at log_vol_filtered, the fixed curve,
+//   ct_sd_cond = 0 and K_zdepth = 0 this is the eDNA model of HSGP4eDNA v1.5
+//   exactly (tests/joint_exactness.R).
 //
 // Visual (the L line-transect species, lt_species_idx maps them into 1..S;
 // the hsgp_visual.stan observation model):
@@ -100,6 +108,41 @@ data {
   real prior_gamma0_phi_mu;  real<lower=0> prior_gamma0_phi_sig;
   real prior_gamma1_phi_mu;  real<lower=0> prior_gamma1_phi_sig;
 
+  // Per-well qPCR dilution, per-replicate metabarcoding dilution and filtered
+  // volume per bottle (HSGP4eDNA v1.8): log offsets on the aliquot copies
+  vector[N_qpcr_long] qpcr_log_dilution;  // log fraction of template (0 = undiluted)
+  vector[N_mb_long] mb_log_dilution;      // -log fold (0 = undiluted)
+  vector[N] log_vol_bottle;               // log litres filtered per bottle
+
+  // qPCR standard curves estimated in the model (HSGP4eDNA v1.9).
+  // qpcr_curve_model = 0: the fixed curve above. 1: intercept and slope per
+  // plate (slope >= beta_ct_min), Ct-noise terms and detection rate shared,
+  // from the standards and the field wells.
+  int<lower=0, upper=1> qpcr_curve_model;
+  int<lower=1> N_plate;
+  array[N_qpcr_long] int<lower=1, upper=N_plate> qpcr_plate_idx;
+  int<lower=0> N_std;
+  array[N_std] int<lower=1, upper=N_plate> std_plate_idx;
+  array[N_std] int<lower=0, upper=1> std_detect;
+  vector[N_std] std_ct;                   // 0 if not detected
+  vector[N_std] std_log_copies;           // log(template uL x copies per uL)
+  vector[2] prior_alpha_ct;
+  vector[2] prior_beta_ct;
+  real<lower=0> beta_ct_min;              // 1 / log(2)
+  vector[2] prior_gamma0_ct;
+  vector[2] prior_gamma1_ct;
+  real<lower=0> prior_sigma0_ct_sig;
+  vector[2] prior_logit_kappa;
+  // Ct-noise SD at very low copies (HSGP4eDNA v1.12): 0 = at the expected
+  // copies; 1 = at the expected copies given detection, bounded by one copy
+  int<lower=0, upper=1> ct_sd_cond;
+
+  // Sampling depth as a per-species smooth on the eDNA copies (HSGP4eDNA
+  // v1.10; K_zdepth = 0: none)
+  int<lower=0> K_zdepth;
+  matrix[N, K_zdepth] B_zdepth;
+  real<lower=0> prior_beta_zdepth_sig;
+
   // Between-bottle and junk noise (HSGP4eDNA v1.5 semantics)
   int<lower=0, upper=1> use_bottle_noise;
   int<lower=1, upper=2> bottle_noise_dist;   // 1 gamma (exact NB), 2 lognormal
@@ -175,6 +218,10 @@ transformed data {
   matrix[n_seg, M] PHI_seg = hsgp_phi(L_hsgp, INDICES, seg_coords);
   int n_cv = use_bottle_noise * (bottle_theta_shared == 1 ? 1 : S);
   real log_vol_frac = log(vol_aliquot / 100.0);
+  // Per-replicate log offsets on the aliquot copies: the aliquot's fraction of
+  // the extract plus its dilution
+  vector[N_qpcr_long] qpcr_log_offset = log_vol_frac + qpcr_log_dilution;
+  vector[N_mb_long] mb_log_offset = log_vol_frac + mb_log_dilution;
   array[L] int det_start;
   {
     int pos = 1;
@@ -241,6 +288,14 @@ parameters {
   vector[N * use_junk_noise] g_junk_raw;
   vector<lower=0>[use_junk_noise] cv_junk;
   vector[n_conv_free] log_conv_free;
+  // qPCR standard curves (qpcr_curve_model = 1)
+  vector[N_plate * qpcr_curve_model] alpha_ct_plate;
+  vector<lower=beta_ct_min>[N_plate * qpcr_curve_model] beta_ct_plate;
+  vector[qpcr_curve_model] gamma0_ct_est;
+  vector[qpcr_curve_model] gamma1_ct_est;
+  vector<lower=0>[qpcr_curve_model] sigma0_ct_est;
+  vector[qpcr_curve_model] logit_kappa_est;
+  matrix[S, K_zdepth] beta_zdepth;         // sampling-depth spline coefficients
 
   // Visual observation model, per line-transect species
   vector[L] log_sigma;
@@ -270,12 +325,13 @@ transformed parameters {
   matrix[N, S + 1] log_lambda_edna;
   for (s in 1:S) {
     log_lambda_edna[, s] = log_lambda[, s] + log_zsample_effect[, s]
-                           + log_conv[s] + log_vol_filtered;
+                           + log_conv[s] + log_vol_bottle;
+    if (K_zdepth > 0) log_lambda_edna[, s] += B_zdepth * beta_zdepth[s]';
     if (use_bottle_noise == 1)
       log_lambda_edna[, s] += bottle_dist_log_g(g_raw[, s],
                                 cv_bottle[bottle_theta_shared == 1 ? 1 : s], bottle_noise_dist);
   }
-  log_lambda_edna[, S + 1] = rep_vector(mu_sp[S + 1] + log_conv[S + 1] + log_vol_filtered, N);
+  log_lambda_edna[, S + 1] = mu_sp[S + 1] + log_conv[S + 1] + log_vol_bottle;
   if (use_junk_noise == 1)
     log_lambda_edna[, S + 1] += bottle_dist_log_g(g_junk_raw, cv_junk[1], junk_noise_dist);
 
@@ -333,6 +389,13 @@ model {
     else                        g_junk_raw ~ std_normal();
   }
   log_conv_free ~ normal(prior_log_conv_mu, prior_log_conv_sig);
+  alpha_ct_plate  ~ normal(prior_alpha_ct[1], prior_alpha_ct[2]);
+  beta_ct_plate   ~ normal(prior_beta_ct[1], prior_beta_ct[2]);
+  gamma0_ct_est   ~ normal(prior_gamma0_ct[1], prior_gamma0_ct[2]);
+  gamma1_ct_est   ~ normal(prior_gamma1_ct[1], prior_gamma1_ct[2]);
+  sigma0_ct_est   ~ normal(0, prior_sigma0_ct_sig);
+  logit_kappa_est ~ normal(prior_logit_kappa[1], prior_logit_kappa[2]);
+  to_vector(beta_zdepth) ~ normal(0, prior_beta_zdepth_sig);
 
   // ---- Visual priors ----
   log_sigma   ~ normal(log_sigma_prior_mean, log_sigma_prior_sd);
@@ -349,14 +412,27 @@ model {
   sigma_log_s ~ gamma(sigma_log_prior_shape, sigma_log_prior_rate);
 
   // ---- eDNA likelihood ----
+  // (the standards inform the curves only when the eDNA data are used)
   if (use_edna == 1) {
-    target += sum(edna_qpcr_loglik(qpcr_sample_idx, qpcr_detect, qpcr_ct,
-                                   log_lambda_edna[, 1], log_vol_frac,
-                                   alpha_ct, beta_ct, kappa,
-                                   gamma0_ct, gamma1_ct, sigma0_ct));
-    target += sum(edna_mb_loglik(mb_sample_idx, mb_reads, mb_total,
-                                 log_lambda_edna, log_vol_frac,
-                                 beta0_phi, gamma0_phi, gamma1_phi));
+    if (qpcr_curve_model == 0) {
+      target += sum(edna_qpcr_loglik_offset(qpcr_sample_idx, qpcr_detect, qpcr_ct,
+                                            log_lambda_edna[, 1], qpcr_log_offset,
+                                            alpha_ct, beta_ct, kappa,
+                                            gamma0_ct, gamma1_ct, sigma0_ct, ct_sd_cond));
+    } else {
+      // field wells and standards, through the same per-plate curves
+      real kappa_q = inv_logit(logit_kappa_est[1]);
+      target += sum(edna_qpcr_plate_loglik(qpcr_detect, qpcr_ct,
+                      log_lambda_edna[qpcr_sample_idx, 1] + qpcr_log_offset, qpcr_plate_idx,
+                      alpha_ct_plate, beta_ct_plate, kappa_q,
+                      gamma0_ct_est[1], gamma1_ct_est[1], sigma0_ct_est[1], ct_sd_cond));
+      target += sum(edna_qpcr_plate_loglik(std_detect, std_ct, std_log_copies, std_plate_idx,
+                      alpha_ct_plate, beta_ct_plate, kappa_q,
+                      gamma0_ct_est[1], gamma1_ct_est[1], sigma0_ct_est[1], ct_sd_cond));
+    }
+    target += sum(edna_mb_loglik_offset(mb_sample_idx, mb_reads, mb_total,
+                                        log_lambda_edna, mb_log_offset,
+                                        beta0_phi, gamma0_phi, gamma1_phi));
   }
 
   // ---- Visual likelihood ----
@@ -399,4 +475,7 @@ generated quantities {
   vector[L] p_det;                         // mean detection prob. in the strip (over segments)
   for (l in 1:L) p_det[l] = mean(esw_bft[l][seg_bft]) / w[l];
   vector[n_nb_sp] phi_nb = inv_square(inv_sqrt_phi_nb);   // NB size (NB species only)
+  // qPCR curves in the eDNA model's terms (qpcr_curve_model = 1)
+  vector[qpcr_curve_model] kappa_qpcr = inv_logit(logit_kappa_est);
+  vector[N_plate * qpcr_curve_model] qpcr_efficiency = exp(1 ./ beta_ct_plate) - 1;  // 1 = doubling
 }

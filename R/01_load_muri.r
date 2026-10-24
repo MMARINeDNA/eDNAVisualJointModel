@@ -204,6 +204,14 @@ sc <- readRDS(curves_f)
 stopifnot(all(q$qPCR %in% sc$curves$plate))
 q_plate <- match(q$qPCR, sc$curves$plate)
 shared  <- setNames(sc$shared$mean, sc$shared$variable)
+# The hake standards, for the qPCR curves estimated in the model (HSGP4eDNA
+# v1.9, qpcr_curve = "estimated"): the same wells as R/fit_qpcr_standards.r
+# (inhibition below its cutoff), indexed on the same plate list as the field
+# wells (sc$curves$plate, all 33 plates)
+std <- as.data.table(A$standards)[species == "hake"]
+std <- std[is.na(inhibition_rate) | inhibition_rate < sc$meta$inhibit_cutoff]
+stopifnot(nrow(std) == sc$meta$n_standards, all(std$qPCR %in% sc$curves$plate),
+          all(std$Ct[std$Ct_bin == 1] > 0), all(std$copies_ul > 0))
 
 # ---- metabarcoding: per bottle, the dilution with the most reads ------------
 mb <- mbcol[sampleID %in% samples$sampleID & total - contam > 0]
@@ -268,7 +276,11 @@ edna <- list(
     qpcr_alpha_ct = sc$curves$alpha_ct[q_plate], qpcr_beta_ct = sc$curves$beta_ct[q_plate],
     mb_column = mb$col, mb_run = mb$run, mb_rep = mb$rep,
     mb_dilution = mb$fold, mb_log_dilution = -log(mb$fold),             # fold: 5 = 1:5
-    mb_contaminant_reads = as.integer(mb$contam)
+    mb_contaminant_reads = as.integer(mb$contam),
+    # standards (HSGP4eDNA's qpcr_curve_data(): plate, detection, Ct (NA if not
+    # detected) and known copies per uL)
+    qpcr_std_plate_idx = match(std$qPCR, sc$curves$plate), qpcr_std_detect = as.integer(std$Ct_bin == 1),
+    qpcr_std_ct = ifelse(std$Ct_bin == 1, std$Ct, NA_real_), qpcr_std_copies_ul = std$copies_ul
   ),
   truth = list(
     zsample_effect = matrix(1, N, 3, dimnames = list(NULL, names(SP_TARGET))),

@@ -36,7 +36,8 @@ simulate_joint <- function(seed = 1L, n_stations = 200L,
                            gp_params  = default_gp_params(),
                            lt_species = c("humpback", "pwsd"),
                            sp_params  = lt_species_params(),
-                           sea_state  = FALSE, visibility = FALSE) {
+                           sea_state  = FALSE, visibility = FALSE,
+                           edna_obs_args = list()) {
   set.seed(seed)
   dom <- LT_DOMAIN
   S <- length(gp_params)
@@ -70,8 +71,11 @@ simulate_joint <- function(seed = 1L, n_stations = 200L,
   rows <- st[samples$station]                       # sample -> field row
   lambda_si <- exp(field$log_lambda_si[rows, , drop = FALSE])
   zse <- zsample_effect_matrix(samples$Z_sample, S, sample_depths, zsample_pref)
-  eo  <- simulate_edna_obs(lambda_si, zse, conv_factor = conv_factor,
-                           vol_filtered = vol_filtered, vol_aliquot = vol_aliquot)
+  # edna_obs_args: further simulate_edna_obs() options, e.g. qpcr_plates (a
+  # standard curve per plate, with standards), mb_dilution, ct_sd_cond
+  eo  <- do.call(simulate_edna_obs, c(list(lambda_si, zse, conv_factor = conv_factor,
+                                           vol_filtered = vol_filtered, vol_aliquot = vol_aliquot),
+                                      edna_obs_args))
   edna <- list(
     meta = list(n_species = S, sp_names = vapply(gp_params, `[[`, character(1), "name"),
                 sp_common = sp_common, conv_factor = conv_factor,
@@ -152,6 +156,27 @@ joint_field_agreement <- function(sim, max_km = 10) {
 #   vis_species           line-transect species with the visibility covariate
 #                         on detection. Default: each species' `use_vis` setting
 #                         in sp_params (none if unset). character(0) = none.
+#   qpcr_curve            "fixed" (one known curve) or "estimated" (per-plate
+#                         curves from the standards, which the eDNA object must
+#                         carry as observed$qpcr_std_*; HSGP4eDNA v1.9)
+#   zdepth                "none" or "smooth" (per-species spline in sampling
+#                         depth on the eDNA copies; HSGP4eDNA v1.10; needs at
+#                         least four distinct sampling depths)
+#   ct_sd                 "expected" or "conditional" (the Ct-noise SD bounded
+#                         at low copies; HSGP4eDNA v1.12)
+#   junk_noise_dist       1 = centred gamma (HSGP4eDNA's default), 2 =
+#                         non-centred lognormal; NULL keeps the default. The
+#                         centred form mixes badly when the junk spread is near
+#                         0, as on HSGP4eDNA v1.7+'s simulator (junk redrawn per
+#                         replicate) once dilutions are modelled (cv_junk R-hat
+#                         1.58, ESS 7; non-centred R-hat 1.02, same recovery)
+#   Dilution offsets and per-bottle filtered volume are taken from the eDNA
+#   object whenever it carries them (observed$qpcr_log_dilution,
+#   observed$mb_log_dilution, design$samples$vol_filtered); without them
+#   every offset is 0 and every bottle at meta$vol_filtered.
+#   These options are set here, not from HSGP4eDNA's QPCR_CURVE / ZDEPTH /
+#   CT_SD / MB_PHI environment variables, so a joint fit's model does not
+#   change with the environment.
 #   nb_species            line-transect species with negative-binomial segment
 #                         counts. Default: each species' `use_nb` setting in
 #                         sp_params (none if unset). character(0) = none.
@@ -174,8 +199,13 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
                                    bft_species = NULL,
                                    vis_species = NULL,
                                    nb_species = NULL, nb_inv_sqrt_sd = 1.0,
+                                   qpcr_curve = c("fixed", "estimated"),
+                                   zdepth = c("none", "smooth"),
+                                   ct_sd = c("expected", "conditional"),
+                                   junk_noise_dist = NULL,
                                    HSGP_M = NULL, HSGP_C = c(1.5, 1.5),
                                    M_max = GP_BASIS_BUDGET) {
+  qpcr_curve <- match.arg(qpcr_curve); zdepth <- match.arg(zdepth); ct_sd <- match.arg(ct_sd)
   dom    <- sim$meta$domain
   lt     <- sim$meta$lt_species
   sp_all <- names(sim$edna$meta$sp_names)            # hake, humpback, pwsd
@@ -185,7 +215,13 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
   norm <- function(xy) sweep(sweep(as.matrix(xy), 2, coord_centre, "-"), 2, coord_scale, "/")
 
   # eDNA observation data (its own coords / GP prior / basis are replaced below)
-  ed  <- format_stan_data_gp2d_bathysp(sim$edna, prediction_n = 2L)$stan_data
+  ed  <- format_stan_data_gp2d_bathysp(sim$edna, prediction_n = 2L, mb_phi = "empirical",
+                                       qpcr_curve = qpcr_curve, zdepth = zdepth)$stan_data
+  ed$ct_sd_cond <- as.integer(ct_sd == "conditional")
+  if (!is.null(junk_noise_dist)) {
+    stopifnot(junk_noise_dist %in% 1:2)
+    ed$junk_noise_dist <- as.integer(junk_noise_dist)
+  }
   smp <- sim$edna$design$samples
   seg <- sim$visual$design$segments
 
@@ -260,6 +296,20 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     prior_beta0_phi_mu = ed$prior_beta0_phi_mu, prior_beta0_phi_sig = ed$prior_beta0_phi_sig,
     prior_gamma0_phi_mu = ed$prior_gamma0_phi_mu, prior_gamma0_phi_sig = ed$prior_gamma0_phi_sig,
     prior_gamma1_phi_mu = ed$prior_gamma1_phi_mu, prior_gamma1_phi_sig = ed$prior_gamma1_phi_sig,
+    # dilution offsets and per-bottle volume (HSGP4eDNA v1.8)
+    qpcr_log_dilution = as.array(ed$qpcr_log_dilution), mb_log_dilution = as.array(ed$mb_log_dilution),
+    log_vol_bottle = as.array(ed$log_vol_bottle),
+    # qPCR curves (v1.9) and the Ct-noise SD bound (v1.12)
+    qpcr_curve_model = ed$qpcr_curve_model, N_plate = ed$N_plate,
+    qpcr_plate_idx = as.array(ed$qpcr_plate_idx), N_std = ed$N_std,
+    std_plate_idx = as.array(ed$std_plate_idx), std_detect = as.array(ed$std_detect),
+    std_ct = as.array(ed$std_ct), std_log_copies = as.array(ed$std_log_copies),
+    prior_alpha_ct = ed$prior_alpha_ct, prior_beta_ct = ed$prior_beta_ct, beta_ct_min = ed$beta_ct_min,
+    prior_gamma0_ct = ed$prior_gamma0_ct, prior_gamma1_ct = ed$prior_gamma1_ct,
+    prior_sigma0_ct_sig = ed$prior_sigma0_ct_sig, prior_logit_kappa = ed$prior_logit_kappa,
+    ct_sd_cond = ed$ct_sd_cond,
+    # sampling-depth smooth (v1.10; the formatter zeroes log_zsample_effect then)
+    K_zdepth = ed$K_zdepth, B_zdepth = ed$B_zdepth, prior_beta_zdepth_sig = ed$prior_beta_zdepth_sig,
     # noise terms only when the eDNA data are used (else they would be
     # prior-only latent variables)
     use_bottle_noise = ed$use_bottle_noise * noise_on,
