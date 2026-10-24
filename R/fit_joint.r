@@ -42,10 +42,15 @@ compile_joint <- function(...) stan_model_fresh(JOINT_STAN, JOINT_INCLUDE, ...)
 # Per station and species, a target log density from the data only:
 #   - metabarcoding: log(reads_s / (reads_junk + 0.5)) + the junk's starting
 #     log copies, averaged over the replicates with reads of species s;
-#   - qPCR (species 1): log aliquot copies from Ct through the standard curve,
-#     averaged over detected replicates (replaces the MB value);
-#   - minus the conversion factor, log volume and water-column offset
-#     (conversion factors being estimated use their starting value).
+#   - qPCR (species 1): log aliquot copies from Ct through the standard curve
+#     (with estimated curves, each well's plate curve fitted to the standards
+#     alone), minus the well's dilution, averaged over detected replicates
+#     (replaces the MB value);
+#   - minus the conversion factor, the bottle's log volume and the
+#     water-column offset (conversion factors being estimated use their
+#     starting value).
+# As HSGP4eDNA's field_start_from_data(); with no dilutions and one volume
+# it is the start before v1.8 exactly.
 # Stations without a value get the species' minimum minus 1. The targets are smoothed
 # onto the HSGP basis by the GP posterior mean of z (ridge, noise SD 0.5) at
 # the prior's median length-scale, giving the starting mu, gp_sigma, gp_l_raw
@@ -62,19 +67,24 @@ edna_field_start <- function(sd, mu_junk, log_conv_free = sd$prior_log_conv_mu) 
   log_conv <- sd$log_conv_factor
   if (sd$n_conv_free > 0) log_conv[sd$conv_free_idx] <- log_conv_free
   lvf <- log(sd$vol_aliquot / 100)
+  log_vol <- sd$log_vol_bottle
   dens <- function(log_bottle, s, i)
-    log_bottle - log_conv[s] - sd$log_vol_filtered - sd$log_zsample_effect[i, s]
+    log_bottle - log_conv[s] - log_vol[i] - sd$log_zsample_effect[i, s]
   target <- matrix(NA_real_, N, S)
-  log_junk <- mu_junk + log_conv[S + 1] + sd$log_vol_filtered
+  log_junk <- mu_junk + log_conv[S + 1] + log_vol
   for (s in 1:S) {
     pos <- sd$mb_reads[, s] > 0
     if (!any(pos)) next
     v <- tapply(log(sd$mb_reads[pos, s]) - log(sd$mb_reads[pos, S + 1] + 0.5), sd$mb_sample_idx[pos], mean)
-    i <- as.integer(names(v)); target[i, s] <- dens(log_junk + v, s, i)
+    i <- as.integer(names(v)); target[i, s] <- dens(log_junk[i] + v, s, i)
   }
   det <- sd$qpcr_detect == 1
   if (any(det)) {
-    v <- tapply((sd$alpha_ct - sd$qpcr_ct[det]) / sd$beta_ct - lvf, sd$qpcr_sample_idx[det], mean)
+    if (sd$qpcr_curve_model == 1L) {
+      cs <- qpcr_curve_start(sd); pl <- sd$qpcr_plate_idx[det]
+      log_well <- (cs$alpha_ct[pl] - sd$qpcr_ct[det]) / cs$beta_ct[pl]
+    } else log_well <- (sd$alpha_ct - sd$qpcr_ct[det]) / sd$beta_ct
+    v <- tapply(log_well - lvf - sd$qpcr_log_dilution[det], sd$qpcr_sample_idx[det], mean)
     i <- as.integer(names(v)); target[i, 1] <- dens(v, 1, i)
   }
   out <- list(mu = numeric(S), sigma = numeric(S), rho = rho0, z = matrix(0, S, M))
@@ -94,6 +104,7 @@ joint_init <- function(sd) {
   # data-based starting field when the eDNA data are in the likelihood (a
   # visual-only fit must not start from the eDNA data)
   fs <- if (sd$use_edna == 1L) edna_field_start(sd, mu_junk) else NULL
+  cs <- if (sd$qpcr_curve_model == 1L) qpcr_curve_start(sd) else NULL
   function() {
     init <- list(
       mu_sp = c(if (is.null(fs)) sd$prior_mu_sp_mu[1:S] else fs$mu, mu_junk) +
@@ -108,6 +119,7 @@ joint_init <- function(sd) {
       cv_bottle = rep(0.3, sd$use_bottle_noise * (if (sd$bottle_theta_shared == 1L) 1L else S)),
       g_junk_raw = rep(0, sd$N * sd$use_junk_noise), cv_junk = rep(0.3, sd$use_junk_noise),
       log_conv_free = sd$prior_log_conv_mu,
+      beta_zdepth = matrix(0, S, sd$K_zdepth),
       # hazard-rate species start their scale at about w / 2 (as fit_visual.r)
       log_sigma = ifelse(sd$det_key == 1L, log(unlist(sd$w) / 2), sd$log_sigma_prior_mean) +
                   rnorm(L, 0, 0.1),
@@ -120,6 +132,12 @@ joint_init <- function(sd) {
       mu_s = sd$mu_s_prior_shape / sd$mu_s_prior_rate, phi_s = runif(L, 0.5, 2),
       mu_log_s = sd$mu_log_prior_mean + rnorm(L, 0, 0.1),
       sigma_log_s = sd$sigma_log_prior_shape / sd$sigma_log_prior_rate)
+    # per-plate qPCR curves start from the standards alone (as HSGP4eDNA's edna_init())
+    if (!is.null(cs)) init <- c(init, list(
+      alpha_ct_plate = cs$alpha_ct + rnorm(sd$N_plate, 0, 0.05),
+      beta_ct_plate = pmax(cs$beta_ct + rnorm(sd$N_plate, 0, 0.002), sd$beta_ct_min + 1e-4),
+      gamma0_ct_est = array(0, 1), gamma1_ct_est = array(-0.2, 1),
+      sigma0_ct_est = array(0.3, 1), logit_kappa_est = array(2, 1)))
     # zero-size parameters must be left out of cmdstanr inits
     init[lengths(init) > 0]
   }

@@ -1012,9 +1012,11 @@ Each species has **one** latent field, a 2-D HSGP plus a bottom-depth spline in
 animals per km², exactly as in the single-source models. Two observation models
 share it:
 
-- **eDNA:** HSGP4eDNA's eDNA model (v1.5 for the results here; its v1.8–v1.12
-  features, such as dilution offsets and estimated qPCR curves, are still to be
-  ported into the joint model): qPCR for hake, zero-inflated
+- **eDNA:** HSGP4eDNA's eDNA model (v1.5 for the results here; from
+  2026-10-23 the joint model also has its v1.8–v1.12 options: dilution offsets,
+  per-bottle volume, per-plate qPCR curves estimated from the standards, the
+  sampling-depth smooth and the bounded Ct-noise SD, each off by default and
+  exact when off): qPCR for hake, zero-inflated
   beta-binomial metabarcoding for all species, and the between-bottle and junk
   noise terms.
 - **Visual:** the line-transect model for humpback and PWSD, with the detection

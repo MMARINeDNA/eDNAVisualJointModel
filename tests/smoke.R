@@ -27,6 +27,9 @@
 #           R/fit_joint.r on a small simulate_joint() dataset
 #   joint_bft  the joint model with the Beaufort covariate (humpback), on the
 #           same dataset with segment sea state
+#   joint_edna the joint model with HSGP4eDNA v1.8-v1.10's eDNA options on:
+#           per-plate qPCR curves estimated from standards, metabarcoding
+#           dilutions, and the sampling-depth smooth (five sampling depths)
 #
 # Logs and outputs go to outputs/smoke/ (git-ignored). Exit status is non-zero
 # if any check fails.
@@ -273,6 +276,40 @@ if (!is.null(jb)) {
   check("joint_bft", "hake and humpback field R2 > 0.5", min(r2[c("hake", "humpback")]) > 0.5,
         sprintf("%.2f / %.2f", r2[["hake"]], r2[["humpback"]]))
   check("joint_bft", "humpback beta_bft estimated, |beta_bft| < 1", isTRUE(abs(bb) < 1), round(bb, 3))
+}
+
+# -----------------------------------------------------------------------------
+# Case 6: joint model with the eDNA options ported from HSGP4eDNA v1.8-v1.10:
+# per-plate qPCR curves estimated from simulated standards (5 plates), a
+# dilution per metabarcoding replicate, and the sampling-depth smooth over
+# five sampling depths
+# -----------------------------------------------------------------------------
+cat("=== [joint_edna] hsgp_joint with estimated qPCR curves, dilutions, depth smooth ===\n")
+je <- NULL
+mins <- timed(je <- tryCatch({
+  jse <- simulate_joint(seed = 2L, n_stations = 40L, n_transects = 12L, gp_params = gp_smoke,
+                        sample_depths = c(0, 50, 150, 300, 500),
+                        edna_obs_args = list(qpcr_plates = list(n_field = 4L, n_std_only = 1L),
+                                             mb_dilution = c(1, 5, 10)))
+  # non-centred junk noise: with the dilutions modelled the junk spread is near
+  # 0 on this simulator, where the centred form mixes badly (cv_junk R-hat 1.58)
+  r <- fit_joint(jse, "joint", chains = 2L, warmup = 250L, sample = 250L, M_max = 64L,
+                 adapt_delta = 0.9, qpcr_curve = "estimated", zdepth = "smooth",
+                 junk_noise_dist = 2L)
+  a <- r$fit$summary("alpha_ct_plate", median = stats::median)$median
+  r$alpha_err <- max(abs(a - jse$edna$truth$qpcr_params$plates$alpha_ct))
+  r
+}, error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
+cat(sprintf("  %.1f min\n", mins))
+check("joint_edna", "ran", !is.null(je), if (is.null(je)) "error" else "ok")
+if (!is.null(je)) {
+  r2 <- setNames(je$field$R2, je$field$species)
+  check("joint_edna", "divergences == 0", je$divergences == 0, je$divergences)
+  check("joint_edna", "max Rhat (hyperparameters) < 1.1", je$max_rhat < 1.1, round(je$max_rhat, 3))
+  check("joint_edna", "hake and humpback field R2 > 0.5", min(r2[c("hake", "humpback")]) > 0.5,
+        sprintf("%.2f / %.2f", r2[["hake"]], r2[["humpback"]]))
+  check("joint_edna", "plate intercepts within 1 Ct of the truth", isTRUE(je$alpha_err < 1),
+        round(je$alpha_err, 2))
 }
 
 # -----------------------------------------------------------------------------
