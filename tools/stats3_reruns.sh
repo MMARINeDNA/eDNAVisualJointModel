@@ -16,9 +16,13 @@
 # Env: SESSION (tmux session name, default "reruns"), NICE (default 10),
 #      CMP_SEEDS (joint-comparison seeds for stage 3, default "2 3"; e.g.
 #      CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3 for a second wave),
-#      CMP_SEA (1: stage 3 runs the sea-state comparison instead: visual-only,
-#      joint and joint_conv on simulate_joint(sea_state = TRUE), fitted with
-#      the Beaufort covariate and, for contrast, without it; 24 cores per seed)
+#      CMP_SEA (1: stage 3 runs the sea-state comparison instead: eDNA-only,
+#      visual-only, joint and joint_conv on simulate_joint(sea_state = TRUE),
+#      fitted with the Beaufort covariate and, for contrast with CMP_NOBFT=1
+#      (default), visual-only, joint and joint_conv without it; 16-28 cores
+#      per seed), CMP_NOBFT (0: skip the without-covariate contrast, e.g. for
+#      seeds 3-5). R/compare_joint.r's defaults apply: NB counts for both
+#      cetaceans, non-centred junk noise, adapt_delta 0.9.
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -27,8 +31,10 @@ SESSION=${SESSION:-reruns}
 NICE=${NICE:-10}
 CMP_SEEDS=${CMP_SEEDS:-2 3}
 CMP_SEA=${CMP_SEA:-0}
+CMP_NOBFT=${CMP_NOBFT:-1}
 CMP_MODES="visual edna joint joint_conv"
-SEA_MODES="visual joint joint_conv"        # the eDNA-only fit does not use sea state
+SEA_MODES="edna visual joint joint_conv"   # the eDNA-only fit ignores sea state, but is on the same data
+NOBFT_MODES="visual joint joint_conv"
 mkdir -p logs
 
 # Stage 1 must finish first: it rebuilds the real data and compiles the models.
@@ -41,8 +47,10 @@ STAGE1="prep"
 STAGE2="hsgp_nobathy hsgp_bathysp_surface hsgp_bathysp_depthspref hsgp_bathygp_surface
         visual_val visual_val_sea joint_sim"
 if [ "$CMP_SEA" = 1 ]; then
-  STAGE3=$(for s in $CMP_SEEDS; do for m in $SEA_MODES; do
-             printf 'cmpsea_s%s_%s cmpseanobft_s%s_%s ' "$s" "$m" "$s" "$m"; done; done)
+  STAGE3=$(for s in $CMP_SEEDS; do
+             for m in $SEA_MODES; do printf 'cmpsea_s%s_%s ' "$s" "$m"; done
+             if [ "$CMP_NOBFT" = 1 ]; then for m in $NOBFT_MODES; do printf 'cmpseanobft_s%s_%s ' "$s" "$m"; done; fi
+           done)
 else
   STAGE3=$(for s in $CMP_SEEDS; do for m in $CMP_MODES; do printf 'cmp_s%s_%s ' "$s" "$m"; done; done)
 fi
@@ -97,8 +105,8 @@ job() {
       SEED=${BASH_REMATCH[1]} MODES=${BASH_REMATCH[2]} Rscript R/compare_joint.r ;;
     # ---- stage 3 with CMP_SEA=1: sea-state comparison, with and without the covariate
     cmpsea_s*|cmpseanobft_s*)
-      [[ $1 =~ ^cmpsea(nobft)?_s([0-9]+)_(visual|joint|joint_conv)$ ]] ||
-        { echo "bad job name $1 (cmpsea[nobft]_s<seed>_<visual|joint|joint_conv>)"; exit 2; }
+      [[ $1 =~ ^cmpsea(nobft)?_s([0-9]+)_(edna|visual|joint|joint_conv)$ ]] ||
+        { echo "bad job name $1 (cmpsea[nobft]_s<seed>_<edna|visual|joint|joint_conv>)"; exit 2; }
       local nobft=${BASH_REMATCH[1]} seed=${BASH_REMATCH[2]} mode=${BASH_REMATCH[3]}
       SEA_STATE=1 SEED=$seed MODES=$mode BFT_SPECIES=${nobft:+none} Rscript R/compare_joint.r ;;
     # ---- stage 4: explainer fits (2-3 cores each; expl_edna_real waits for the 6.1 data)
