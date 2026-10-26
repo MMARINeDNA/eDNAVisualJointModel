@@ -75,7 +75,8 @@ job() {
   case "$1" in
     # ---- stage 1: real data, tests, compile every model (about 1 h, 2 cores)
     prep)
-      for f in data/MV1_MURI_df.csv data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv; do
+      for f in data/qPCR_2019A.rds data/M3_compiled_taxon_table_wide.csv data/Hake_2019_metadata.csv \
+               data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv; do
         [ -f "$f" ] || { echo "missing $f: copy it from the Mac (notes/stats3_guide.md, Part 4)"; exit 1; }
       done
       Rscript R/01_load_muri.r
@@ -84,6 +85,10 @@ job() {
       Rscript tests/smoke.R
       Rscript tests/visual_detection.R
       hsgp -e 'cmdstanr::cmdstan_model("stan/hsgp_nd.stan", include_paths = "stan/include")' ;;
+    # compile the visual and joint models once (no data needed), before
+    # launching jobs that would otherwise all compile them at the same time
+    compile)
+      Rscript -e 'source("R/fit_joint.r"); source("R/fit_visual.r"); invisible(compile_joint()); invisible(compile_visual()); cat("compiled\n")' ;;
     # ---- stage 2: HSGP4eDNA 2-D validation (3 cores each)
     hsgp_nobathy)
       hsgp R/01_sim_nobathy_surface.r
@@ -180,6 +185,7 @@ case "${1:-list}" in
   list)
     cat <<EOF
 stage 1  (run alone first; ~1 h)                 $STAGE1
+         (or, for simulation-only jobs such as stage 3: 'run compile', a few minutes)
 stage 2  (~23 cores; hours to ~2 days)           $(echo $STAGE2)
 stage 3  (16 cores per seed; ~4-6 h per job)     $(echo $STAGE3)
          seeds from CMP_SEEDS (now "$CMP_SEEDS"); CMP_SEA=1 for the sea-state
