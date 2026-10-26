@@ -11,16 +11,14 @@ These are the re-runs that the move to the 35°N study domain needed
 section 3). As with the FinWhale pipeline, the cleanest set-up is
 **SSH + tmux**: every job is a non-interactive `Rscript` that writes files.
 
-> **Now (2026-10-25): the tier-1 replicates.** The sea-state joint comparison
-> on seeds 1–5 (ROADMAP_2026-10-21, section 3 item 2), on HSGP4eDNA v1.12 with
-> negative-binomial segment counts, non-centred junk noise and the bound on
-> the NB parameter. The steps are in **Part 6, "The tier-1 replicates"**: stop
-> any old session, update to branch `claude/replicates`, run `compile`, then
-> four waves of stage-3 jobs (about a day in all). They are simulations, so
-> they need neither stage 1 nor the private data. **Then the first real-data
-> joint fits** (stage 6, Part 6, "The real-data fits"): three jobs, 12 cores,
-> best run alongside the replicates' wave 4. Everything else in this guide is
-> the earlier set-up and still applies.
+> **Now (2026-10-26): the real-data fits and the seed-1 demonstration.**
+> Stop any old session, update to branch `claude/replicates`, run `compile`
+> (Part 6, "Getting ready"), then launch the real-data fits (`stage 6`, three
+> jobs) and seed 1's joint and free-conversion fits (two jobs): 20 cores, up
+> to about a day. None needs stage 1 or the private data. **The tier-1
+> replicates (seeds 2–5) wait until later this week**; their steps are in
+> Part 6, "The tier-1 replicates". Everything else in this guide is the
+> earlier set-up and still applies.
 
 **stats3 specs (from the IT FAQ):** Intel i9-13900K with 24 physical cores and
 32 hyperthreads, 128 GB RAM, RAID-1 NVMe (`/fast_raid`) and HDD (`/local_raid`).
@@ -216,7 +214,29 @@ on. The smoke test's 44 checks must pass. If `prep` says `FAILED`, read
 `logs/prep.log`. Simulation-only work (the replicates below) can skip `prep`
 and run the much shorter `compile` job instead.
 
-### The tier-1 replicates (now, from 2026-10-25)
+### Getting ready (now)
+
+Steps 1–3 below (stop old jobs, update the checkout, `compile`) are needed
+before **any** of the new jobs. Then launch, together (20 cores):
+
+```bash
+tools/stats3_reruns.sh stage 6                       # the real-data fits (see "The real-data fits")
+tools/stats3_reruns.sh launch cmpsea_s1_joint        # seed 1 demonstration: joint
+tools/stats3_reruns.sh launch cmpsea_s1_joint_conv   # seed 1: joint with free conversion factors
+tools/stats3_reruns.sh status
+```
+
+**The seed-1 demonstration** is the idealised simulation (sea state; NB
+counts; HSGP4eDNA v1.12) fitted four ways. Its eDNA-only and visual-only
+fits are done on the Mac (`outputs/joint/compare_sea_s1/`); these two jobs
+re-run the joint and free-conversion fits with the bound on the NB
+parameter (about 6–8 hours each). Pull `outputs/joint/compare_sea_s1/` back
+when they end (Part 9) and Claude rebuilds the seed-1 table and figure.
+
+Steps 4–6 are for the replicates, later this week; seed 1 is then done, so
+the waves start with seed 2.
+
+### The tier-1 replicates (later this week)
 
 The sea-state joint comparison for seeds 1–5: each seed simulated with segment
 Beaufort and fitted eDNA-only, visual-only, joint and joint with free
@@ -224,7 +244,8 @@ conversion factors, all with the Beaufort covariate; seeds 1 and 2 also
 without it, for contrast. The fits use the settings that are now
 `R/compare_joint.r`'s defaults: negative-binomial segment counts for both
 cetaceans, non-centred junk noise and `adapt_delta = 0.9`, with the NB
-parameter bounded (`inv_sqrt_phi_nb >= 0.01`). 26 jobs of 4 chains each.
+parameter bounded (`inv_sqrt_phi_nb >= 0.01`). Seed 1 with the covariate is
+done first (above); the rest are 22 jobs of 4 chains each.
 
 **1. Connect and stop anything left from an earlier launch.** If yesterday's
 stage-3 jobs are running, they use the model without the NB bound and can get
@@ -245,12 +266,16 @@ git fetch
 git checkout claude/replicates
 git pull
 git submodule update --init
-git log --oneline -1                # should show e0ed941 (the NB bound) or later
+git log --oneline -3                # the latest should be the guide update of 2026-10-26 or later
+                                    # (it must include 0a5a894, the real-data fits, and e0ed941, the NB bound)
 git submodule status                # v1.5-48-g5515a04
 ```
 
 **3. Compile the models once** (a few minutes; the Stan files changed). Without
-this, every job of a wave would compile the joint model at the same moment:
+this, every job of a wave would compile the joint model at the same moment.
+Everything on the branch was checked on the Mac on 2026-10-26: the smoke test,
+the exactness tests, and each job type (`cmpsea_*`, `cmpseanobft_*`,
+`jreal_*`) run through this script with tiny chains.
 
 ```bash
 tools/stats3_reruns.sh run compile  # ends with "DONE compile"
@@ -263,20 +288,19 @@ when the previous wave's long jobs end.
 
 | Wave | Command | Jobs | Cores |
 |---|---|---|---|
-| 1 | `CMP_SEA=1 CMP_NOBFT=0 CMP_SEEDS="1 2" tools/stats3_reruns.sh stage 3` | seeds 1–2, with the covariate | 32 for the first hour, then 24 |
-| 2 | `CMP_SEA=1 CMP_NOBFT=0 CMP_SEEDS="3 4" tools/stats3_reruns.sh stage 3` | seeds 3–4 | 32, then 24 |
-| 3 | `CMP_SEA=1 CMP_NOBFT=0 CMP_SEEDS="5" tools/stats3_reruns.sh stage 3` | seed 5 | 16, then 12 |
-| 3 (same time) | `for m in visual joint joint_conv; do tools/stats3_reruns.sh launch cmpseanobft_s1_$m; done` | seed 1 without the covariate | 12, then 8 |
-| 4 | `for m in visual joint joint_conv; do tools/stats3_reruns.sh launch cmpseanobft_s2_$m; done` | seed 2 without the covariate | 12, then 8 |
+| 1 | `CMP_SEA=1 CMP_NOBFT=0 CMP_SEEDS="2 3" tools/stats3_reruns.sh stage 3` | seeds 2–3, with the covariate | 32 for the first hour, then 24 |
+| 2 | `CMP_SEA=1 CMP_NOBFT=0 CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3` | seeds 4–5 | 32, then 24 |
+| 3 | `for s in 1 2; do for m in visual joint joint_conv; do tools/stats3_reruns.sh launch cmpseanobft_s${s}_$m; done; done` | seeds 1–2 without the covariate | 24, then 16 |
 
-That is about a day in all. Results go to `outputs/joint/compare_sea_s<seed>/`
+Seed 1 with the covariate is done by then (the two jobs above and the Mac's
+fits), so it is not in the waves. That is about a day in all. Results go to `outputs/joint/compare_sea_s<seed>/`
 and `compare_sea_nobft_s<seed>/` (one `fit_<mode>.rds` per job).
 
 **5. Check on them** (Part 7). Each job's log ends with a line like
 `joint: 465 min | divergences 0 | treedepth 0 | max Rhat 1.06`. A visual-only
 job still in warmup after about 2 hours is the stuck-chain problem (Part 8).
 
-**6. Pull the results back** when all 26 are done (Part 9, the replicates
+**6. Pull the results back** when all 22 are done (Part 9, the replicates
 block) and ask Claude for the summary table across seeds.
 
 ### The real-data fits (stage 6, from 2026-10-26)
@@ -292,12 +316,11 @@ chains, 1000 warmup and 1000 draws each:
 | `jreal_joint_conv` | both sources, the cetaceans' eDNA conversion factors estimated (the real ones are unknown) |
 
 They read only the tracked `data/processed/` objects, so they need `compile`
-but not `prep` or the private data. Launch them when 12 cores are free, e.g.
-with the replicates' wave 4:
+but not `prep` or the private data. After steps 1–3 above:
 
 ```bash
-tools/stats3_reruns.sh run compile    # if not already run since the last git pull
 tools/stats3_reruns.sh stage 6
+tools/stats3_reruns.sh status         # the three jreal_* jobs
 ```
 
 Expect roughly half a day for `jreal_edna` and up to a day for
@@ -432,8 +455,12 @@ rsync -av $R/logs/ logs/
 ```
 
 Seed 1's earlier Mac runs are kept on the Mac as
-`outputs/joint/compare_sea_s1_v15/` (v1.5) and in `compare_sea_s1/` (before
-the NB bound); the stats3 results replace the latter.
+`outputs/joint/compare_sea_s1_v15/` (v1.5). In `compare_sea_s1/` the pull
+replaces the joint and free-conversion fits (made before the NB bound) and
+keeps the Mac's eDNA-only and visual-only fits (rsync deletes nothing); its
+tables then cover only stats3's two modes, so rebuild them over all four on
+the Mac with `SEA_STATE=1 SEED=1 MODES= Rscript R/compare_joint.r` (or ask
+Claude).
 
 `docs/figures/*.png` then shows up as changed in `git status`.
 `data/processed/` is not copied back, because `prep` checked that it matches

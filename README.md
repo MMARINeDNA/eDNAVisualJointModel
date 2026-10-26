@@ -8,7 +8,8 @@ plus a spline on bottom depth, feeds two observation models:
 ```
 log λ_s(x) = μ_s + f_s(X, Y) + h_s(Z_bathy)                       # animals / km²
 eDNA:   log λ_edna = log λ_s + log zsample_eff + log conv_s + log vol  → qPCR hurdle + ZI-Beta-Binomial MB
-visual: λ_groups_s = λ_s / E[group size_s]                          → half-normal detection, Poisson segment counts
+visual: λ_groups_s = λ_s / E[group size_s]                          → half-normal or hazard-rate detection,
+                                                                      Poisson or negative-binomial segment counts
 ```
 
 The repo is being restructured toward **one eDNA model, one visual model, and
@@ -27,6 +28,7 @@ their outputs and notebooks).
 | **Visual** (2-D HSGP + bottom-depth spline, line transects) | `stan/hsgp_visual.stan`; driven by `R/fit_visual.r` | ✅ Validated over 5 replicates (see [Results](#results)) |
 | Joint simulator | `R/functions_joint.R` (`simulate_joint()`) | ✅ One shared field; each half validated with its single-source model |
 | **Joint** eDNA + visual model | `stan/hsgp_joint.stan`; driven by `R/fit_joint.r` | ✅ One shared field; beats the best single source for the cetaceans and recovers their eDNA conversion factors (see [Results](#results)) |
+| Real data | `R/01_load_muri.r`; real fits `R/fit_visual_real.r`, `R/fit_joint_real.r` | Visual-only fits done (35°N, Beaufort ≤ 5); first real eDNA and joint fits running on stats3 (see [Real data](#real-data)) |
 
 ## Study domain
 
@@ -35,25 +37,29 @@ Every analysis, simulated or real, is restricted to the MURI study area
 UTM zone 10N, with its south-west corner at (E, N) = (−10, 3870) km and its
 southern edge on 35°N.
 
-- **Real eDNA:** all 551 bottles (37.9–48.4°N) are inside it.
+- **Real eDNA:** 513 bottles at 167 stations (37.9–48.4°N), all inside it.
 - **Real visual effort:** only segments whose midpoint is at or north of 35°N
-  are used. That is 1,641 of 2,779 segments, or 7,561 of 12,967 km.
+  and whose mean Beaufort is at most 5 are used. That is 1,617 of 2,779
+  segments, or 7,441 of 12,967 km.
 - **Simulations:** the eDNA, visual and joint simulators all use the same box,
   so simulated and real fits share coordinates and prior extents.
 
-> **Re-runs in progress.** The current set-up is the 35°N domain, 50 × 150 km
-> length-scales, 35 transects and an 800-function budget.
-> - **Re-run:** the visual validation and sea-state check (2026-10-12) and
->   the joint comparison for seed 1 (2026-10-13) ([Results](#results)). The
->   joint comparison with sea state (Beaufort covariate) is done for seeds 1
->   and 2 (`docs/explainer.md`, Section 5); seeds 3–5 follow the move to
->   negative-binomial segment counts (ROADMAP_2026-10-21, section 3).
-> - **Still from the earlier set-up:** HSGP4eDNA's validation. That set-up was
->   a 500 × 1270 km box (about 37.7–49.2°N), 50 × 300 km length-scales, 25
->   transects and a 400-function budget.
+> **Runs in progress (2026-10-26).** The current set-up is the 35°N domain,
+> 50 × 150 km length-scales, 35 transects, an 800-function budget, HSGP4eDNA
+> v1.12, and NB segment counts with non-centred junk noise.
+> - **On stats3 now:** the seed-1 demonstration of the idealised simulation
+>   with sea state (its joint and free-conversion fits; the eDNA-only and
+>   visual-only fits are done), and the first real-data fits
+>   (`R/fit_joint_real.r`: eDNA-only, visual-only, joint with free conversion
+>   factors).
+> - **Later this week:** the replicates, seeds 2–5.
+> - **The results below** are from the earlier runs (v1.5, Poisson counts;
+>   2026-10-12 and 2026-10-13) and will be replaced. HSGP4eDNA's own
+>   validation is still from its earlier set-up (500 × 1270 km box, 50 × 300 km
+>   length-scales, 400-function budget).
 >
-> The rest runs on the stats3 server or a laptop (`notes/stats3_guide.md`);
-> ROADMAP_2026-10-21, section 3, lists it.
+> The runs use the stats3 server (`notes/stats3_guide.md`); ROADMAP_2026-10-21,
+> section 3, lists them.
 
 ## Simulated species
 
@@ -90,9 +96,15 @@ source is:
   PWSD eDNA is surface-associated.
 - **Visual surveys.** 35 east–west transects (about 51 km apart) across the study domain, cut into 10 km segments, truncation
   distance 5 km. Group sizes are resampled from the empirical pools in
-  `data/grpsz/`. With `sea_state = TRUE`, detection also declines with
-  Beaufort sea state: β_bft = −0.08 (humpback), −0.15 (PWSD) per Beaufort
-  unit.
+  `data/grpsz/`. Options: with `sea_state = TRUE`, detection also declines
+  with Beaufort sea state (β_bft = −0.08 humpback, −0.15 PWSD per Beaufort
+  unit); with `visibility = TRUE` it rises with visibility (β_vis = 0.15,
+  0.2 per nmi); `nb_size` makes sightings clustered (negative-binomial groups
+  per segment); `segments` simulates on a given design, such as the real
+  effort.
+- **eDNA options** (`simulate_joint(edna_obs_args = ...)`, HSGP4eDNA's
+  simulator): per-plate qPCR curves with standards, metabarcoding dilutions,
+  several sampling depths.
 
 ## Getting started
 
@@ -110,7 +122,7 @@ Requirements: R with `cmdstanr` + CmdStan, `tidyverse`, `posterior`, `MASS`,
 
 ### Smoke test
 
-Run this before committing any change to `R/`, `stan/`, or a submodule bump. It takes about half an hour (the joint case is the longest), and the exit status is non-zero on
+Run this before committing any change to `R/`, `stan/`, or a submodule bump. It takes about 1.5 hours (44 checks; the joint cases are the longest), and the exit status is non-zero on
 failure:
 
 ```bash
@@ -119,7 +131,9 @@ Rscript tests/smoke.R
 
 It fits each working model on a small simulation with short chains and checks
 that sampling is clean and the truth is recovered. Logs and results go to
-`outputs/smoke/`.
+`outputs/smoke/`. The exactness tests (`tests/joint_exactness.R`,
+`tests/visual_nb.R`) and the detection test (`tests/visual_detection.R`) check
+that each model option is exact when switched off and recovers its truth.
 
 ### eDNA model
 
@@ -147,14 +161,15 @@ The model has these parts:
 
 - **Latent field.** It is the eDNA model's field, with the same units
   (animals/km²), GP hyperparameters, spline basis and true spline
-  coefficients. It is simulated over 25 E–W transects of 10 km segments.
-- **Detection.** Half-normal detection, with a group-size covariate for
-  PWSD and an optional **Beaufort sea-state covariate**:
-  log σ = log σ₀ + β_bft (Beaufort − 3). Segment Beaufort is binned to 0.5
-  steps, and the size-averaged ESW is computed once per level, so ESW differs
-  between segments. The formatter switches it on whenever the segments carry a
-  `bft` column (`use_bft`); `simulate_visual(sea_state = TRUE)` simulates
-  Beaufort with a spatial trend (rougher to the north and offshore).
+  coefficients. It is simulated over 35 E–W transects of 10 km segments.
+- **Detection.** Half-normal or hazard-rate (`det_key`), with σ on the log
+  scale as in Distance: log σ = log σ₀ + β_size (s − s̄) + β_bft (Beaufort − 3)
+  + β_vis (visibility − 6), each covariate switched per species (`use_size_covar`,
+  `use_bft`, `use_vis`). Segment Beaufort and visibility are rounded to 0.5,
+  and the size-averaged ESW is computed once per detection-condition cell
+  (Beaufort × visibility), so ESW differs between segments.
+- **Segment counts.** Poisson, or negative binomial with size φ (`use_nb`;
+  1/√φ ~ half-normal(0, 1), bounded so φ ≤ 10⁴) for clustered sightings.
 - **Group sizes.** Resampled from the empirical pools in `data/grpsz/`.
 - **Model structure.** The detection, population-average ESW and size-bias
   machinery is the former `distance/distance_hn_dens_v4.1.stan`, now in
@@ -222,28 +237,32 @@ bottom-depth spline, in animals/km². Two observation models share it:
   HSGP4eDNA's own model (`tests/joint_exactness.R`). Not ported: the
   experimental mechanistic metabarcoding overdispersion.
 - **Visual:** the line-transect model for humpback and PWSD. Its half-normal
-  or hazard-rate key and per-species truncation carry through, and the
-  Beaufort sea-state covariate on detection can be switched on per species
-  (`bft_species`; on by default when the segments carry Beaufort).
-  `simulate_joint(sea_state = TRUE)` simulates it. With the covariate off the
-  log density is identical to the model without it, and with eDNA off it
-  equals the single-species visual models (`tests/joint_exactness.R`).
+  or hazard-rate key and per-species truncation carry through, and per
+  species the Beaufort and visibility covariates (`bft_species`,
+  `vis_species`) and negative-binomial counts (`nb_species`) can be switched
+  on. With each off the log density is identical to the model without it, and
+  with eDNA off it equals the single-species visual models
+  (`tests/joint_exactness.R`).
 
 Data switches turn the eDNA or the visual likelihood off, and free the
 cetaceans' conversion factors. So the eDNA-only, visual-only and joint fits use
 the same priors, basis and starting values, and differ only in the data they
 use.
 
-Exactness checks:
-- **Visual off:** the log density equals HSGP4eDNA's `hsgp_2d_bathysp.stan` up
-  to a constant.
+Exactness checks (`tests/joint_exactness.R`):
+- **Every option off:** the log density equals the joint model before the
+  NB, visibility and eDNA options, exactly.
 - **eDNA off:** it equals the sum of the two `hsgp_visual.stan` fits up to a
-  constant, with both half-normal and hazard-rate detection.
+  constant (PWSD with Beaufort, visibility and NB counts).
+- **Visual off, eDNA options on:** it equals HSGP4eDNA's own
+  `hsgp_2d_bathysp.stan` up to a constant.
 
-In both cases the spread is ≤ 3e-11 over random draws.
+The spread is ≤ 3e-11 over random draws.
 
 `Rscript R/compare_joint.r` runs all four fits on one simulated dataset and
-writes the tables and the figure below to `outputs/joint/compare_s<SEED>/`.
+writes the tables and the figure below to `outputs/joint/compare_s<SEED>/`
+(`compare_sea_s<SEED>/` with `SEA_STATE=1`). Its defaults are NB counts for
+both cetaceans, non-centred junk noise and `adapt_delta = 0.9`.
 
 ## Results
 
@@ -333,6 +352,28 @@ the true field is 0.92–0.96 throughout.
 
 ![Joint vs single-source field recovery, seed 1 on the 35°N domain: posterior mean vs true log density per species (rows) and fit (columns)](docs/figures/joint_compare_s1.png)
 
+## Real data
+
+The MURI data: the 2019 hake survey's eDNA (qPCR and MarVer1 metabarcoding)
+and the 2018 CCES line-transect survey, north of 35°N.
+
+- **Loading.** `R/01_load_muri.r` builds the eDNA and visual objects in the
+  simulators' shape (`data/processed/muri_{edna,visual}.rds`, tracked);
+  `R/02_check_muri.r` checks them. `R/fit_qpcr_standards.r` fits the hake
+  standard curves per plate (`data/processed/qpcr_standard_curves.rds`). The
+  choices (target depths, dilutions, read cutoff, contamination, Beaufort ≤ 5,
+  visibility, NB counts) are in `notes/muri_data_formatting.md`.
+- **Visual fits** (`R/fit_visual_real.r`): humpback 0.023 and PWSD 0.108
+  animals per km² on the Beaufort ≤ 5 effort; PWSD detection improves with
+  visibility (0.17 per nmi on log σ). The length-scales sit at the basis floor
+  (about 40 × 65 km), which is read as a resolution limit of the basis, not a
+  fault (`notes/real_visual_fits_2026-10-22.md`; clustered sightings were
+  ruled out as the cause, `notes/count_dispersion_check.md`).
+- **eDNA and joint fits** (`R/fit_joint_real.r`, running on stats3): Ct with
+  per-plate curves estimated from the 659 hake standards, dilution offsets,
+  per-bottle volumes and a sampling-depth smooth; the joint fit estimates the
+  cetaceans' conversion factors.
+
 ### GP priors
 
 The field priors come from the **survey design only**: sample locations,
@@ -347,8 +388,9 @@ domain extent and the basis budget. Observed outcomes never enter
 
   The basis is sized to ℓ_min, so it can represent everything the prior
   allows.
-- **Marginal SD:** `gp_sigma ~ gamma(4.05, 3.37)`, with 1% of mass below 0.25
-  and 1% above 3.
+- **Marginal SD:** `gp_sigma ~ gamma(2.94, 1.66)`, with 1% of mass below 0.25
+  and 1% above 5 (raised from 3 in HSGP4eDNA v1.11, as the real visual fits
+  sat near the old bound).
 - **Floor check:** `floor_check()` flags a fit whose length-scale posterior
   piles up against ℓ_min. This uses no truth, so it works on real data. A flag
   means the budget may be limiting the fit: refit with a larger `M_max` and
@@ -363,20 +405,28 @@ domain extent and the basis budget. Observed outcomes never enter
 ├── external/HSGP4eDNA/     submodule: eDNA model, HSGP helpers, simulators
 ├── R/                      drivers: fit_edna.r, functions_visual.R, functions_joint.R,
 │                           fit_visual.r, validate_visual.r, validate_joint_sim.r,
-│                           fit_joint.r, compare_joint.r; 01_load_muri.r, 02_check_muri.r
-├── stan/                   hsgp_visual.stan, hsgp_joint.stan; stan/include/visual_functions.stan
-├── tests/smoke.R           fast end-to-end check of every model
+│                           fit_joint.r, compare_joint.r, check_count_dispersion.r;
+│                           real data: 01_load_muri.r, 02_check_muri.r, fit_qpcr_standards.r,
+│                           fit_visual_real.r, fit_joint_real.r
+├── stan/                   hsgp_visual.stan, hsgp_joint.stan, qpcr_standards.stan;
+│                           stan/include/visual_functions.stan
+├── tests/                  smoke.R (every model), joint_exactness.R, visual_nb.R,
+│                           visual_detection.R
+├── tools/stats3_reruns.sh  runs the batches on the stats3 server
 ├── data/                   real survey data (+ data/grpsz/ group-size pools)
 ├── scripts/data_figures/   real-data maps and exploration (no model fitting)
 ├── figures/                outputs of scripts/data_figures/
 ├── presentations/          collaborator slide decks + presenter notes
 ├── docs/history/           write-ups of earlier model versions
-├── notes/                  correspondence
+├── notes/                  data-formatting notes, analysis write-ups, the stats3 guide
 └── outputs/                generated artifacts (mostly git-ignored)
 ```
 
-`data/MV1_MURI_df.csv` (MARVER1 metabarcoding, 30 MB) is git-ignored. Get it
-from the project share. It is needed only by the eDNA data-figure scripts.
+The raw MURI files are private and git-ignored: `qPCR_2019A.rds`,
+`M3_compiled_taxon_table_wide.csv`, `Hake_2019_metadata.csv` and
+`SITEINFO_CCE_2018_Pp_Lo_Mn.csv` (read by `R/01_load_muri.r`), and the older
+`MV1_MURI_df.csv` (used only by the eDNA data-figure scripts). Get them from the
+project share.
 
 ## Data figures
 
@@ -404,14 +454,15 @@ survey data and write them to `figures/`. Run them as
   The presenter notes still refer to the pre-restructure file layout, which
   will be refreshed in roadmap Phase 6.
 - `presentations/smm2026.qmd` is the 15-minute SMM 2026 talk (goals, real
-  data, model structure; simulation results still a placeholder). It renders
+  data, model structure, simulation results). It renders
   to HTML and PDF, with speaker notes inline. Its figures are built by
   `Rscript presentations/smm2026_figs/make_figures.R` from the processed
   real-data objects and `docs/figures/model_*.svg`.
 - `docs/explainer.md` (rendered `docs/explainer.html`) walks through every model
   with simulated and real data, prior and posterior predictive checks, and the
-  open issues. It was written on the set-up before the 35°N study domain (see
-  its status note) and will be regenerated after the re-runs in ROADMAP_2026-10-21, section 3. Figure scripts are in `docs/explainer/`; re-render with
+  open issues. Its first sections predate the 35°N study domain (see its status
+  notes); later sections are updated to 2026-10-22. It will be brought up to
+  date after the current stats3 runs (ROADMAP_2026-10-21, section 3). Figure scripts are in `docs/explainer/`; re-render with
   `quarto render docs/explainer.md --to html --embed-resources`.
 - `docs/history/` has two self-contained write-ups. `v3.2_notebook.html` is
   the eDNA sampler-pathology debugging case study, and
