@@ -164,7 +164,62 @@ fit_joint <- function(sim, mode = c("joint", "edna", "visual"), conv_free = char
                     show_messages = refresh > 0, output_dir = output_dir)
   runtime_min <- as.numeric(Sys.time() - t0, units = "mins")
   c(list(fit = fit, stan_data = sd, mode = mode, runtime_min = runtime_min),
-    summarise_joint(fit, sim, sd, mode))
+    if (is.null(sim$field)) summarise_joint_real(fit, sim, sd, mode) else summarise_joint(fit, sim, sd, mode))
+}
+
+# Hyperparameters whose R-hat the summaries report (the eDNA options' when on)
+joint_hyper_vars <- function(sd) {
+  noise <- c(if (sd$use_bottle_noise == 1L) "theta_bottle", if (sd$use_junk_noise == 1L) "theta_junk")
+  c("mu_sp", "gp_sigma", "gp_l_raw", "beta_bathy",
+    if (sd$use_visual == 1L) c("log_sigma", "mu_s", "mu_log_s"),
+    if (sd$use_visual == 1L && sum(sd$use_bft_covar) > 0) "beta_bft",
+    if (sd$use_visual == 1L && sum(sd$use_nb) > 0) "inv_sqrt_phi_nb",
+    if (sd$use_visual == 1L && sum(sd$use_vis_covar) > 0) "beta_vis",
+    if (sd$n_conv_free > 0) "log_conv_free",
+    if (sd$use_edna == 1L && sd$qpcr_curve_model == 1L)
+      c("alpha_ct_plate", "beta_ct_plate", "gamma0_ct_est", "gamma1_ct_est", "sigma0_ct_est", "logit_kappa_est"),
+    if (sd$use_edna == 1L && sd$K_zdepth > 0) "beta_zdepth", noise)
+}
+
+# Real data (no truth): posterior mean and 90% interval of the field at every
+# station and segment, the main parameters, the length-scale floor check and
+# diagnostics.
+summarise_joint_real <- function(fit, sim, sd, mode) {
+  sp <- attr(sd, "species"); S <- sd$S
+  smp <- sim$edna$design$samples
+  st_row <- match(sort(unique(smp$station)), smp$station)        # first sample per station
+  dm <- function(v) fit$draws(v, format = "draws_matrix")
+  col <- function(m, nr, rows, s) m[, (s - 1) * nr + rows, drop = FALSE]
+  ll_st <- dm("log_lambda"); ll_sg <- dm("log_lambda_seg")
+  field <- lapply(setNames(seq_len(S), sp), function(s) {
+    st <- col(ll_st, sd$N, st_row, s); sg <- col(ll_sg, sd$n_seg, seq_len(sd$n_seg), s)
+    q <- function(m) t(apply(m, 2, quantile, c(0.05, 0.95)))
+    list(station = data.frame(station = smp$station[st_row], X = smp$X[st_row], Y = smp$Y[st_row],
+                              mean = colMeans(st), q = q(st)),
+         segment = data.frame(seg_id = seq_len(sd$n_seg), mean = colMeans(sg), q = q(sg)))
+  })
+  vars <- c("mu_sp", "gp_sigma", "gp_l", "beta_bathy",
+            if (sd$n_conv_free > 0) "log_conv",
+            if (sd$use_visual == 1L) c("sigma_c", "b_shape", "p_det", "mean_group_size"),
+            if (sd$use_visual == 1L && sum(sd$use_bft_covar) > 0) "beta_bft",
+            if (sd$use_visual == 1L && sum(sd$use_vis_covar) > 0) "beta_vis",
+            if (sd$use_visual == 1L && sum(sd$use_nb) > 0) "phi_nb",
+            if (sd$use_bottle_noise == 1L) "theta_bottle", if (sd$use_junk_noise == 1L) "theta_junk",
+            if (sd$use_edna == 1L && sd$qpcr_curve_model == 1L)
+              c("alpha_ct_plate", "beta_ct_plate", "kappa_qpcr", "gamma0_ct_est", "gamma1_ct_est", "sigma0_ct_est"),
+            if (sd$use_edna == 1L && sd$K_zdepth > 0) "beta_zdepth",
+            if (sd$use_edna == 1L) c("beta0_phi", "gamma0_phi", "gamma1_phi"))
+  params <- cbind(mode = mode, as.data.frame(summarise_draws(fit$draws(vars), "mean", median = stats::median,
+                  q05 = ~as.numeric(quantile(.x, 0.05)), q95 = ~as.numeric(quantile(.x, 0.95)),
+                  rhat = posterior::rhat, ess_bulk = posterior::ess_bulk)))
+  gp_prior <- attr(sd, "gp_prior")
+  floor <- do.call(rbind, lapply(seq_len(S), function(s) cbind(mode = mode, species = sp[s],
+             floor_check(fit$draws(sprintf("gp_l[%d,%d]", s, 1:2), format = "draws_matrix"), gp_prior))))
+  diag <- fit$diagnostic_summary(quiet = TRUE)
+  hyper_rhat <- fit$summary(joint_hyper_vars(sd), "rhat")$rhat
+  list(field = field, params = params, floor = floor,
+       divergences = sum(diag$num_divergent), treedepth_hits = sum(diag$num_max_treedepth),
+       ebfmi = diag$ebfmi, max_rhat = max(hyper_rhat, na.rm = TRUE))
 }
 
 # True log density at every field location (stations, then segments) and the
@@ -245,12 +300,7 @@ summarise_joint <- function(fit, sim, sd, mode) {
   recovery <- cbind(mode = mode, recovery)
 
   diag <- fit$diagnostic_summary(quiet = TRUE)
-  hyper_rhat <- fit$summary(c("mu_sp", "gp_sigma", "gp_l_raw", "beta_bathy",
-                              if (sd$use_visual == 1L) c("log_sigma", "mu_s", "mu_log_s"),
-                              if (sd$use_visual == 1L && sum(sd$use_bft_covar) > 0) "beta_bft",
-                              if (sd$use_visual == 1L && sum(sd$use_nb) > 0) "inv_sqrt_phi_nb",
-                              if (sd$use_visual == 1L && sum(sd$use_vis_covar) > 0) "beta_vis",
-                              if (sd$n_conv_free > 0) "log_conv_free", noise), "rhat")$rhat
+  hyper_rhat <- fit$summary(joint_hyper_vars(sd), "rhat")$rhat
   list(field = field, recovery = recovery, post_mean = post_mean,
        divergences = sum(diag$num_divergent), treedepth_hits = sum(diag$num_max_treedepth),
        ebfmi = diag$ebfmi, max_rhat = max(hyper_rhat, na.rm = TRUE))

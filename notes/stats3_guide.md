@@ -1,7 +1,7 @@
 ---
 title: "Running the eDNAVisualJointModel re-runs on stats3"
 author: "EJ45"
-date: "2026-10-13"
+date: "2026-10-25"
 ---
 
 ## Quick orientation
@@ -11,15 +11,14 @@ These are the re-runs that the move to the 35°N study domain needed
 section 3). As with the FinWhale pipeline, the cleanest set-up is
 **SSH + tmux**: every job is a non-interactive `Rscript` that writes files.
 
-> **Priority before the October 2026 presentation.** Run stage 1, then the
-> joint comparison (stage 3) for seeds 2 and 3, then a second wave for seeds 4
-> and 5. That gives eDNA-only, visual-only and joint fits on several
-> simulations of the real study domain. Stages 2 and 4 can wait. The visual
-> validation and the explainer's visual fits are already done (run on the Mac
-> on 2026-10-12). Seed 1 needs the data-based starting field (from
-> 2026-10-13; `git pull` first), because from a flat start its eDNA fits get
-> stuck at its extreme hake hot spots (ROADMAP_2026-10-06, 6.0). Run it as its own wave:
-> `CMP_SEEDS="1" tools/stats3_reruns.sh stage 3`.
+> **Now (2026-10-26): the real-data fits and the seed-1 demonstration.**
+> Stop any old session, update to branch `claude/replicates`, run `compile`
+> (Part 6, "Getting ready"), then launch the real-data fits (`stage 6`, three
+> jobs) and seed 1's joint and free-conversion fits (two jobs): 20 cores, up
+> to about a day. None needs stage 1 or the private data. **The tier-1
+> replicates (seeds 2–5) wait until later this week**; their steps are in
+> Part 6, "The tier-1 replicates". Everything else in this guide is the
+> earlier set-up and still applies.
 
 **stats3 specs (from the IT FAQ):** Intel i9-13900K with 24 physical cores and
 32 hyperthreads, 128 GB RAM, RAID-1 NVMe (`/fast_raid`) and HDD (`/local_raid`).
@@ -38,13 +37,16 @@ job. Every job runs under `nice` and stops at its first failing step.
 |---|---|---|---|
 | 1 | `prep`: real data (`01_load_muri.r`, `02_check_muri.r`), smoke test, `tests/visual_detection.R`, compile every model | 2 | about 1 h |
 | 2 | HSGP4eDNA 2-D validation (4 jobs), visual validation (normal and sea state), joint simulator check | 23 | hours; `hsgp_bathysp_depthspref` 1–2 days |
-| 3 | Joint comparison: modes `visual`, `edna`, `joint`, `joint_conv` (4 chains each) for every seed in `CMP_SEEDS` (default `"2 3"`) | 16 per seed | about 4–6 h each (`visual` about 30 min) |
+| 3 | Joint comparison: modes `visual`, `edna`, `joint`, `joint_conv` (4 chains each) for every seed in `CMP_SEEDS` (default `"2 3"`); with `CMP_SEA=1` the sea-state version (the replicates; Part 6) | 16 per seed (+12 for the without-Beaufort contrast) | about 6–8 h each (`visual` about 1 h) |
 | 4 | Explainer fits: simulated eDNA and visual, real visual (budget 800 and 1600, both species) | 14 | about 1–3 h each |
 | 5 | `finish`: comparison tables and `joint_compare_s<seed>.png` for every seed with fits, the remaining explainer figures | 1 | minutes |
 
-The real eDNA explainer fit (`expl_edna_real`) is in no stage: it waits for
-the data in ROADMAP_2026-10-21, section 5 (Ct values, volumes, dilutions), and is launched on its
-own with `tools/stats3_reruns.sh launch expl_edna_real` once they are in.
+The real eDNA explainer fit (`expl_edna_real`) is in no stage. Its data are in
+(Ct per well, the hake standards, volumes, dilutions and target depths;
+ROADMAP_2026-10-21, section 5) and the joint model can use them, but the job's
+script (`docs/explainer/04_fit_edna_real.R`) still runs the earlier
+metabarcoding-only fit. Don't launch it until that script is rewritten
+(ROADMAP_2026-10-21, section 5 item 7).
 
 The times are estimates. The budget is now 800 functions and the domain is
 larger, which roughly doubles the old run times. `bathysp_depthspref` (1185
@@ -97,7 +99,7 @@ On stats3:
 cd /fast_raid/ej45
 git clone --recurse-submodules https://github.com/MMARINeDNA/eDNAVisualJointModel.git
 cd eDNAVisualJointModel
-git submodule status        # external/HSGP4eDNA should show (v1.4)
+git submodule status        # external/HSGP4eDNA should show v1.5-48-g5515a04 (v1.12)
 ```
 
 eDNAVisualJointModel is public, but its submodule **HSGP4eDNA is private**. So
@@ -117,31 +119,31 @@ git config --global credential.helper 'cache --timeout=86400'
 
 To update later: `git pull && git submodule update --init`.
 
-## Part 4: Copy the private input data (one time, about 32 MB)
+## Part 4: Copy the private input data (only for `prep` and real-data jobs)
 
 The raw MURI files are **not in the repo**, because the repo is public, and
 `.gitignore` keeps them out. Only the real-data loader (`R/01_load_muri.r`) and
-its check (`R/02_check_muri.r`) read them. Everything else uses the tracked,
-derived `data/processed/muri_{edna,visual}.rds`.
+its check (`R/02_check_muri.r`) read them, so only `prep` (stage 1) needs
+them. Everything else, the replicates included, uses simulations or the
+tracked, derived `data/processed/muri_{edna,visual}.rds` and
+`qpcr_standard_curves.rds`.
 
-From a **Mac terminal in your main checkout**, which already has both files:
+The loader now reads four private files (from 2026-10-21): the qPCR lab's
+`qPCR_2019A.rds`, the compiled metabarcoding table
+`M3_compiled_taxon_table_wide.csv`, the sample metadata
+`Hake_2019_metadata.csv`, and `SITEINFO_CCE_2018_Pp_Lo_Mn.csv` (perpendicular
+distances). `MV1_MURI_df.csv` is no longer used. From a **Mac terminal in your
+main checkout**, which has them:
 
 ```bash
 cd /Users/ej45/Documents/MMARINeDNA/eDNAVisualJointModel
-scp data/MV1_MURI_df.csv data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv \
+scp data/qPCR_2019A.rds data/M3_compiled_taxon_table_wide.csv \
+    data/Hake_2019_metadata.csv data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv \
     stats3:/fast_raid/ej45/eDNAVisualJointModel/data/
 ```
 
-Then check on stats3:
-
-```bash
-ls -lh /fast_raid/ej45/eDNAVisualJointModel/data/
-```
-
-You should see `MV1_MURI_df.csv` at about 30 MB and
-`SITEINFO_CCE_2018_Pp_Lo_Mn.csv` at about 50 KB, next to the tracked
-`effort.csv`, `sightings.csv` and `hake_qPCR_MURI_df.csv`. If either private
-file is missing, the `prep` job stops with a message pointing here.
+Then check on stats3 with `ls -lh /fast_raid/ej45/eDNAVisualJointModel/data/`.
+If a file is missing, the `prep` job stops with a message pointing here.
 
 **Bathymetry.** On its first run, the loader downloads ETOPO 2022 bathymetry
 from NOAA (via `marmap`, a few MB) and caches it as
@@ -206,10 +208,133 @@ tools/stats3_reruns.sh stage 1
 tools/stats3_reruns.sh status       # repeat until prep says DONE (about 1 h)
 ```
 
-`prep` reruns the loader. The processed objects were already regenerated on
-the 35°N domain on `main` (#85), so the log should say each one **matches the
-committed copy**. If one differs, stop and look before going on. The smoke
-test's 26 checks must pass. If `prep` says `FAILED`, read `logs/prep.log`.
+`prep` reruns the loader, so the log should say each processed object
+**matches the committed copy**. If one differs, stop and look before going
+on. The smoke test's 44 checks must pass. If `prep` says `FAILED`, read
+`logs/prep.log`. Simulation-only work (the replicates below) can skip `prep`
+and run the much shorter `compile` job instead.
+
+### Getting ready (now)
+
+Steps 1–3 below (stop old jobs, update the checkout, `compile`) are needed
+before **any** of the new jobs. Then launch, together (20 cores):
+
+```bash
+tools/stats3_reruns.sh stage 6                       # the real-data fits (see "The real-data fits")
+tools/stats3_reruns.sh launch cmpsea_s1_joint        # seed 1 demonstration: joint
+tools/stats3_reruns.sh launch cmpsea_s1_joint_conv   # seed 1: joint with free conversion factors
+tools/stats3_reruns.sh status
+```
+
+**The seed-1 demonstration** is the idealised simulation (sea state; NB
+counts; HSGP4eDNA v1.12) fitted four ways. Its eDNA-only and visual-only
+fits are done on the Mac (`outputs/joint/compare_sea_s1/`); these two jobs
+re-run the joint and free-conversion fits with the bound on the NB
+parameter (about 6–8 hours each). Pull `outputs/joint/compare_sea_s1/` back
+when they end (Part 9) and Claude rebuilds the seed-1 table and figure.
+
+Steps 4–6 are for the replicates, later this week; seed 1 is then done, so
+the waves start with seed 2.
+
+### The tier-1 replicates (later this week)
+
+The sea-state joint comparison for seeds 1–5: each seed simulated with segment
+Beaufort and fitted eDNA-only, visual-only, joint and joint with free
+conversion factors, all with the Beaufort covariate; seeds 1 and 2 also
+without it, for contrast. The fits use the settings that are now
+`R/compare_joint.r`'s defaults: negative-binomial segment counts for both
+cetaceans, non-centred junk noise and `adapt_delta = 0.9`, with the NB
+parameter bounded (`inv_sqrt_phi_nb >= 0.01`). Seed 1 with the covariate is
+done first (above); the rest are 22 jobs of 4 chains each.
+
+**1. Connect and stop anything left from an earlier launch.** If yesterday's
+stage-3 jobs are running, they use the model without the NB bound and can get
+stuck (Part 8):
+
+```bash
+ssh stats3
+cd /fast_raid/ej45/eDNAVisualJointModel
+tools/stats3_reruns.sh status
+tmux kill-session -t reruns         # only if jobs from an earlier launch are running
+```
+
+**2. Update the checkout** to the branch with the replicate settings (until it
+is merged into `main`) and the HSGP4eDNA v1.12 submodule:
+
+```bash
+git fetch
+git checkout claude/replicates
+git pull
+git submodule update --init
+git log --oneline -3                # the latest should be the guide update of 2026-10-26 or later
+                                    # (it must include 0a5a894, the real-data fits, and e0ed941, the NB bound)
+git submodule status                # v1.5-48-g5515a04
+```
+
+**3. Compile the models once** (a few minutes; the Stan files changed). Without
+this, every job of a wave would compile the joint model at the same moment.
+Everything on the branch was checked on the Mac on 2026-10-26: the smoke test,
+the exactness tests, and each job type (`cmpsea_*`, `cmpseanobft_*`,
+`jreal_*`) run through this script with tiny chains.
+
+```bash
+tools/stats3_reruns.sh run compile  # ends with "DONE compile"
+```
+
+**4. Launch the jobs in waves**, keeping to about 24 cores. A seed's four jobs
+use 16 cores; its visual-only job ends after about an hour, the other three
+take about 6–8 hours. Check `uptime` before each wave and start the next one
+when the previous wave's long jobs end.
+
+| Wave | Command | Jobs | Cores |
+|---|---|---|---|
+| 1 | `CMP_SEA=1 CMP_NOBFT=0 CMP_SEEDS="2 3" tools/stats3_reruns.sh stage 3` | seeds 2–3, with the covariate | 32 for the first hour, then 24 |
+| 2 | `CMP_SEA=1 CMP_NOBFT=0 CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3` | seeds 4–5 | 32, then 24 |
+| 3 | `for s in 1 2; do for m in visual joint joint_conv; do tools/stats3_reruns.sh launch cmpseanobft_s${s}_$m; done; done` | seeds 1–2 without the covariate | 24, then 16 |
+
+Seed 1 with the covariate is done by then (the two jobs above and the Mac's
+fits), so it is not in the waves. That is about a day in all. Results go to `outputs/joint/compare_sea_s<seed>/`
+and `compare_sea_nobft_s<seed>/` (one `fit_<mode>.rds` per job).
+
+**5. Check on them** (Part 7). Each job's log ends with a line like
+`joint: 465 min | divergences 0 | treedepth 0 | max Rhat 1.06`. A visual-only
+job still in warmup after about 2 hours is the stuck-chain problem (Part 8).
+
+**6. Pull the results back** when all 22 are done (Part 9, the replicates
+block) and ask Claude for the summary table across seeds.
+
+### The real-data fits (stage 6, from 2026-10-26)
+
+The joint model on the real 2019 eDNA and 2018 visual data
+(`R/fit_joint_real.r`; ROADMAP_2026-10-21, section 5 item 7). Three jobs of 4
+chains, 1000 warmup and 1000 draws each:
+
+| Job | Fit |
+|---|---|
+| `jreal_edna` | eDNA only: the real eDNA fit, with Ct and per-plate qPCR curves estimated from the 659 standards, the dilution offsets, per-bottle volumes and the sampling-depth smooth |
+| `jreal_visual` | visual only, on the same basis and priors (humpback hazard-rate + group size; PWSD half-normal + group size + Beaufort + visibility; NB counts for both) |
+| `jreal_joint_conv` | both sources, the cetaceans' eDNA conversion factors estimated (the real ones are unknown) |
+
+They read only the tracked `data/processed/` objects, so they need `compile`
+but not `prep` or the private data. After steps 1–3 above:
+
+```bash
+tools/stats3_reruns.sh stage 6
+tools/stats3_reruns.sh status         # the three jreal_* jobs
+```
+
+Expect roughly half a day for `jreal_edna` and up to a day for
+`jreal_joint_conv`; `jreal_visual` takes about an hour. These are the first
+fits of the full model to the real data, so check each log's final line
+(divergences, max Rhat) and tell Claude about anything odd before relying on
+them. Results go to `outputs/joint/real/` (`fit_<mode>.rds`, and
+`real_{runs,params,floor}.csv` over the modes found); pull them back with the
+replicates (`outputs/joint/`). After the jobs end, rebuild the tables over all
+three modes with `MODES= Rscript R/fit_joint_real.r`.
+
+### Other stage-3 runs
+
+The plain (calm-sea) comparison, as before:
 
 **For the presentation**, launch the joint comparison next. With the default
 `CMP_SEEDS="2 3"` it runs 8 jobs (32 chains for the first half hour, 24 once
@@ -221,16 +346,9 @@ CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3      # second wave, once the firs
 CMP_SEEDS="1" tools/stats3_reruns.sh stage 3        # seed 1 (needs the data-based start)
 ```
 
-**Sea-state comparison** (ROADMAP_2026-10-21, section 3). Simulations with segment
-Beaufort, fitted visual-only, joint and joint with free conversion factors,
-each with the Beaufort covariate and without it (6 jobs, 24 cores per seed):
-
-```bash
-CMP_SEA=1 CMP_SEEDS="1" tools/stats3_reruns.sh stage 3
-```
-
-Results go to `outputs/joint/compare_sea_s<seed>/` and
-`compare_sea_nobft_s<seed>/`.
+**Sea-state comparison:** `CMP_SEA=1` runs the four modes with the Beaufort
+covariate and, unless `CMP_NOBFT=0`, the three visual modes without it (28
+cores per seed); the replicates above use it.
 
 A single fit can be relaunched by name, e.g.
 `tools/stats3_reruns.sh launch cmp_s3_joint`. The tables and figure for a seed
@@ -302,6 +420,13 @@ and warn when Rhat is above 1.05.
   `prep`, so don't relaunch `prep` while visual fits are running.
 - **Stopping jobs.** To stop one, attach, pick its window and press `Ctrl-c`.
   To stop everything, run `tmux kill-session -t reruns`.
+- **A fit stuck in warmup for hours** (no `Iteration: ... (Sampling)` lines;
+  seen on 2026-10-24 in a visual-only fit) was the NB parameter running off to
+  0 on near-Poisson sightings. The bound in commit `e0ed941` fixes it; check
+  `git log` shows it, run `compile`, and relaunch the job by name.
+- **Two jobs compiling at once** can leave a broken executable. Run
+  `tools/stats3_reruns.sh run compile` before a wave whenever the Stan files
+  have changed.
 
 ## Part 9: Pull results back to the Mac
 
@@ -321,13 +446,21 @@ rsync -av $R/docs/figures/ docs/figures/
 rsync -av $R/logs/ logs/
 ```
 
-For the presentation only the joint comparison is needed, which is small
-(summaries only):
+**For the replicates**, only the joint comparison is needed, which is small
+(summaries only). Into the session's worktree or any checkout:
 
 ```bash
 rsync -av "$X" $R/outputs/joint/ outputs/joint/
 rsync -av $R/logs/ logs/
 ```
+
+Seed 1's earlier Mac runs are kept on the Mac as
+`outputs/joint/compare_sea_s1_v15/` (v1.5). In `compare_sea_s1/` the pull
+replaces the joint and free-conversion fits (made before the NB bound) and
+keeps the Mac's eDNA-only and visual-only fits (rsync deletes nothing); its
+tables then cover only stats3's two modes, so rebuild them over all four on
+the Mac with `SEA_STATE=1 SEED=1 MODES= Rscript R/compare_joint.r` (or ask
+Claude).
 
 `docs/figures/*.png` then shows up as changed in `git status`.
 `data/processed/` is not copied back, because `prep` checked that it matches
@@ -347,7 +480,8 @@ Then ask Claude to do three things:
 ssh stats3
 cd /fast_raid/ej45/eDNAVisualJointModel
 tools/stats3_reruns.sh status        # what is done, running or failed
-tools/stats3_reruns.sh stage <n>     # launch the next stage
+tools/stats3_reruns.sh run compile   # after a git pull that changed Stan files
+tools/stats3_reruns.sh stage <n>     # launch the next stage (replicates: Part 6 waves; real data: stage 6)
 tmux attach -t reruns                # Ctrl-b w to pick a window, Ctrl-b d to detach
 exit
 ```

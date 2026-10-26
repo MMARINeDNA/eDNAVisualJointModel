@@ -14,6 +14,11 @@
 #      SEA_STATE (1: simulate segment Beaufort; default 0), BFT_SPECIES
 #      (species with the sea-state covariate; default: both cetaceans when
 #      SEA_STATE=1, else none; "none" fits without it, for contrast),
+#      NB_SPECIES (species with negative-binomial segment counts; default
+#      both cetaceans, "none" = Poisson), JUNK_NOISE_DIST (1 centred, 2
+#      non-centred; default 2: the centred form mixes badly on HSGP4eDNA
+#      v1.7+'s simulator, ROADMAP_2026-10-21 section 3 item 3), ADAPT_DELTA
+#      (default 0.9),
 #      CHAINS, WARMUP, SAMPLE (default 4 x 800/800), REFRESH (sampler
 #      progress every REFRESH iterations; default 100, 0 = silent), OUT (default
 #      outputs/joint/compare_s<SEED>; with SEA_STATE=1 compare_sea_s<SEED>, or
@@ -35,6 +40,10 @@ SEA_STATE <- env_int("SEA_STATE", "0") == 1L
 BFT_SPECIES <- Sys.getenv("BFT_SPECIES", "")
 BFT_SPECIES <- if (!nzchar(BFT_SPECIES)) NULL else if (BFT_SPECIES == "none") character(0) else
   strsplit(BFT_SPECIES, ",")[[1]]
+NB_SPECIES <- Sys.getenv("NB_SPECIES", "humpback,pwsd")
+NB_SPECIES <- if (NB_SPECIES == "none") character(0) else strsplit(NB_SPECIES, ",")[[1]]
+JUNK_NOISE_DIST <- env_int("JUNK_NOISE_DIST", "2")
+ADAPT_DELTA <- as.numeric(Sys.getenv("ADAPT_DELTA", "0.9"))
 OUT <- Sys.getenv("OUT", sprintf("outputs/joint/compare%s_s%d",
                                  if (!SEA_STATE) "" else if (identical(BFT_SPECIES, character(0)))
                                    "_sea_nobft" else "_sea", SEED))
@@ -49,10 +58,13 @@ saveRDS(sim, tmp); file.rename(tmp, file.path(OUT, "sim.rds"))
 if (length(MODES) && any(nzchar(MODES))) {
   mod <- compile_joint()
   for (m in MODES) {
-    cat(sprintf("\n=== %s ===\n", m))
+    cat(sprintf("\n=== %s (NB: %s; junk noise %s; adapt_delta %.2f) ===\n", m,
+                if (length(NB_SPECIES)) paste(NB_SPECIES, collapse = ",") else "none",
+                c("centred", "non-centred")[JUNK_NOISE_DIST], ADAPT_DELTA))
     r <- fit_joint(sim, if (m == "joint_conv") "joint" else m,
                    conv_free = if (m == "joint_conv") CONV_FREE else character(0),
-                   bft_species = BFT_SPECIES,
+                   bft_species = BFT_SPECIES, nb_species = NB_SPECIES,
+                   junk_noise_dist = JUNK_NOISE_DIST, adapt_delta = ADAPT_DELTA,
                    mod = mod, chains = env_int("CHAINS", "4"),
                    warmup = env_int("WARMUP", "800"), sample = env_int("SAMPLE", "800"),
                    refresh = env_int("REFRESH", "100"),

@@ -303,7 +303,10 @@ parameters {
   vector[n_hr] log_b;                      // hazard-rate shape (hazard-rate species only)
   vector[n_bft_sp] beta_bft;               // change in log sigma per Beaufort unit (bft species only)
   vector[n_vis_sp] beta_vis;               // change in log sigma per visibility unit (vis species only)
-  vector<lower=0>[n_nb_sp] inv_sqrt_phi_nb; // segment-count overdispersion (NB species only)
+  // segment-count overdispersion (NB species only), bounded below at 0.01 so
+  // phi_nb <= 1e4: unbounded, chains on near-Poisson sightings drifted to ~0,
+  // where phi overflowed and the step size collapsed (as hsgp_visual.stan)
+  vector<lower=0.01>[n_nb_sp] inv_sqrt_phi_nb;
   vector<lower=0>[L] mu_s;
   vector<lower=0>[L] phi_s;
   vector[L] mu_log_s;

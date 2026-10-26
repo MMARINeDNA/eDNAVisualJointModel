@@ -16,9 +16,13 @@
 # Env: SESSION (tmux session name, default "reruns"), NICE (default 10),
 #      CMP_SEEDS (joint-comparison seeds for stage 3, default "2 3"; e.g.
 #      CMP_SEEDS="4 5" tools/stats3_reruns.sh stage 3 for a second wave),
-#      CMP_SEA (1: stage 3 runs the sea-state comparison instead: visual-only,
-#      joint and joint_conv on simulate_joint(sea_state = TRUE), fitted with
-#      the Beaufort covariate and, for contrast, without it; 24 cores per seed)
+#      CMP_SEA (1: stage 3 runs the sea-state comparison instead: eDNA-only,
+#      visual-only, joint and joint_conv on simulate_joint(sea_state = TRUE),
+#      fitted with the Beaufort covariate and, for contrast with CMP_NOBFT=1
+#      (default), visual-only, joint and joint_conv without it; 16-28 cores
+#      per seed), CMP_NOBFT (0: skip the without-covariate contrast, e.g. for
+#      seeds 3-5). R/compare_joint.r's defaults apply: NB counts for both
+#      cetaceans, non-centred junk noise, adapt_delta 0.9.
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -27,28 +31,36 @@ SESSION=${SESSION:-reruns}
 NICE=${NICE:-10}
 CMP_SEEDS=${CMP_SEEDS:-2 3}
 CMP_SEA=${CMP_SEA:-0}
+CMP_NOBFT=${CMP_NOBFT:-1}
 CMP_MODES="visual edna joint joint_conv"
-SEA_MODES="visual joint joint_conv"        # the eDNA-only fit does not use sea state
+SEA_MODES="edna visual joint joint_conv"   # the eDNA-only fit ignores sea state, but is on the same data
+NOBFT_MODES="visual joint joint_conv"
 mkdir -p logs
 
 # Stage 1 must finish first: it rebuilds the real data and compiles the models.
 # Stages 2 to 4 only need stage 1; stage 5 needs 3 and 4. Stage 3 is the joint
 # comparison: one job per seed in CMP_SEEDS and mode, 4 chains each (16 cores
 # per seed; the visual-only job ends after about 30 min).
-# expl_edna_real is in no stage: the real eDNA fit waits for the data in
-# ROADMAP_2026-10-21, section 5 (launch it on its own when they are in).
+# expl_edna_real is in no stage: its data are in, but its script
+# (docs/explainer/04_fit_edna_real.R) is still the earlier metabarcoding-only
+# fit, to be rewritten first (ROADMAP_2026-10-21, section 5 item 7).
 STAGE1="prep"
 STAGE2="hsgp_nobathy hsgp_bathysp_surface hsgp_bathysp_depthspref hsgp_bathygp_surface
         visual_val visual_val_sea joint_sim"
 if [ "$CMP_SEA" = 1 ]; then
-  STAGE3=$(for s in $CMP_SEEDS; do for m in $SEA_MODES; do
-             printf 'cmpsea_s%s_%s cmpseanobft_s%s_%s ' "$s" "$m" "$s" "$m"; done; done)
+  STAGE3=$(for s in $CMP_SEEDS; do
+             for m in $SEA_MODES; do printf 'cmpsea_s%s_%s ' "$s" "$m"; done
+             if [ "$CMP_NOBFT" = 1 ]; then for m in $NOBFT_MODES; do printf 'cmpseanobft_s%s_%s ' "$s" "$m"; done; fi
+           done)
 else
   STAGE3=$(for s in $CMP_SEEDS; do for m in $CMP_MODES; do printf 'cmp_s%s_%s ' "$s" "$m"; done; done)
 fi
 STAGE4="expl_edna_sim expl_visual_sim expl_real_humpback expl_real_pwsd
         expl_real1600_humpback expl_real1600_pwsd"
 STAGE5="finish"
+# Stage 6: the joint model on the real data (R/fit_joint_real.r), one job per
+# mode, 4 cores each; needs only 'compile' (the real objects are tracked)
+STAGE6="jreal_edna jreal_visual jreal_joint_conv"
 
 hsgp() { (cd external/HSGP4eDNA && Rscript "$@"); }
 
@@ -67,7 +79,8 @@ job() {
   case "$1" in
     # ---- stage 1: real data, tests, compile every model (about 1 h, 2 cores)
     prep)
-      for f in data/MV1_MURI_df.csv data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv; do
+      for f in data/qPCR_2019A.rds data/M3_compiled_taxon_table_wide.csv data/Hake_2019_metadata.csv \
+               data/SITEINFO_CCE_2018_Pp_Lo_Mn.csv; do
         [ -f "$f" ] || { echo "missing $f: copy it from the Mac (notes/stats3_guide.md, Part 4)"; exit 1; }
       done
       Rscript R/01_load_muri.r
@@ -76,6 +89,15 @@ job() {
       Rscript tests/smoke.R
       Rscript tests/visual_detection.R
       hsgp -e 'cmdstanr::cmdstan_model("stan/hsgp_nd.stan", include_paths = "stan/include")' ;;
+    # ---- stage 6: the joint model on the real data (4 cores each)
+    jreal_*)
+      [[ $1 =~ ^jreal_(edna|visual|joint|joint_conv)$ ]] ||
+        { echo "bad job name $1 (jreal_<edna|visual|joint|joint_conv>)"; exit 2; }
+      MODES=${BASH_REMATCH[1]} Rscript R/fit_joint_real.r ;;
+    # compile the visual and joint models once (no data needed), before
+    # launching jobs that would otherwise all compile them at the same time
+    compile)
+      Rscript -e 'source("R/fit_joint.r"); source("R/fit_visual.r"); invisible(compile_joint()); invisible(compile_visual()); cat("compiled\n")' ;;
     # ---- stage 2: HSGP4eDNA 2-D validation (3 cores each)
     hsgp_nobathy)
       hsgp R/01_sim_nobathy_surface.r
@@ -97,11 +119,11 @@ job() {
       SEED=${BASH_REMATCH[1]} MODES=${BASH_REMATCH[2]} Rscript R/compare_joint.r ;;
     # ---- stage 3 with CMP_SEA=1: sea-state comparison, with and without the covariate
     cmpsea_s*|cmpseanobft_s*)
-      [[ $1 =~ ^cmpsea(nobft)?_s([0-9]+)_(visual|joint|joint_conv)$ ]] ||
-        { echo "bad job name $1 (cmpsea[nobft]_s<seed>_<visual|joint|joint_conv>)"; exit 2; }
+      [[ $1 =~ ^cmpsea(nobft)?_s([0-9]+)_(edna|visual|joint|joint_conv)$ ]] ||
+        { echo "bad job name $1 (cmpsea[nobft]_s<seed>_<edna|visual|joint|joint_conv>)"; exit 2; }
       local nobft=${BASH_REMATCH[1]} seed=${BASH_REMATCH[2]} mode=${BASH_REMATCH[3]}
       SEA_STATE=1 SEED=$seed MODES=$mode BFT_SPECIES=${nobft:+none} Rscript R/compare_joint.r ;;
-    # ---- stage 4: explainer fits (2-3 cores each; expl_edna_real waits for the 6.1 data)
+    # ---- stage 4: explainer fits (2-3 cores each; expl_edna_real waits for its script rewrite)
     expl_edna_sim)
       Rscript docs/explainer/01_fit_edna_sim.R
       Rscript docs/explainer/05_fig_simulation.R
@@ -139,7 +161,7 @@ job() {
 stage_jobs() {
   case "$1" in
     1) echo $STAGE1 ;; 2) echo $STAGE2 ;; 3) echo $STAGE3 ;;
-    4) echo $STAGE4 ;; 5) echo $STAGE5 ;;
+    4) echo $STAGE4 ;; 5) echo $STAGE5 ;; 6) echo $STAGE6 ;;
     *) echo "unknown stage: $1" >&2; return 2 ;;
   esac
 }
@@ -172,12 +194,14 @@ case "${1:-list}" in
   list)
     cat <<EOF
 stage 1  (run alone first; ~1 h)                 $STAGE1
+         (or, for simulation-only jobs such as stage 3: 'run compile', a few minutes)
 stage 2  (~23 cores; hours to ~2 days)           $(echo $STAGE2)
 stage 3  (16 cores per seed; ~4-6 h per job)     $(echo $STAGE3)
          seeds from CMP_SEEDS (now "$CMP_SEEDS"); CMP_SEA=1 for the sea-state
          comparison (now CMP_SEA=$CMP_SEA; 24 cores per seed)
 stage 4  (~14 cores; hours)                      $(echo $STAGE4)
 stage 5  (after 3 and 4; minutes)                $STAGE5
+stage 6  (real data; 12 cores; ~0.5-1 day)        $(echo $STAGE6)
 not in a stage (needs the ROADMAP_2026-10-21 section 5 data): expl_edna_real
 EOF
     ;;
