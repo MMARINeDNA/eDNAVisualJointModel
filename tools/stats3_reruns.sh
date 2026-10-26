@@ -58,6 +58,9 @@ fi
 STAGE4="expl_edna_sim expl_visual_sim expl_real_humpback expl_real_pwsd
         expl_real1600_humpback expl_real1600_pwsd"
 STAGE5="finish"
+# Stage 6: the joint model on the real data (R/fit_joint_real.r), one job per
+# mode, 4 cores each; needs only 'compile' (the real objects are tracked)
+STAGE6="jreal_edna jreal_visual jreal_joint_conv"
 
 hsgp() { (cd external/HSGP4eDNA && Rscript "$@"); }
 
@@ -86,6 +89,11 @@ job() {
       Rscript tests/smoke.R
       Rscript tests/visual_detection.R
       hsgp -e 'cmdstanr::cmdstan_model("stan/hsgp_nd.stan", include_paths = "stan/include")' ;;
+    # ---- stage 6: the joint model on the real data (4 cores each)
+    jreal_*)
+      [[ $1 =~ ^jreal_(edna|visual|joint|joint_conv)$ ]] ||
+        { echo "bad job name $1 (jreal_<edna|visual|joint|joint_conv>)"; exit 2; }
+      MODES=${BASH_REMATCH[1]} Rscript R/fit_joint_real.r ;;
     # compile the visual and joint models once (no data needed), before
     # launching jobs that would otherwise all compile them at the same time
     compile)
@@ -153,7 +161,7 @@ job() {
 stage_jobs() {
   case "$1" in
     1) echo $STAGE1 ;; 2) echo $STAGE2 ;; 3) echo $STAGE3 ;;
-    4) echo $STAGE4 ;; 5) echo $STAGE5 ;;
+    4) echo $STAGE4 ;; 5) echo $STAGE5 ;; 6) echo $STAGE6 ;;
     *) echo "unknown stage: $1" >&2; return 2 ;;
   esac
 }
@@ -193,6 +201,7 @@ stage 3  (16 cores per seed; ~4-6 h per job)     $(echo $STAGE3)
          comparison (now CMP_SEA=$CMP_SEA; 24 cores per seed)
 stage 4  (~14 cores; hours)                      $(echo $STAGE4)
 stage 5  (after 3 and 4; minutes)                $STAGE5
+stage 6  (real data; 12 cores; ~0.5-1 day)        $(echo $STAGE6)
 not in a stage (needs the ROADMAP_2026-10-21 section 5 data): expl_edna_real
 EOF
     ;;

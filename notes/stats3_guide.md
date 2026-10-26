@@ -17,8 +17,10 @@ section 3). As with the FinWhale pipeline, the cleanest set-up is
 > the NB parameter. The steps are in **Part 6, "The tier-1 replicates"**: stop
 > any old session, update to branch `claude/replicates`, run `compile`, then
 > four waves of stage-3 jobs (about a day in all). They are simulations, so
-> they need neither stage 1 nor the private data. Everything else in this
-> guide is the earlier set-up and still applies.
+> they need neither stage 1 nor the private data. **Then the first real-data
+> joint fits** (stage 6, Part 6, "The real-data fits"): three jobs, 12 cores,
+> best run alongside the replicates' wave 4. Everything else in this guide is
+> the earlier set-up and still applies.
 
 **stats3 specs (from the IT FAQ):** Intel i9-13900K with 24 physical cores and
 32 hyperthreads, 128 GB RAM, RAID-1 NVMe (`/fast_raid`) and HDD (`/local_raid`).
@@ -277,6 +279,36 @@ job still in warmup after about 2 hours is the stuck-chain problem (Part 8).
 **6. Pull the results back** when all 26 are done (Part 9, the replicates
 block) and ask Claude for the summary table across seeds.
 
+### The real-data fits (stage 6, from 2026-10-26)
+
+The joint model on the real 2019 eDNA and 2018 visual data
+(`R/fit_joint_real.r`; ROADMAP_2026-10-21, section 5 item 7). Three jobs of 4
+chains, 1000 warmup and 1000 draws each:
+
+| Job | Fit |
+|---|---|
+| `jreal_edna` | eDNA only: the real eDNA fit, with Ct and per-plate qPCR curves estimated from the 659 standards, the dilution offsets, per-bottle volumes and the sampling-depth smooth |
+| `jreal_visual` | visual only, on the same basis and priors (humpback hazard-rate + group size; PWSD half-normal + group size + Beaufort + visibility; NB counts for both) |
+| `jreal_joint_conv` | both sources, the cetaceans' eDNA conversion factors estimated (the real ones are unknown) |
+
+They read only the tracked `data/processed/` objects, so they need `compile`
+but not `prep` or the private data. Launch them when 12 cores are free, e.g.
+with the replicates' wave 4:
+
+```bash
+tools/stats3_reruns.sh run compile    # if not already run since the last git pull
+tools/stats3_reruns.sh stage 6
+```
+
+Expect roughly half a day for `jreal_edna` and up to a day for
+`jreal_joint_conv`; `jreal_visual` takes about an hour. These are the first
+fits of the full model to the real data, so check each log's final line
+(divergences, max Rhat) and tell Claude about anything odd before relying on
+them. Results go to `outputs/joint/real/` (`fit_<mode>.rds`, and
+`real_{runs,params,floor}.csv` over the modes found); pull them back with the
+replicates (`outputs/joint/`). After the jobs end, rebuild the tables over all
+three modes with `MODES= Rscript R/fit_joint_real.r`.
+
 ### Other stage-3 runs
 
 The plain (calm-sea) comparison, as before:
@@ -422,7 +454,7 @@ ssh stats3
 cd /fast_raid/ej45/eDNAVisualJointModel
 tools/stats3_reruns.sh status        # what is done, running or failed
 tools/stats3_reruns.sh run compile   # after a git pull that changed Stan files
-tools/stats3_reruns.sh stage <n>     # launch the next stage (replicates: Part 6 waves)
+tools/stats3_reruns.sh stage <n>     # launch the next stage (replicates: Part 6 waves; real data: stage 6)
 tmux attach -t reruns                # Ctrl-b w to pick a window, Ctrl-b d to detach
 exit
 ```

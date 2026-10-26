@@ -117,6 +117,26 @@ simulate_joint <- function(seed = 1L, n_stations = 200L,
        meta = list(seed = seed, domain = dom, lt_species = lt_species))
 }
 
+# -----------------------------------------------------------------------------
+# real_joint_object(): the real eDNA and visual objects (R/01_load_muri.r) in
+# simulate_joint()'s shape, so format_stan_data_joint() and fit_joint() apply.
+# There is no truth (field = NULL). The bottom-depth spline gets one setup
+# built from the bottles' and segments' depths together, as the simulator
+# shares one between its halves (otherwise each formatter would place its own
+# knots and the two bases would differ).
+# -----------------------------------------------------------------------------
+real_joint_object <- function(edna = readRDS("data/processed/muri_edna.rds"),
+                              visual = readRDS("data/processed/muri_visual.rds"), df = 4L) {
+  stopifnot(isTRUE(all.equal(c(edna$meta$X_km_max, edna$meta$Y_km_max),
+                             c(visual$meta$domain$X_km_max, visual$meta$domain$Y_km_max))))
+  setup <- bathy_spline_basis(c(edna$design$samples$Z_bathy, visual$design$segments$Z_bathy), df = df)$setup
+  edna$truth$bathy_spline <- setup
+  visual$truth$spline_setup <- setup
+  list(edna = edna, visual = visual, field = NULL,
+       meta = list(seed = NA, domain = visual$meta$domain, lt_species = visual$meta$species,
+                   real = TRUE))
+}
+
 # Sanity check that the two sources share one field: for station/segment
 # pairs closer than `max_km`, the true log density (per species) should agree
 # up to the GP's short-range variation and the independent bottom-depth draws.
