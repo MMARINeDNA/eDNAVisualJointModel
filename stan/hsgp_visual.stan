@@ -30,7 +30,10 @@
 //                      cells are the Beaufort levels): exactly the model
 //                      without it
 //   use_nb  = 1  negative-binomial segment counts (clustered sightings), with
-//                1 / sqrt(phi_nb) ~ half-normal(0, prior_nb_inv_sqrt_sd);
+//                1 / sqrt(phi_nb) ~ half-normal(0, prior_nb_inv_sqrt_sd), bounded
+//                below at 0.01 (phi_nb <= 1e4, indistinguishable from Poisson for
+//                these counts): unbounded, chains on near-Poisson data drifted to
+//                1 / sqrt(phi) ~ 0, where phi overflowed and the step size collapsed;
 //                use_nb = 0 is exactly the Poisson model (phi_nb has size 0)
 // With both off this is the non-spatial v4.1 model, re-parameterised on animal
 // density (lambda = exp(mu_sp)) instead of group density.
@@ -153,7 +156,7 @@ parameters {
   vector[det_key] log_b;                   // hazard-rate shape (size 0 if half-normal)
 
   // Segment-count overdispersion (size 0 unless use_nb)
-  vector<lower=0>[use_nb] inv_sqrt_phi_nb;
+  vector<lower=0.01>[use_nb] inv_sqrt_phi_nb;   // phi_nb <= 1e4 (see the header)
 
   // Group size (both families sampled; only group_size_dist's enters the data
   // likelihood, the other sits at its prior - same convention as v4.1)
