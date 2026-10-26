@@ -449,9 +449,11 @@ MarVer1 taxon table and the 2019 sample metadata, matched on sample number
 | Contamination | *Gallus* reads removed from junk and totals; hake detected in field negatives, used as provided on the lab's advice |
 | Amplification | MarVer1 amplifies hake, humpback and PWSD equally (confirmed), so no efficiency term is needed |
 
-Fitting these data needs HSGP4eDNA's per-plate curves, dilution offsets and
-per-bottle volumes (its v1.8–v1.9) and a sampling-depth effect, so the real
-eDNA fit waits for the next submodule bump.
+The model side is ready: HSGP4eDNA v1.8–v1.12 (the submodule since
+2026-10-23) and the joint model (since 2026-10-23) take the per-plate curves
+estimated from the standards, the dilution offsets, the per-bottle volumes and
+the sampling-depth smooth. The real eDNA fit with them is the next step; the fit
+shown below is the earlier one, without them.
 
 **What is not.** The qPCR file holds copies per $\mu$L, not Ct, and there is no
 standard curve (slope, intercept, detection efficiency $\kappa$, Ct noise). The
@@ -1157,7 +1159,9 @@ mode with very large junk noise), which is why joint fits now run 4 chains.
 > **Beaufort covariate** that the PWSD real-data fit uses (added 2026-10-20;
 > its simulation check is in Section 5 above), but the real eDNA fit showed
 > the diagnostics that need attention first (very large noise terms,
-> length-scales at the floor, no Ct values, one flat water-column offset).
+> length-scales at the floor, no Ct values at the time, one flat
+> water-column offset; the Ct values, dilutions and a depth smooth are now
+> available).
 > Item (3) is the main reason I would treat a real-data joint fit as a
 > demonstration rather than an analysis.
 

@@ -1,6 +1,10 @@
-# eDNA model on the real MURI bottles. qPCR is unusable (no Ct, no standard curve),
-# so the model is fitted to metabarcoding only: all qPCR rows are dropped except one
-# non-detect, because hsgp_2d_bathysp.stan requires N_qpcr_long >= 1.
+# eDNA model on the real MURI bottles: the EARLIER fit, made before the qPCR lab's
+# file arrived, when qPCR had no Ct or standard curve. It fits metabarcoding only:
+# all qPCR rows are dropped except one non-detect, because hsgp_2d_bathysp.stan
+# requires N_qpcr_long >= 1. The eDNA object now carries Ct, the standards,
+# dilutions, volumes and target depths; this script is to be rewritten to use them
+# (estimated per-plate curves, dilution offsets, per-bottle volume, depth smooth;
+# ROADMAP_2026-10-21, section 5 item 7).
 # Run from the repo root: Rscript docs/explainer/04_fit_edna_real.R
 source("docs/explainer/00_common.R")
 source(file.path(HSGP4EDNA_DIR, "R/functions.R"))

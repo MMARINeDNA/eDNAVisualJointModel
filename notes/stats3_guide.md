@@ -41,9 +41,12 @@ job. Every job runs under `nice` and stops at its first failing step.
 | 4 | Explainer fits: simulated eDNA and visual, real visual (budget 800 and 1600, both species) | 14 | about 1–3 h each |
 | 5 | `finish`: comparison tables and `joint_compare_s<seed>.png` for every seed with fits, the remaining explainer figures | 1 | minutes |
 
-The real eDNA explainer fit (`expl_edna_real`) is in no stage: it waits for
-the data in ROADMAP_2026-10-21, section 5 (Ct values, volumes, dilutions), and is launched on its
-own with `tools/stats3_reruns.sh launch expl_edna_real` once they are in.
+The real eDNA explainer fit (`expl_edna_real`) is in no stage. Its data are in
+(Ct per well, the hake standards, volumes, dilutions and target depths;
+ROADMAP_2026-10-21, section 5) and the joint model can use them, but the job's
+script (`docs/explainer/04_fit_edna_real.R`) still runs the earlier
+metabarcoding-only fit. Don't launch it until that script is rewritten
+(ROADMAP_2026-10-21, section 5 item 7).
 
 The times are estimates. The budget is now 800 functions and the domain is
 larger, which roughly doubles the old run times. `bathysp_depthspref` (1185

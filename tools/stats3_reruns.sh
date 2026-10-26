@@ -41,8 +41,9 @@ mkdir -p logs
 # Stages 2 to 4 only need stage 1; stage 5 needs 3 and 4. Stage 3 is the joint
 # comparison: one job per seed in CMP_SEEDS and mode, 4 chains each (16 cores
 # per seed; the visual-only job ends after about 30 min).
-# expl_edna_real is in no stage: the real eDNA fit waits for the data in
-# ROADMAP_2026-10-21, section 5 (launch it on its own when they are in).
+# expl_edna_real is in no stage: its data are in, but its script
+# (docs/explainer/04_fit_edna_real.R) is still the earlier metabarcoding-only
+# fit, to be rewritten first (ROADMAP_2026-10-21, section 5 item 7).
 STAGE1="prep"
 STAGE2="hsgp_nobathy hsgp_bathysp_surface hsgp_bathysp_depthspref hsgp_bathygp_surface
         visual_val visual_val_sea joint_sim"
@@ -114,7 +115,7 @@ job() {
         { echo "bad job name $1 (cmpsea[nobft]_s<seed>_<edna|visual|joint|joint_conv>)"; exit 2; }
       local nobft=${BASH_REMATCH[1]} seed=${BASH_REMATCH[2]} mode=${BASH_REMATCH[3]}
       SEA_STATE=1 SEED=$seed MODES=$mode BFT_SPECIES=${nobft:+none} Rscript R/compare_joint.r ;;
-    # ---- stage 4: explainer fits (2-3 cores each; expl_edna_real waits for the 6.1 data)
+    # ---- stage 4: explainer fits (2-3 cores each; expl_edna_real waits for its script rewrite)
     expl_edna_sim)
       Rscript docs/explainer/01_fit_edna_sim.R
       Rscript docs/explainer/05_fig_simulation.R
