@@ -1,7 +1,7 @@
 ---
 title: "Joint eDNA and visual survey modelling: what we built and what we tested"
 subtitle: "An explainer for the eDNAVisualJointModel repository (draft for review)"
-date: "2026-10-22"
+date: "2026-10-27"
 toc: true
 toc-depth: 3
 number-sections: true
@@ -10,8 +10,10 @@ number-sections: true
 > **Status of this draft.** Every figure in Sections 2 to 4 was produced from the
 > code in this repository (`docs/explainer/`). **Section 5 (the joint model)
 > summarises results recorded in the repository by the Phase 5 work; I did not
-> re-run them for this document**, and the joint model has not yet been fitted to
-> the real data. Items that need your input are marked **[REVIEW]**.
+> re-run them for this document** (Section 5.2.2 adds the current set-up). The
+> joint model's real-data fits are under way: visual-only done, eDNA-only and
+> joint running. Items that need your input are marked **[REVIEW]**, and the
+> open questions are collected in Section 6.
 
 > **Out of date: set-up changed on 2026-10-12** (HSGP4eDNA v1.4,
 > eDNAVisualJointModel #82). Every analysis is now restricted to the study
@@ -50,6 +52,27 @@ number-sections: true
 >   metabarcoding table and metadata, per-plate standard curves, dilutions,
 >   target depths, a 1,000-read minimum per replicate and the lab's answers
 >   (Section 3.3). The real eDNA fit shown predates them.
+
+> **Updated on 2026-10-27** (eDNAVisualJointModel #106–#108), for discussion
+> with Len and Ole. Start with **Section 6, "For discussion"**, which lists
+> the open questions for each of them.
+>
+> - **eDNA model:** HSGP4eDNA is now v1.12, and the joint model has its new
+>   options: dilution offsets, filtered volume per bottle, **per-plate qPCR
+>   standard curves estimated from the standards**, a sampling-depth smooth
+>   and a bounded Ct-noise SD, each exact when switched off (Section 3.1).
+>   The hake standard curves fitted on their own are in Section 3.3.
+> - **Simulation, seed 1 on the current set-up** (v1.12, sea state, NB
+>   segment counts): the joint fit is again best for both cetaceans and
+>   recovers the conversion factors (Section 5.2.2; preliminary, its joint
+>   fits are being re-run with a fix).
+> - **Two sampler problems found and fixed:** the junk-noise term needs its
+>   non-centred form on the new simulator, and the NB size needed a bound
+>   (Sections 3.1 and 4.2).
+> - **Real data:** the joint model's visual-only fit to the real data matches
+>   the visual model (Section 4.5.2). **The real eDNA and joint fits are
+>   running** (on the stats3 server, about two more days) and are not in this
+>   document yet.
 
 # What this document is
 
@@ -97,7 +120,7 @@ Each data source then has its own observation model on top of $\lambda_s$:
 
 | Data | Observation model |
 |---|---|
-| eDNA, qPCR (hake only) | Expected copies in a reaction $=\lambda_s \times$ conversion factor $\times$ litres filtered $\times$ water-column offset $\times$ bottle noise $\times$ aliquot fraction. Detection is $1-\exp(-\kappa \cdot \text{copies})$. Detected replicates have a Ct that falls linearly in the log of copies. |
+| eDNA, qPCR (hake only) | Expected copies in a reaction $=\lambda_s \times$ conversion factor $\times$ litres filtered $\times$ water-column offset $\times$ bottle noise $\times$ aliquot fraction ($\times$ the well's dilution). Detection is $1-\exp(-\kappa \cdot \text{copies})$. Detected replicates have a Ct that falls linearly in the log of copies, on a standard curve that can be fixed or estimated per plate from the standards. |
 | eDNA, metabarcoding (all species) | Zero-inflated beta-binomial on read counts, with read shares proportional to each species' copies relative to a "junk" background of all non-target DNA. |
 | Visual line transects | Detected groups per segment are Poisson (or negative binomial, for clustered sightings) with mean $\lambda_s / E[\text{group size}] \times 2 L \times \text{ESW}$, where ESW is the effective strip half-width implied by the detection function. Perpendicular distances follow the detection function, whose scale can depend on group size, Beaufort and visibility. |
 
@@ -271,8 +294,10 @@ the observation model above, are:
   built from the **sample locations only**, never from observed counts. The
   length-scale prior is inverse-gamma with 1% of its mass below a floor
   $\ell_\min$ (the larger of the median sample spacing and the shortest scale a
-  400-function basis can represent) and 1% above the domain extent. The basis size
-  is chosen to match $\ell_\min$.
+  basis of the budget can represent: 400 functions in the older fits here, 800
+  now) and 1% above the domain extent. The basis size is chosen to match
+  $\ell_\min$. The marginal SD's prior has 1% of its mass above 3 in the older
+  fits and above 5 since HSGP4eDNA v1.11.
 - **Between-bottle noise.** A negative-binomial multiplier on each bottle's expected
   copies, with one spread $\theta$ shared across species. Leaving it out makes the
   GP absorb bottle noise as spurious small-scale structure.
@@ -293,20 +318,26 @@ measured relative to junk.
   $\theta_\text{junk}$ is estimated, with
   $1/\sqrt{\theta_\text{junk}} \sim$ half-normal(0, 1). In HSGP4eDNA,
   `JUNK_DIST=lognormal` gives a non-centred version and `JUNK_NOISE=0` holds
-  junk constant.
+  junk constant. **Sampling problem found on 2026-10-23:** since HSGP4eDNA
+  v1.7 the simulator redraws junk for every replicate, so once the dilutions
+  are modelled the per-bottle junk spread has little to explain and sits
+  near 0. There the centred form mixes badly (R-hat 1.58, effective sample
+  size 7 for $\theta_\text{junk}$); the non-centred form, or no junk noise,
+  mixes well (R-hat 1.02) with the same recovery. The simulation runs now use
+  the non-centred form.
 - **Read shares.** Each category's expected share is its presence-conditioned
   aliquot copies relative to junk. Its reads are zero-inflated beta-binomial,
   present with probability $1 - e^{-\text{copies}}$.
 - **What anchors it.** Metabarcoding alone fixes copies only relative to junk.
   Hake qPCR gives absolute copies, which pins the junk level, and through it
-  the other species' copies. Without Ct values (the real data so far) that
-  anchor is missing.
+  the other species' copies. The real data now have Ct values, so the real
+  fits have this anchor (the earlier real fit in Section 3.3 did not).
 - **Approximations.** $\theta_\text{junk}$ has no exact simulation truth: the CV
   of 0.2 implies about 24, and fits give about 13–19, so it is a nuisance
   parameter. The model's independent beta-binomial per category approximates
   the simulator's multinomial split of the reads.
-- **Planned: a mechanistic overdispersion** (HSGP4eDNA v1.7, behind a switch,
-  ported from Shannon Kachel's bbqm). The beta-binomial φ and the read shares
+- **A mechanistic overdispersion** (built in HSGP4eDNA v1.7 behind a switch,
+  experimental and not used here; ported from Shannon Kachel's bbqm). The beta-binomial φ and the read shares
   would follow from Poisson copies in each aliquot and per-category PCR
   amplification, instead of a fitted curve. Junk becomes a composite category
   with a free amplification efficiency, a global offset on log φ checks the
@@ -315,7 +346,33 @@ measured relative to junk.
   replicates carries information on absolute copies as well as relative
   abundance.
 - **Known water-column offset.** Depth preferences enter as a fixed offset per
-  sample and species; the model does not estimate them.
+  sample and species; the model does not estimate them, unless the depth
+  smooth below is on.
+
+**Options added in HSGP4eDNA v1.8–v1.12** (in the joint model since
+2026-10-23). Each is off by default, and with it off the model is exactly the
+earlier one; with them on and the visual likelihood off, the joint model
+equals HSGP4eDNA's own model on the same data (spread of the log-density
+difference 3e-11 over random parameter values):
+
+- **Dilution offsets.** Each qPCR well and metabarcoding replicate adds the log
+  of its dilution to the copies in its aliquot, so a 1:5 well is not read as a
+  bottle with five times less DNA.
+- **Filtered volume per bottle** instead of one value.
+- **Standard curves estimated in the model.** Each plate $p$ gets its own
+  intercept and slope, Ct $= \alpha_p - \beta_p \log(\text{copies})$ with
+  $\beta_p \ge 1/\ln 2$ (at most a doubling per cycle); the Ct noise and the
+  detection rate $\kappa$ are shared across plates. The standards (known
+  copies) enter as data alongside the field wells, so the curves' uncertainty
+  carries into the density estimates. This follows the qPCR vignette's
+  field-sample model, with its priors.
+- **Sampling-depth smooth.** A natural spline in sampling depth (3 degrees of
+  freedom, anchored at the surface) on each species' eDNA copies, in place of
+  the fixed water-column offset. The intercepts then still mean density as
+  sampled at the surface.
+- **Bounded Ct noise at very low copies** (v1.12): the Ct-noise SD is
+  evaluated at the expected copies given detection, so it cannot grow without
+  limit as copies fall.
 
 ![eDNA-only model. Each species' GP hyperparameters, intercept and bottom-depth spline set its density field. With fixed conversion factors, volumes and water-column offsets, the field sets each bottle's expected copies. The bottle's species copies (spread θ, shared by all species) and its junk copies (spread θ_junk) are unobserved negative-binomial draws. Its qPCR and metabarcoding replicates are observed and share those copies.](figures/model_edna.svg)
 
@@ -452,8 +509,36 @@ MarVer1 taxon table and the 2019 sample metadata, matched on sample number
 The model side is ready: HSGP4eDNA v1.8–v1.12 (the submodule since
 2026-10-23) and the joint model (since 2026-10-23) take the per-plate curves
 estimated from the standards, the dilution offsets, the per-bottle volumes and
-the sampling-depth smooth. The real eDNA fit with them is the next step; the fit
-shown below is the earlier one, without them.
+the sampling-depth smooth. **The real eDNA fit with them is running** (the
+joint model's eDNA-only mode, `R/fit_joint_real.r`, on the stats3 server); the
+fit shown further below is the earlier one, without them.
+
+**The hake standard curves on their own.** Before estimating them inside the
+model, the per-plate curves were fitted to the standards alone
+(`R/fit_qpcr_standards.r`, `stan/qpcr_standards.stan`: the vignette's
+multi-plate model and priors; 4 chains of 1000 + 1000, no divergences, max
+R-hat 1.003). 765 hake standard wells (1 to $10^5$ copies per µL) are on the
+33 plates; 106 with inhibition ≥ 0.75 are dropped, among them every $10^5$
+standard, which leaves 659 (26 non-detects).
+
+![Hake qPCR standards on all 33 plates (blue; crosses at Ct 41 are non-detects) and the per-plate fitted curves (grey).](figures/qpcr_standard_curves.png)
+
+| | Estimate |
+|---|---|
+| Intercepts $\alpha_p$ (Ct at 1 copy in the well) | 36.1–39.9 across plates |
+| Slopes $\beta_p$ (Ct per log copy) | 1.45–1.49, efficiency 0.95–1.00 (1 = doubling) |
+| Detection rate $\kappa$ | 0.90 [0.75, 1.00] |
+| Ct noise | $\sigma_0$ 0.14; $\gamma_0$ 0.26, $\gamma_1$ −0.37 (more noise at low copies) |
+| Check: detected standards inside their 95% predictive interval | 97.0% |
+| Check: detection at 1 copy per µL, observed against fitted | 0.865 against 0.836 |
+
+- The intercepts differ by almost 4 Ct between plates, a factor of about 15
+  in copies, so a single shared curve would misplace plates' samples; hence
+  per-plate curves.
+- **Field negatives:** hake is detected in 73 of 114 evaporated-DI and 25 of
+  72 lab-DI field-negative wells (about 1–2 copies per µL on average, up to
+  12), against 1 of 174 extraction controls. The lab advises using the data as
+  provided; Section 6 lists what this means for the cetacean estimates.
 
 **What is not.** The qPCR file holds copies per $\mu$L, not Ct, and there is no
 standard curve (slope, intercept, detection efficiency $\kappa$, Ct noise). The
@@ -565,8 +650,18 @@ The model is `stan/hsgp_visual.stan`, one species at a time:
   binomial with the same mean and size $\phi$ (variance $\mu + \mu^2/\phi$;
   prior half-normal(0, 1) on $1/\sqrt\phi$). A gamma-distributed multiplier on
   the groups in a segment's strip, thinned by detection, gives exactly this.
+  **$1/\sqrt\phi$ is bounded below at 0.01** ($\phi \le 10^4$, which is
+  Poisson for these counts; added 2026-10-25): without the bound, chains on
+  near-Poisson sightings drifted towards $\phi = \infty$, where $\phi$
+  overflowed and the sampler stalled (a visual-only fit stuck for over 8 hours;
+  73 minutes with the bound).
 - **Distances:** truncated half-normal or hazard-rate detection with
   $\log\sigma = \log\sigma_0 + \beta_\text{size}(s - \bar s) + \beta_\text{bft}(\text{Beaufort} - 3) + \beta_\text{vis}(\text{visibility} - 6)$.
+  This is Distance's log-scale form, $\sigma = \exp(\beta_0 + \beta_1 x_1 +
+  \dots)$; the covariates are centred at reference values, which changes only
+  what the intercept means (the scale at Beaufort 3, the mean group size and
+  visibility 6 nmi). The hazard-rate shape $b$ is not yet bounded below at 1
+  (Section 6).
   Beaufort and visibility are segment means. Segments are grouped into
   detection-condition cells (Beaufort and visibility each rounded to 0.5, the
   recording resolution), and the ESW is computed once per cell.
@@ -993,6 +1088,19 @@ area excludes the empty south.
 - **Overdispersion and fine-scale field trade off:** with the larger basis,
   humpback $\phi$ rises from 2.9 to 8.3, as the field takes up part of what
   looked like clustering.
+- **The joint model gives the same visual fit** (2026-10-27, on stats3): its
+  visual-only mode on the real data (`R/fit_joint_real.r`, 4 chains of
+  1000 + 1000, R-hat 1.00) matches the visual model: humpback length-scales
+  36 × 52 km, hazard-rate shape 0.98 [0.79, 1.24], detection probability 0.44,
+  mean group size 1.69; PWSD Beaufort −0.16 [−0.29, −0.04], visibility 0.17
+  [0.08, 0.27], detection probability 0.49, mean group size 38 (all 90%
+  intervals). So the real joint object (the eDNA and visual data on one
+  domain and one bottom-depth spline) is set up correctly for the joint fit.
+- **Truncation, Len's rule** (the smaller of the 5% point and the distance
+  where a half-normal without covariates has $g(x) = 0.1$): humpback's
+  $g = 0.1$ falls at 7.0–7.2 km, beyond the 5% point (6.46 km), and PWSD's at
+  4.79 km (fitted to all distances), beyond 4.64 km. So the rule keeps the
+  current truncation distances.
 - **Decision (2026-10-22):** keep the 800-function budget for the real visual
   and joint fits. The floor flag is read as a resolution limit of the basis,
   not a fault: maps are resolved to about 40 km east-west by 65 km
@@ -1004,9 +1112,10 @@ area excludes the empty south.
 
 The joint model (`stan/hsgp_joint.stan`, driven by `R/fit_joint.r`) was added to
 `main` after the rest of this document was written, in Phase 5 of the roadmap.
-Its simulation results below are from the current set-up: the 35°N study
-domain, 50 × 150 km length-scales, 35 transects and an 800-function basis
-budget (`R/compare_joint.r`, run 2026-10-13).
+Its simulation results below are on the 35°N study domain, 50 × 150 km
+length-scales, 35 transects and an 800-function basis budget: first with
+HSGP4eDNA v1.5 and Poisson segment counts (`R/compare_joint.r`, 2026-10-13
+and 2026-10-20), then on the current set-up (Section 5.2.2).
 
 ## Structure
 
@@ -1152,18 +1261,46 @@ showed the same pattern: joint best for both cetaceans, hake unchanged, and
 conversion factors recovered. One of its runs did not converge (one chain in a
 mode with very large junk noise), which is why joint fits now run 4 chains.
 
+### Seed 1 on the current set-up (2026-10-24; preliminary)
+
+The same seed with sea state, on HSGP4eDNA v1.12 (junk redrawn per
+replicate, no Ct floor in the simulator, the wider GP SD prior), with
+negative-binomial segment counts for both cetaceans, non-centred junk noise
+and `adapt_delta` 0.9 (4 chains of 800 + 800). **Preliminary:** the joint and
+free-conversion fits were made before the bound on the NB size (Section 4.2)
+and are being re-run with it on stats3; the eDNA-only and visual-only fits are
+final. Seeds 2–5 follow.
+
+| Species | eDNA only | Visual only | Joint | Joint, conversion factor free | Earlier joint (v1.5, Poisson) |
+|---|---|---|---|---|---|
+| Hake | 0.942 (2.65) | not surveyed | 0.942 (2.65) | 0.941 (2.64) | 0.938 |
+| Humpback | 0.491 (4.34) | 0.907 (1.28) | **0.917 (1.26)** | 0.916 (1.26) | 0.890 |
+| PWSD | 0.583 (4.15) | 0.595 (3.51) | **0.743 (2.91)** | 0.743 (2.94) | 0.741 |
+
+![Seed 1 with sea state on the current set-up: posterior mean against true log density at every station and segment, by species (rows) and fit (columns).](figures/joint_compare_sea_s1_v112.png)
+
+- **The pattern holds:** hake unchanged, humpback slightly better jointly
+  than from the visual data alone, and PWSD gains most (R² 0.74 jointly
+  against 0.58–0.60 from either source).
+- **Conversion factors** (log scale, free): humpback 5.19 [4.95, 5.41]
+  (truth 5.30), PWSD 4.62 [4.31, 4.94] (truth 4.70).
+- **Beaufort slopes:** humpback −0.048 [−0.104, 0.002], PWSD −0.094 [−0.227,
+  0.035] (truth −0.08, −0.15); covered, pulled towards 0 a little more than
+  with Poisson counts.
+- **NB sizes:** humpback $\phi$ about 360 (the simulated sightings are
+  Poisson, so a large $\phi$ is right); PWSD about 6 with a long upper tail
+  (about 100 detections cannot tell).
+- **Coverage** of the true field 92–97%; no divergences; max R-hat 1.07.
+- **Cost:** each eDNA, joint and free-conversion fit took about 8 hours on a
+  laptop, about twice the earlier runs (the non-centred junk noise, the
+  smaller step size and the new simulator); the visual-only fit 73 minutes.
+
 > **[REVIEW] What is not yet shown here.**
 > (1) Prior and posterior predictive checks for the joint model, in the style of
-> Sections 3 and 4: not produced. (2) The joint model has not been fitted to the
-> real MURI data. (3) The joint model's visual part now includes the
-> **Beaufort covariate** that the PWSD real-data fit uses (added 2026-10-20;
-> its simulation check is in Section 5 above), but the real eDNA fit showed
-> the diagnostics that need attention first (very large noise terms,
-> length-scales at the floor, no Ct values at the time, one flat
-> water-column offset; the Ct values, dilutions and a depth smooth are now
-> available).
-> Item (3) is the main reason I would treat a real-data joint fit as a
-> demonstration rather than an analysis.
+> Sections 3 and 4: not produced. (2) The real eDNA and joint fits are running
+> (eDNA-only, and joint with the cetaceans' conversion factors free; the
+> visual-only fit is in Section 4.5.2); they are the first fits with the real
+> Ct values, estimated standard curves, dilutions and depth smooth together.
 
 ## What the real-data objects provide
 
@@ -1171,24 +1308,117 @@ mode with very large junk noise), which is why joint fits now run 4 chains.
 structure as the simulators' output, on a common domain and UTM origin, so the
 same formatters apply to the joint model. Since 2026-10-21 the eDNA object
 carries hake Ct per well with per-plate standard curves, filtered volume per
-bottle, dates, target depths and dilutions (Section 3.3; ROADMAP_2026-10-21,
-section 5). The model does not yet use the per-plate curves, per-bottle
-volumes or dilutions (HSGP4eDNA has them from v1.8–v1.9; the submodule is not
-yet bumped). The template volume is confirmed (2 µL); the elution volume is
-still assumed, so the absolute conversion factor is not yet meaningful in
-physical units. The visual object carries the Beaufort ≤ 5 effort, segment
+bottle, dates, target depths, dilutions and the hake standards (Section 3.3;
+ROADMAP_2026-10-21, section 5), and the joint model uses them (Section 3.1).
+`real_joint_object()` puts the two objects together in the simulator's shape,
+with one bottom-depth spline for bottles and segments, and
+`R/fit_joint_real.r` fits it eDNA-only, visual-only and jointly with the
+cetaceans' conversion factors free. The template volume is confirmed (2 µL);
+the elution volume is still assumed, so the absolute conversion factor is not
+yet meaningful in physical units. The visual object carries the Beaufort ≤ 5 effort, segment
 visibility and the per-species detection and count settings. The visual
 data supply the absolute density.
+
+# For discussion
+
+The questions below are where input would help most. More detail is in
+ROADMAP_2026-10-21 (sections 5b and 6).
+
+## For Len (distance sampling and the statistical model)
+
+1. **Hazard-rate shape below 1.** The real humpback fit has $b$ = 0.98 [0.78,
+   1.23]. The plan is to bound $b \ge 1$ in both models and refit; is that the
+   right constraint, or should the prior do it?
+2. **A flexible detection function.** The plan is a mixture of two
+   half-normals (monotone non-increasing by construction) rather than cosine
+   adjustments with constrained optimisation. Does that cover the shapes you
+   would want to allow?
+3. **Model selection inside the Stan model.** Currently the detection
+   covariates are chosen beforehand by AIC (Distance). Options: PSIS-LOO on the
+   detection and segment log-likelihoods, or shrinkage priors on the covariate
+   effects. Which would you prefer?
+4. **Group-size checks.** Planned: posterior predictive checks of the detected
+   (size-biased) group sizes against the observed, per species.
+5. **The length-scale floor.** The real visual fits sit at the shortest
+   length-scale the basis represents (about 40 × 65 km) at both budgets
+   tried, and the cause is not clustered sightings (Section 4.4.2). We treat
+   it as a resolution limit; density does not change with the budget.
+6. **Simulation design.** Should a scenario with more PWSD detections (for
+   example 3× the density) be added, to see whether PWSD's weaker recovery is
+   only sample size?
+
+## For Ole (the eDNA data)
+
+1. **Hake in the field negatives.** If the hake in the negatives is in the
+   extract (from filtering or handling), it raises the qPCR copies and the
+   hake reads together, and the cetacean estimates, which use hake as the
+   quantitative anchor, are unaffected. If it enters only the qPCR (for
+   example from the synthetic standards on the same plates), it inflates hake
+   copies without reads, which biases the cetacean copies upward in low-hake
+   bottles. Which is more likely?
+2. **30EtOH samples** (56 of 569 metabarcoded bottles): dropped for now.
+   Could the 20–30% DNA loss be treated as known instead?
+3. **Read depth.** MarVer1 replicates with fewer than 1,000 reads are dropped
+   (per replicate, stricter than the lab's per-sample rule): 136 of 1,438.
+4. **The 1,258 hake qPCR samples without metabarcoding** (second bottles,
+   other depths, including 100 m, and 19 more stations): planned as a second
+   step, mainly to estimate the bottle-to-bottle noise.
+5. **Conversion factors.** The simulator's values (copies per animal per
+   litre per km², hake 10, humpback 200, PWSD 110) are placeholders. Do they
+   give realistic copies and detection rates? The real joint fit will
+   estimate the cetaceans' values.
+
+## What is running
+
+On the stats3 server since 2026-10-26: the real eDNA-only fit and the real
+joint fit with free conversion factors (both 4 chains of 1000 + 1000; about
+two more days at the server's current load), and seed 1's joint and
+free-conversion fits with the NB bound. Seeds 2–5 of the simulation follow
+later in the week.
+
+# To do
+
+Drawn from ROADMAP_2026-10-21 (item numbers in brackets), roughly in order.
+
+**Now**
+
+1. Finish the stats3 runs and write them up: the real eDNA-only and joint
+   fits (§5.7) and seed 1's joint fits with the NB bound (§3.2).
+2. Simulation replicates, seeds 2–5 with sea state, plus the
+   without-Beaufort contrast for seeds 1–2; a summary table across seeds
+   (§3.2).
+
+**Next**
+
+3. Bound the hazard-rate shape at $b \ge 1$ and refit humpback (§5b.3).
+4. Predictive checks: group sizes (§5b.6), and prior and posterior checks
+   for the joint model (§3.5).
+5. Prediction on a grid in the joint model, for maps and for the realistic
+   simulation (§4).
+6. The realistic simulation (tier 2): earlier density surfaces sampled at the
+   real transects and stations (§4); needs the choice of surfaces.
+7. Add the hake qPCR-only samples, mainly to estimate the bottle-to-bottle
+   noise (§5.8).
+8. Bring Sections 2–4 of this document to the 35°N set-up (§3.6).
+
+**Later**
+
+9. A flexible detection function: a mixture of two half-normals (§5b.4).
+10. Model selection inside the Stan model (§5b.5).
+11. A spatial term in the junk (§5b.7).
+12. Check that the conversion factors are realistic (§5b.8); a simulation
+    scenario with more PWSD detections (§5b.9).
+13. Test whether eDNA amount is proportional to density, with an elasticity
+    (§5.5).
+14. HSGP4eDNA's own validation on the 35°N domain, and a release (§3.4).
 
 # Limitations and open issues
 
 ## Data
 
-- **qPCR Ct and standard curves are loaded, not yet used.** Ct per well and
-  per-plate standard curves (fitted to the hake standards) are in the eDNA
-  object since 2026-10-21; the model here takes one fixed curve. HSGP4eDNA v1.9
-  estimates the per-plate curves in the model from the standards (the chosen
-  approach); it reaches this repository at the next bump. The template volume
+- **qPCR Ct and standard curves.** Ct per well and the hake standards are in
+  the eDNA object, and the joint model estimates the per-plate curves from
+  the standards (Section 3.1); the real fits with them are running. The template volume
   is 2 µL for both assays (confirmed); the elution volume (assumed 100 µL) is a
   placeholder.
 - **Hake in field negatives.** 73 of 114 evaporated-DI and 25 of 72 lab-DI
@@ -1233,10 +1463,12 @@ data supply the absolute density.
   basis limit.
 - **Unidentified animals** (baleen whales, unidentified dolphins) are not
   apportioned to species.
-- **Water-column depth** is a known fixed offset in the eDNA model; on real data it
-  is set to 1 because the real profiles are unknown. A per-species smooth over
-  the target depths (a centred natural spline, 2–3 df) is decided and being
-  built in HSGP4eDNA.
+- **Water-column depth** is a known fixed offset in the simulations; on the
+  real data it is replaced by a per-species smooth over the target depths
+  (3 df, anchored at the surface), estimated in the model.
+- **Hazard-rate shape** $b$ is not bounded below at 1 (Section 6).
+- **Run time.** On the current set-up a joint fit to a simulated survey takes
+  about 8 hours on a laptop, and the real fits longer.
 - **Equal amplification efficiency.** The metabarcoding model makes expected read
   shares follow aliquot copies relative to junk, so it assumes MarVer1 amplifies
   every species and the junk background equally. With a fixed cycle number a
@@ -1273,6 +1505,9 @@ Rscript R/check_count_dispersion.r            # clustered-sightings check (Secti
 SPECIES=pwsd Rscript R/fit_visual_real.r       # 35°N real visual fits (Section 4.5.2; M_MAX=1600, USE_VIS=0 for the comparisons)
 Rscript docs/explainer/07_fig_visual.R         # visual figures
 SEED=1 Rscript R/compare_joint.r               # joint vs single-source fits (Section 5; ~7 h on a laptop)
+SEA_STATE=1 SEED=1 Rscript R/compare_joint.r   # with sea state, current set-up (Section 5.2.2; ~8 h per fit)
+Rscript R/fit_qpcr_standards.r                 # hake standard curves (Section 3.3)
+MODES=edna Rscript R/fit_joint_real.r          # real-data fits (also visual, joint_conv)
 cp outputs/joint/compare_s1/compare_joint.png docs/figures/joint_compare_s1.png
 quarto render docs/explainer.md --to html --embed-resources
 ```
