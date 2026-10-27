@@ -366,9 +366,14 @@ and the 2018 CCES line-transect survey, north of 35°N.
 - **Visual fits** (`R/fit_visual_real.r`): humpback 0.023 and PWSD 0.108
   animals per km² on the Beaufort ≤ 5 effort; PWSD detection improves with
   visibility (0.17 per nmi on log σ). The length-scales sit at the basis floor
-  (about 40 × 65 km), which is read as a resolution limit of the basis, not a
-  fault (`notes/real_visual_fits_2026-10-22.md`; clustered sightings were
-  ruled out as the cause, `notes/count_dispersion_check.md`).
+  (about 40 × 65 km, the Riutort-Mayol limit for the 800-function basis), and
+  followed it down when the basis was doubled. Keeping budget 800 is a
+  computational compromise (density does not change with the budget).
+  Clustering independent between segments is ruled out as the cause;
+  clustering correlated over several segments, or real fine-scale density,
+  is not (`notes/real_visual_fits_2026-10-22.md`,
+  `notes/count_dispersion_check.md`; tests planned in ROADMAP_2026-10-21,
+  section 6).
 - **eDNA and joint fits** (`R/fit_joint_real.r`, running on stats3): Ct with
   per-plate curves estimated from the 659 hake standards, dilution offsets,
   per-bottle volumes and a sampling-depth smooth; the joint fit estimates the
