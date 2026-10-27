@@ -42,8 +42,9 @@ number-sections: true
 > - **Visual model:** optional **negative-binomial segment counts** (clustered
 >   sightings) and a **visibility** covariate on detection, both per species
 >   and switched off exactly (Section 4). A simulation check of whether
->   clustered sightings explain the real fits' short length-scales (they do
->   not; Section 4.4.2).
+>   clustered sightings explain the real fits' short length-scales
+>   (clustering that is independent between segments does not; clustering
+>   correlated over several segments is not ruled out; Section 4.4.2).
 > - **Real visual data:** effort restricted to Beaufort ≤ 5; PWSD uses
 >   visibility; NB counts for both species; new fits on the 35°N data
 >   (Section 4.5.2), and the decision to keep the 800-function basis and read
@@ -1034,10 +1035,13 @@ $\ell_\min$ falls to 75 km east-west and 106 km north-south). Neither fit had di
 > HSGP4eDNA documents for unmodelled bottle noise); or the real field really
 > has structure on scales of tens of kilometres. The visual model has no
 > overdispersion term for segment counts. The marginal SD is also above the
-> prior's central 95% (upper bound 2.7) in all four fits. *(Resolved
-> 2026-10-22, Sections 4.4.2 and 4.5.2: clustering does not explain it, the
-> pattern holds on the 35°N data, and the decision is to keep the 800 budget
-> and read the flag as a resolution limit of the basis.)*
+> prior's central 95% (upper bound 2.7) in all four fits. *(Update
+> 2026-10-27, Sections 4.4.2 and 4.5.2: clustering that is independent
+> between segments does not explain it; clustering correlated over several
+> segments, or real fine-scale density, is not ruled out; the pattern holds
+> on the 35°N data; and the working decision is to keep the 800 budget,
+> treating the flag as a resolution limit of the basis. Section 6 lists the
+> tests.)*
 
 > **[REVIEW]** The real-data effort extends well beyond the eDNA region: eDNA
 > bottles cover about 20% of the width and 45% of the height of the domain.
@@ -1107,6 +1111,29 @@ area excludes the empty south.
   north-south, finer hot spots are smoothed, and the posterior length-scales
   and marginal SD describe the basis limit rather than the species'
   distributions. Revisit if an output needs finer resolution.
+- **What the floor is, and what this decision gives up.** The floor is
+  the Riutort-Mayol et al. (2023) rule for the HSGP: a basis of $m$ functions
+  per axis, with boundary factor $c$, on an axis of half-range $S$ represents
+  length-scales down to about $1.75\,c\,S/m$ (here
+  $1.75 \times 1.5 \times 345 / 22 \approx 41$ km east-west and
+  $1.75 \times 1.5 \times 885 / 36 \approx 65$ km north-south). Riutort-Mayol et al. also give the check: the
+  estimated length-scale should sit comfortably above that limit, and if it
+  does not, $m$ should be increased until it does. The budget-doubling refit
+  was that check, and it failed at both budgets (the posterior followed the
+  floor down), so by their criterion the approximation is not adequate for
+  the scales the data want. Keeping budget 800 is a computational
+  compromise: density, detection and group size do not change with the
+  budget, but the fitted field is a smoothed version of whatever the data
+  contain below about 40 km.
+- **What the structure might be.** Clustering that is independent from one
+  5 km segment to the next is not the cause (Section 4.4.2): the NB term
+  absorbs it and the length-scales stay at the floor. When the basis doubles,
+  humpback's NB size rises from 2.9 to 8.3: the finer field takes over
+  variation the NB term was absorbing, so that variation is correlated
+  between neighbouring segments. It can be persistent fine-scale density
+  (habitat, prey patches) or transient aggregations spanning a few segments
+  when the ship passed; in a single survey pass the two look the same, and
+  the model cannot separate them. Two tests are planned (Section 6).
 
 # The joint eDNA and visual spatial model
 
@@ -1340,9 +1367,24 @@ ROADMAP_2026-10-21 (sections 5b and 6).
 4. **Group-size checks.** Planned: posterior predictive checks of the detected
    (size-biased) group sizes against the observed, per species.
 5. **The length-scale floor.** The real visual fits sit at the shortest
-   length-scale the basis represents (about 40 × 65 km) at both budgets
-   tried, and the cause is not clustered sightings (Section 4.4.2). We treat
-   it as a resolution limit; density does not change with the budget.
+   length-scale the basis represents (about 40 × 65 km, the Riutort-Mayol
+   limit for an 800-function basis), and the posterior followed the floor
+   down when the basis was doubled, so by Riutort-Mayol's own check the
+   approximation never became adequate (Section 4.5.2). Clustering that is
+   independent between segments is not the cause; correlated clustering over
+   10–30 km, or real fine-scale density, is not ruled out. We currently keep
+   budget 800 and treat the flag as a resolution limit (density does not
+   change with the budget). Two tests are planned; which would you trust, and
+   is a two-scale model a reasonable final model?
+   - **An along-track random effect:** segments of a transect get
+     correlated multipliers (AR(1) along the ship's track, with a short
+     range) alongside the GP. If the GP's length-scales then rise above the
+     floor and the along-track term takes the 10–30 km structure, that points
+     to transect-scale aggregation on a smoother density field.
+   - **Following the Riutort-Mayol procedure further:** a humpback fit at
+     budget 3200 (floor about 21 × 33 km). If the length-scales settle above
+     it, we learn the field's scale; if they keep following it, the
+     structure is finer still.
 6. **Simulation design.** Should a scenario with more PWSD detections (for
    example 3× the density) be added, to see whether PWSD's weaker recovery is
    only sample size?
@@ -1395,22 +1437,24 @@ Drawn from ROADMAP_2026-10-21 (item numbers in brackets), roughly in order.
    for the joint model (§3.5).
 5. Prediction on a grid in the joint model, for maps and for the realistic
    simulation (§4).
-6. The realistic simulation (tier 2): earlier density surfaces sampled at the
+6. Test the length-scale floor: an along-track AR(1) segment effect, and a
+   humpback fit at budget 3200 (§6, real-data length-scale floor).
+7. The realistic simulation (tier 2): earlier density surfaces sampled at the
    real transects and stations (§4); needs the choice of surfaces.
-7. Add the hake qPCR-only samples, mainly to estimate the bottle-to-bottle
+8. Add the hake qPCR-only samples, mainly to estimate the bottle-to-bottle
    noise (§5.8).
-8. Bring Sections 2–4 of this document to the 35°N set-up (§3.6).
+9. Bring Sections 2–4 of this document to the 35°N set-up (§3.6).
 
 **Later**
 
-9. A flexible detection function: a mixture of two half-normals (§5b.4).
-10. Model selection inside the Stan model (§5b.5).
-11. A spatial term in the junk (§5b.7).
-12. Check that the conversion factors are realistic (§5b.8); a simulation
+10. A flexible detection function: a mixture of two half-normals (§5b.4).
+11. Model selection inside the Stan model (§5b.5).
+12. A spatial term in the junk (§5b.7).
+13. Check that the conversion factors are realistic (§5b.8); a simulation
     scenario with more PWSD detections (§5b.9).
-13. Test whether eDNA amount is proportional to density, with an elasticity
+14. Test whether eDNA amount is proportional to density, with an elasticity
     (§5.5).
-14. HSGP4eDNA's own validation on the 35°N domain, and a release (§3.4).
+15. HSGP4eDNA's own validation on the 35°N domain, and a release (§3.4).
 
 # Limitations and open issues
 

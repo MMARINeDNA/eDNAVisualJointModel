@@ -95,3 +95,20 @@ short-range field structure).
   the visual and joint real fits (the floor follows the budget; on the old
   domain doubling it lowered the posterior with the floor), or accepting it,
   since density estimates have not depended on it.
+
+## Update (2026-10-27): what the floor is, and what is not ruled out
+
+- The floor is the Riutort-Mayol et al. (2023) HSGP rule: a basis of m
+  functions per axis, boundary factor c, half-range S, represents
+  length-scales down to about 1.75 c S / m (1.75 × 1.5 × 345 / 22 ≈ 41 km
+  east-west, 1.75 × 1.5 × 885 / 36 ≈ 65 km north-south at budget 800). Their
+  check (the length-scale estimate should sit well above that limit; if not,
+  raise m) failed at both budgets, so keeping budget 800 is a computational
+  compromise, not evidence that the approximation is adequate.
+- Ruled out: clustering independent between 5 km segments. Not ruled out:
+  clustering correlated over several segments (10–30 km aggregations), or
+  real fine-scale density; one survey pass cannot separate the two.
+  Humpback's NB size rising from 2.9 to 8.3 when the basis doubles shows the
+  variation is correlated between neighbouring segments.
+- Planned tests (ROADMAP_2026-10-21, section 6): an along-track AR(1) segment
+  effect alongside the GP, and a humpback fit at budget 3200.
