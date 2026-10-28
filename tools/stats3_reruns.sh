@@ -90,10 +90,17 @@ job() {
       Rscript tests/visual_detection.R
       hsgp -e 'cmdstanr::cmdstan_model("stan/hsgp_nd.stan", include_paths = "stan/include")' ;;
     # ---- stage 6: the joint model on the real data (4 cores each)
+    #      jreal_<mode>_ctcond: the Ct SD bounded at low copies (CT_SD=conditional),
+    #      into outputs/joint/real_ctcond, keeping the chain CSVs there
     jreal_*)
-      [[ $1 =~ ^jreal_(edna|visual|joint|joint_conv)$ ]] ||
-        { echo "bad job name $1 (jreal_<edna|visual|joint|joint_conv>)"; exit 2; }
-      MODES=${BASH_REMATCH[1]} Rscript R/fit_joint_real.r ;;
+      [[ $1 =~ ^jreal_(edna|visual|joint|joint_conv)(_ctcond)?$ ]] ||
+        { echo "bad job name $1 (jreal_<edna|visual|joint|joint_conv>[_ctcond])"; exit 2; }
+      if [ -n "${BASH_REMATCH[2]}" ]; then
+        MODES=${BASH_REMATCH[1]} CT_SD=conditional OUT=outputs/joint/real_ctcond \
+          CSV_DIR=outputs/joint/real_ctcond/csv_${BASH_REMATCH[1]} Rscript R/fit_joint_real.r
+      else
+        MODES=${BASH_REMATCH[1]} Rscript R/fit_joint_real.r
+      fi ;;
     # compile the visual and joint models once (no data needed), before
     # launching jobs that would otherwise all compile them at the same time
     compile)
@@ -201,7 +208,9 @@ stage 3  (16 cores per seed; ~4-6 h per job)     $(echo $STAGE3)
          comparison (now CMP_SEA=$CMP_SEA; 24 cores per seed)
 stage 4  (~14 cores; hours)                      $(echo $STAGE4)
 stage 5  (after 3 and 4; minutes)                $STAGE5
-stage 6  (real data; 12 cores; ~0.5-1 day)        $(echo $STAGE6)
+stage 6  (real data; 12 cores; visual ~20 h, eDNA and joint ~37 h on a busy stats3)
+                                                 $(echo $STAGE6)
+         launch jreal_<mode>_ctcond for the Ct SD bounded at low copies
 not in a stage (needs the ROADMAP_2026-10-21 section 5 data): expl_edna_real
 EOF
     ;;
