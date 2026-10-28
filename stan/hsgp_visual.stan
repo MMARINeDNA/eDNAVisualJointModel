@@ -29,6 +29,8 @@
 //   use_vis_covar = 0  drops the visibility term (vis_level is then 0 and the
 //                      cells are the Beaufort levels): exactly the model
 //                      without it
+//   b_min        hazard-rate shape bounded below, b >= b_min (b < 1 gives a cusp
+//                at 0); b_min = 0 is exactly the unbounded model
 //   use_nb  = 1  negative-binomial segment counts (clustered sightings), with
 //                1 / sqrt(phi_nb) ~ half-normal(0, prior_nb_inv_sqrt_sd), bounded
 //                below at 0.01 (phi_nb <= 1e4, indistinguishable from Poisson for
@@ -65,6 +67,7 @@ data {
   int<lower=0, upper=1> det_key;           // 0 = half-normal, 1 = hazard-rate
   real log_b_prior_mean;                   // hazard-rate shape b, log scale
   real<lower=0> log_b_prior_sd;
+  real<lower=0> b_min;                     // b >= b_min (0 = unbounded, the model before the bound)
   // Sea-state (Beaufort) and visibility covariates on log sigma. Segments are
   // binned into n_bft detection-condition cells; the size-averaged ESW is
   // computed once per cell.
@@ -153,7 +156,7 @@ parameters {
   real beta_size;
   vector[use_bft_covar] beta_bft;          // change in log sigma per Beaufort unit
   vector[use_vis_covar] beta_vis;          // change in log sigma per visibility unit
-  vector[det_key] log_b;                   // hazard-rate shape (size 0 if half-normal)
+  vector<lower=log(b_min)>[det_key] log_b; // hazard-rate shape (size 0 if half-normal)
 
   // Segment-count overdispersion (size 0 unless use_nb)
   vector<lower=0.01>[use_nb] inv_sqrt_phi_nb;   // phi_nb <= 1e4 (see the header)

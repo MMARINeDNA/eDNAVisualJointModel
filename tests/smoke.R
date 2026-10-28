@@ -24,7 +24,8 @@
 #           humpback on simulate_visual(sea_state = TRUE, visibility = TRUE)
 #   joint_sim  simulate_joint() (no fits): one shared field, both formatters
 #   joint   stan/hsgp_joint.stan (one field, eDNA + visual likelihoods) via
-#           R/fit_joint.r on a small simulate_joint() dataset
+#           R/fit_joint.r on a small simulate_joint() dataset, with a coarse
+#           prediction grid and the predictive-check summaries
 #   joint_bft  the joint model with the Beaufort covariate (humpback), on the
 #           same dataset with segment sea state
 #   joint_edna the joint model with HSGP4eDNA v1.8-v1.10's eDNA options on:
@@ -239,7 +240,7 @@ mins <- timed(jt <- tryCatch({
   # adapt_delta 0.9: with HSGP4eDNA v1.12's simulator and wider GP SD prior these
   # short fits had an occasional divergence at the default 0.85 (2 of 4 seeds)
   fit_joint(jsm, "joint", chains = 2L, warmup = 250L, sample = 250L, M_max = 64L,
-            adapt_delta = 0.9)
+            adapt_delta = 0.9, pred = pred_grid_domain(jsm$meta$domain, 100))
 }, error = function(e) { message("  ERROR: ", conditionMessage(e)); NULL }))
 cat(sprintf("  %.1f min\n", mins))
 check("joint", "ran", !is.null(jt), if (is.null(jt)) "error" else "ok")
@@ -251,6 +252,19 @@ if (!is.null(jt)) {
   check("joint", "hake and humpback field R2 > 0.5", min(r2[c("hake", "humpback")]) > 0.5,
         sprintf("%.2f / %.2f", r2[["hake"]], r2[["humpback"]]))
   check("joint", "bottle theta > 1 (noise not absorbing the field)", isTRUE(th > 1), round(th, 2))
+  # the grid map agrees with the field at the data (the truth completed on the grid)
+  tg <- truth_on_grid(jsm, pred_grid_domain(jsm$meta$domain, 100))
+  rg <- vapply(c("hake", "humpback"), function(s) cor(jt$grid[[s]]$mean, tg$log_lambda[, s])^2, 0)
+  check("joint", "grid map R2 against the truth > 0.5 (hake, humpback)", min(rg) > 0.5,
+        sprintf("%.2f / %.2f", rg[1], rg[2]))
+  pv <- jt$ppc$visual$humpback
+  pdf_int <- sum(pv$dist$pred$med) * pv$dist$w / 40
+  check("joint", "predictive distance density integrates to 1", abs(pdf_int - 1) < 0.05, round(pdf_int, 3))
+  check("joint", "predictive group-size shares sum to 1", abs(sum(pv$size$med) - 1) < 0.05,
+        round(sum(pv$size$med), 3))
+  ct_in <- with(jt$ppc$edna$ct, mean(obs >= lo & obs <= hi))
+  check("joint", "observed Ct inside the 90% predictive interval for 80-98% of wells",
+        ct_in > 0.8 && ct_in < 0.98, round(ct_in, 3))
 }
 
 # -----------------------------------------------------------------------------

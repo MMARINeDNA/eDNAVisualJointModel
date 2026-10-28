@@ -124,7 +124,7 @@ joint_init <- function(sd) {
       log_sigma = ifelse(sd$det_key == 1L, log(unlist(sd$w) / 2), sd$log_sigma_prior_mean) +
                   rnorm(L, 0, 0.1),
       beta_size = rnorm(L, 0, 0.005),
-      log_b = (sd$log_b_prior_mean + rnorm(L, 0, 0.1))[sd$det_key == 1L],
+      log_b = pmax(sd$log_b_prior_mean + rnorm(L, 0, 0.1), log(sd$b_min) + 0.05)[sd$det_key == 1L],
       # sea-state slopes start near 0 (draws nothing when no species uses it)
       beta_bft = array(rnorm(sum(sd$use_bft_covar), 0, 0.02)),
       beta_vis = array(rnorm(sum(sd$use_vis_covar), 0, 0.02)),
@@ -143,9 +143,11 @@ joint_init <- function(sd) {
   }
 }
 
-MODE_SWITCHES <- list(joint = c(1L, 1L), edna = c(1L, 0L), visual = c(0L, 1L))
+# "prior": neither likelihood (the prior predictive; the eDNA noise terms are
+# kept, drawn from their priors)
+MODE_SWITCHES <- list(joint = c(1L, 1L), edna = c(1L, 0L), visual = c(0L, 1L), prior = c(0L, 0L))
 
-fit_joint <- function(sim, mode = c("joint", "edna", "visual"), conv_free = character(0),
+fit_joint <- function(sim, mode = c("joint", "edna", "visual", "prior"), conv_free = character(0),
                       stan_data = NULL, mod = NULL,
                       chains = 4L, warmup = 800L, sample = 800L,
                       adapt_delta = 0.85, max_treedepth = 12L, seed = 42L,
@@ -221,6 +223,7 @@ summarise_joint_real <- function(fit, sim, sd, mode) {
   diag <- fit$diagnostic_summary(quiet = TRUE)
   hyper_rhat <- fit$summary(joint_hyper_vars(sd), "rhat")$rhat
   list(field = field, params = params, floor = floor, chain_means = chain_means,
+       grid = summarise_grid(fit, sd), ppc = ppc_joint(fit, sim, sd),
        divergences = sum(diag$num_divergent), treedepth_hits = sum(diag$num_max_treedepth),
        ebfmi = diag$ebfmi, max_rhat = max(hyper_rhat, na.rm = TRUE))
 }
@@ -305,6 +308,171 @@ summarise_joint <- function(fit, sim, sd, mode) {
   diag <- fit$diagnostic_summary(quiet = TRUE)
   hyper_rhat <- fit$summary(joint_hyper_vars(sd), "rhat")$rhat
   list(field = field, recovery = recovery, post_mean = post_mean,
+       grid = summarise_grid(fit, sd), ppc = ppc_joint(fit, sim, sd),
        divergences = sum(diag$num_divergent), treedepth_hits = sum(diag$num_max_treedepth),
        ebfmi = diag$ebfmi, max_rhat = max(hyper_rhat, na.rm = TRUE))
+}
+
+# -----------------------------------------------------------------------------
+# Field on the prediction grid (log_lambda_pred): posterior mean, SD and 90%
+# interval per point, one data frame per species. NULL without a grid.
+# -----------------------------------------------------------------------------
+summarise_grid <- function(fit, sd) {
+  if (sd$N_pred == 0L) return(NULL)
+  sp <- attr(sd, "species")
+  setNames(lapply(seq_len(sd$S), function(s) {
+    m <- fit$draws(sprintf("log_lambda_pred[%d,%d]", seq_len(sd$N_pred), s), format = "draws_matrix")
+    q <- apply(m, 2, quantile, c(0.05, 0.95))
+    data.frame(point = seq_len(sd$N_pred), mean = colMeans(m), sd = apply(m, 2, stats::sd),
+               q05 = q[1, ], q95 = q[2, ])
+  }), sp)
+}
+
+# -----------------------------------------------------------------------------
+# Predictive checks, computed from n_draws posterior (or prior) draws and kept
+# as small summaries, since the fits themselves are not saved.
+#
+# Visual (visual-only, joint and prior fits), per line-transect species:
+#   counts   segment counts replicated from the fitted means (Poisson or NB):
+#            total, share of zero segments, variance / mean across segments,
+#            maximum; per draw (rep) and observed (obs)
+#   bands    detected groups per 100 km band of Y (along the coast): observed
+#            against the replicated median and 90% interval
+#   dist     the predictive density of detected perpendicular distance
+#            (det_pdf) against the observed distances
+#   size     detected group sizes by size class: predictive (det_size)
+#            against observed shares
+# eDNA (eDNA-only, joint and prior fits):
+#   mb       share of metabarcoding replicates with reads, per species and
+#            sampling depth: P(reads > 0) = (1 - exp(-aliquot copies)) x
+#            (1 - BetaBinomial(0 | total)), as the likelihood
+#   qpcr     hake qPCR detection rate per sampling depth
+#   ct       per detected well: observed Ct, predictive mean and 90% interval
+#            (the Ct noise as the model's, with ct_sd_cond)
+# -----------------------------------------------------------------------------
+ppc_joint <- function(fit, sim, sd, n_draws = 200L) {
+  nd_all <- posterior::ndraws(fit$draws("lp__"))
+  sel <- unique(round(seq(1, nd_all, length.out = min(n_draws, nd_all))))
+  prior <- sd$use_edna == 0L && sd$use_visual == 0L
+  list(visual = if (sd$L > 0 && (sd$use_visual == 1L || prior)) ppc_visual(fit, sim, sd, sel),
+       edna   = if (sd$use_edna == 1L || prior) ppc_edna(fit, sim, sd, sel))
+}
+
+# group-size bins of the model (sizes 1..30, then 10% log bins) and classes
+ksz_bin_r <- function(k) ifelse(k <= 30, k, 31 + floor(log(k) / log(1.1)) - floor(log(31) / log(1.1)))
+size_classes <- function(S_max, edges = c(1, 2, 3, 5, 10, 20, 50, 100, 200, 500, 1000)) {
+  k <- seq_len(S_max); b <- ksz_bin_r(k)
+  first <- tapply(k, b, min)                       # first size in each bin
+  edges <- unique(first[findInterval(edges[edges <= S_max], first)])   # moved to bin starts
+  cls <- findInterval(first, edges)
+  last <- c(edges[-1] - 1, S_max)
+  list(bin_class = cls, n_bin = length(first), edges = edges,
+       label = ifelse(edges == last, as.character(edges), sprintf("%d-%d", edges, last)),
+       size_class = function(s) findInterval(first[ksz_bin_r(s)], edges))
+}
+
+ppc_visual <- function(fit, sim, sd, sel) {
+  dm <- function(v) fit$draws(v, format = "draws_matrix")[sel, , drop = FALSE]
+  seg <- sim$visual$design$segments
+  band <- floor(seg$Y / 100)
+  mgs <- dm("mean_group_size"); nd <- length(sel)
+  lt <- sim$meta$lt_species
+  det_end <- cumsum(sd$n_det)
+  setNames(lapply(seq_len(sd$L), function(l) {
+    s <- sd$lt_species_idx[l]
+    ll  <- dm(sprintf("log_lambda_seg[%d,%d]", seq_len(sd$n_seg), s))
+    esw <- dm(sprintf("esw_bft[%d,%d]", l, seq_len(sd$n_bft)))[, sd$seg_bft, drop = FALSE]
+    mu  <- exp(unclass(ll) - log(as.numeric(mgs[, l])) + log(unclass(esw)) + rep(log(2 * as.numeric(sd$seg_l)), each = nd))
+    yrep <- if (sd$use_nb[l] == 1L) {
+      phi <- as.numeric(dm(sprintf("phi_nb[%d]", cumsum(sd$use_nb)[l])))
+      matrix(rnbinom(length(mu), size = rep(phi, ncol(mu)), mu = mu), nd)
+    } else matrix(rpois(length(mu), mu), nd)
+    y <- sd$seg_count[l, ]
+    stat <- function(m) data.frame(total = rowSums(m), zero = rowMeans(m == 0),
+                                   disp = apply(m, 1, var) / pmax(rowMeans(m), 1e-12), max = apply(m, 1, max))
+    br <- t(rowsum(t(yrep), band)); bo <- tapply(y, band, sum)
+    bq <- apply(br, 2, quantile, c(0.05, 0.5, 0.95))
+    out <- list(counts = list(rep = stat(yrep), obs = stat(matrix(y, 1))),
+                bands = data.frame(Y_km = (as.numeric(colnames(br)) + 0.5) * 100, obs = as.numeric(bo),
+                                   lo = bq[1, ], med = bq[2, ], hi = bq[3, ]))
+    if (sd$use_ppc == 1L) {
+      i <- (det_end[l] - sd$n_det[l] + 1):det_end[l]
+      pdf <- dm(sprintf("det_pdf[%d,%d]", l, 1:40)); pq <- apply(pdf, 2, quantile, c(0.05, 0.5, 0.95))
+      out$dist <- list(pred = data.frame(x = (1:40 - 0.5) * sd$w[l] / 40, lo = pq[1, ], med = pq[2, ], hi = pq[3, ]),
+                       obs = sd$det_x[i], w = sd$w[l])
+      sc <- size_classes(sd$S_max[l])
+      pb <- dm(sprintf("det_size[%d,%d]", l, seq_len(sc$n_bin)))
+      pc <- t(rowsum(t(pb), sc$bin_class)); cq <- apply(pc, 2, quantile, c(0.05, 0.5, 0.95))
+      oc <- tabulate(sc$size_class(sd$det_s[i]), length(sc$edges)) / length(i)
+      out$size <- data.frame(class = factor(sc$label, sc$label), obs = oc,
+                             lo = cq[1, ], med = cq[2, ], hi = cq[3, ], n_obs = length(i))
+    }
+    out
+  }), lt)
+}
+
+ppc_edna <- function(fit, sim, sd, sel) {
+  dm <- function(v) fit$draws(v, format = "draws_matrix")[sel, , drop = FALSE]
+  nd <- length(sel); S <- sd$S; K <- S + 1; N <- sd$N
+  le <- array(dm(sprintf("log_lambda_edna[%d,%d]", rep(seq_len(N), K), rep(seq_len(K), each = N))), c(nd, N, K))
+  smp <- sim$edna$design$samples
+  depth <- if (!is.null(smp$Z_sample)) smp$Z_sample else rep(0, N)
+  sp <- attr(sd, "species")
+  lvf <- log(sd$vol_aliquot / 100)
+  # log of the expected copies given presence, lam / (1 - exp(-lam)), stable for small lam
+  log_k <- function(x) { lam <- exp(x); ifelse(lam < 1e-8, lam / 2, x - log(-expm1(-lam))) }
+  lse <- function(m) { mx <- apply(m, 1, max); mx + log(rowSums(exp(m - mx))) }
+  b0 <- as.numeric(dm("beta0_phi")); g0 <- as.numeric(dm("gamma0_phi")); g1 <- as.numeric(dm("gamma1_phi"))
+  ri <- sd$mb_sample_idx; R <- length(ri)
+  mb_off <- lvf + as.numeric(sd$mb_log_dilution); mb_tot <- as.numeric(sd$mb_total)
+  ppos <- array(NA_real_, c(nd, R, S))
+  for (d in seq_len(nd)) {
+    LL <- matrix(le[d, ri, ], R, K) + mb_off                                      # R x K
+    lK <- log_k(LL); lnu <- lK - lK[, K]; lpi <- lnu - lse(lnu)
+    lphi <- b0[d] + lse(LL) + pmax(g0[d] - g1[d] * lK, 0)
+    a <- exp(lpi + lphi); b <- exp(log(-expm1(pmin(lpi, -1e-300))) + lphi)
+    p_bb0 <- exp(lbeta(a, mb_tot + b) - lbeta(a, b))
+    ppos[d, , ] <- (-expm1(-exp(LL[, 1:S]))) * (1 - p_bb0[, 1:S])
+  }
+  dz <- depth[ri]
+  mb <- do.call(rbind, lapply(seq_len(S), function(s) do.call(rbind, lapply(sort(unique(dz)), function(z) {
+    r <- dz == z; pr <- rowMeans(ppos[, r, s, drop = FALSE])
+    data.frame(species = sp[s], depth = z, n = sum(r), obs = mean(sd$mb_reads[r, s] > 0),
+               lo = unname(quantile(pr, 0.05)), med = median(pr), hi = unname(quantile(pr, 0.95)))
+  }))))
+  out <- list(mb = mb)
+  if (sd$N_qpcr_long > 0) {
+    qi <- sd$qpcr_sample_idx
+    lw <- matrix(le[, qi, 1], nd) + rep(lvf + as.numeric(sd$qpcr_log_dilution), each = nd)  # nd x wells: log copies in the well
+    curve <- sd$qpcr_curve_model == 1L
+    kap <- if (curve) as.numeric(dm("kappa_qpcr[1]")) else rep(sd$kappa, nd)
+    pdet <- -expm1(-kap * exp(lw))
+    dq <- depth[qi]
+    out$qpcr <- do.call(rbind, lapply(sort(unique(dq)), function(z) {
+      r <- dq == z; pr <- rowMeans(pdet[, r, drop = FALSE])
+      data.frame(depth = z, n = sum(r), obs = mean(sd$qpcr_detect[r]),
+                 lo = unname(quantile(pr, 0.05)), med = median(pr), hi = unname(quantile(pr, 0.95)))
+    }))
+    pl <- sd$qpcr_plate_idx
+    if (curve) {
+      # one column per plate, then per well (draws subsetting drops repeated names)
+      up <- sort(unique(pl)); w <- match(pl, up)
+      al <- unclass(dm(sprintf("alpha_ct_plate[%d]", up)))[, w, drop = FALSE]
+      be <- unclass(dm(sprintf("beta_ct_plate[%d]", up)))[, w, drop = FALSE]
+      g0c <- as.numeric(dm("gamma0_ct_est[1]")); g1c <- as.numeric(dm("gamma1_ct_est[1]"))
+      s0c <- as.numeric(dm("sigma0_ct_est[1]"))
+    } else {
+      al <- matrix(sd$alpha_ct, nd, length(qi)); be <- matrix(sd$beta_ct, nd, length(qi))
+      g0c <- rep(sd$gamma0_ct, nd); g1c <- rep(sd$gamma1_ct, nd); s0c <- rep(sd$sigma0_ct, nd)
+    }
+    mct <- al - be * lw
+    lsd <- if (sd$ct_sd_cond == 1L) log_k(lw) else lw
+    sct <- sqrt(s0c^2 + exp(2 * (g0c + g1c * lsd)))
+    ct_rep <- mct + sct * matrix(rnorm(length(mct)), nd)
+    det <- sd$qpcr_detect == 1L
+    cq <- apply(ct_rep[, det, drop = FALSE], 2, quantile, c(0.05, 0.95))
+    out$ct <- data.frame(well = which(det), depth = dq[det], obs = sd$qpcr_ct[det],
+                         pred = colMeans(mct[, det, drop = FALSE]), lo = cq[1, ], hi = cq[2, ])
+  }
+  out
 }

@@ -38,6 +38,15 @@
 //   use_vis_covar[l] = 0 drops the term for species l, giving its model
 //   without it exactly.
 //
+// Hazard-rate shape: b >= b_min[l] (b_min = 0: unbounded, the model before
+// the bound exactly; Len Thomas's suggestion: b < 1 gives a cusp at 0).
+//
+// Generated quantities only (they do not change the sampling):
+//   log_lambda_pred  the field at N_pred prediction points (maps)
+//   det_pdf, det_size  with use_ppc = 1: predictive density of the detected
+//                    perpendicular distances and probability of each detected
+//                    group-size bin, per line-transect species
+//
 // Switches (data):
 //   use_edna = 0    drop the eDNA likelihood (visual-only fit)
 //   use_visual = 0  drop the visual likelihood (eDNA-only fit)
@@ -211,11 +220,19 @@ data {
   vector<lower=0>[L] mu_log_prior_sd;
   vector<lower=0>[L] sigma_log_prior_shape;
   vector<lower=0>[L] sigma_log_prior_rate;
+  vector<lower=0>[L] b_min;                // hazard-rate shape b >= b_min (0 = unbounded)
+
+  // ---- Prediction grid and predictive summaries (generated quantities only) ----
+  int<lower=0> N_pred;
+  matrix[N_pred, D1] pred_coords;          // normalised by the domain
+  matrix[N_pred, K_bathy] B_bathy_pred;
+  int<lower=0, upper=1> use_ppc;           // detected distance and group-size summaries
 }
 
 transformed data {
   matrix[N, M]     PHI     = hsgp_phi(L_hsgp, INDICES, coords);
   matrix[n_seg, M] PHI_seg = hsgp_phi(L_hsgp, INDICES, seg_coords);
+  matrix[N_pred, M] PHI_pred = hsgp_phi(L_hsgp, INDICES, pred_coords);
   int n_cv = use_bottle_noise * (bottle_theta_shared == 1 ? 1 : S);
   real log_vol_frac = log(vol_aliquot / 100.0);
   // Per-replicate log offsets on the aliquot copies: the aliquot's fraction of
@@ -248,6 +265,11 @@ transformed data {
     int j = 0;
     for (l in 1:L) if (det_key[l] == 1) { j += 1; hr_pos[l] = j; }
   }
+  vector[n_hr] log_b_lower;                // log(0) = -inf: no bound
+  for (l in 1:L) if (det_key[l] == 1) log_b_lower[hr_pos[l]] = log(b_min[l]);
+  // predictive summaries: distance cells per species, group-size bins
+  int n_xppc = 40;
+  int n_kbin_max = L > 0 ? max(n_kbin) : 1;
   // Species with the sea-state covariate get a Beaufort slope
   int n_bft_sp = sum(use_bft_covar);
   array[L] int bft_pos = rep_array(0, L);
@@ -300,7 +322,7 @@ parameters {
   // Visual observation model, per line-transect species
   vector[L] log_sigma;
   vector[L] beta_size;
-  vector[n_hr] log_b;                      // hazard-rate shape (hazard-rate species only)
+  vector<lower=log_b_lower>[n_hr] log_b;   // hazard-rate shape (hazard-rate species only)
   vector[n_bft_sp] beta_bft;               // change in log sigma per Beaufort unit (bft species only)
   vector[n_vis_sp] beta_vis;               // change in log sigma per visibility unit (vis species only)
   // segment-count overdispersion (NB species only), bounded below at 0.01 so
@@ -481,4 +503,61 @@ generated quantities {
   // qPCR curves in the eDNA model's terms (qpcr_curve_model = 1)
   vector[qpcr_curve_model] kappa_qpcr = inv_logit(logit_kappa_est);
   vector[N_plate * qpcr_curve_model] qpcr_efficiency = exp(1 ./ beta_ct_plate) - 1;  // 1 = doubling
+
+  // Field on the prediction grid (log animals / km^2)
+  matrix[N_pred, S] log_lambda_pred;
+  for (s in 1:S)
+    log_lambda_pred[, s] = mu_sp[s] + B_bathy_pred * beta_bathy[s]'
+        + PHI_pred * (hsgp_sqrt_spd(gp_sigma[s], gp_l_raw[s, ], L_hsgp, INDICES, D1) .* z_beta[s]);
+
+  // Predictive summaries of the detections (use_ppc = 1). Over the segments,
+  // weighted by their expected detections (field x length in each
+  // detection-condition cell), the group-size pmf (in ksz_bin bins) and the
+  // detection function:
+  //   det_pdf[l, q]   density of the detected perpendicular distance at the
+  //                   midpoint of cell q of n_xppc over [0, w_l]
+  //   det_size[l, b]  probability that a detected group is in size bin b
+  //                   (sizes 1..30 one per bin, then 10% log bins; 0 beyond
+  //                   the species' bins)
+  matrix[L * use_ppc, n_xppc] det_pdf;
+  matrix[L * use_ppc, n_kbin_max] det_size;
+  if (use_ppc == 1) {
+    for (l in 1:L) {
+      int nkb = n_kbin[l];
+      vector[S_max[l]] pk = group_size_pmf(S_max[l], group_size_dist[l], mu_s[l], phi_s[l],
+                                           mu_log_s[l], sigma_log_s[l]);
+      vector[nkb] pb = rep_vector(0, nkb);
+      vector[nkb] kb = rep_vector(0, nkb);
+      for (k in 1:S_max[l]) {
+        pb[ksz_bin[l, k]] += pk[k];
+        kb[ksz_bin[l, k]] += pk[k] * k;
+      }
+      vector[nkb] dk = kb ./ fmax(pb, 1e-300) - s_centre[l];   // mean size in bin - s_centre
+      vector[n_bft] A = rep_vector(0, n_bft);
+      for (j in 1:n_seg) A[seg_bft[j]] += exp(log_lambda_seg[j, lt_species_idx[l]]) * seg_l[j];
+      vector[n_xppc] xq = (linspaced_vector(n_xppc, 1, n_xppc) - 0.5) * w[l] / n_xppc;
+      vector[n_xppc] pdf = rep_vector(0, n_xppc);
+      vector[nkb] sz = rep_vector(0, nkb);
+      // without the size covariate every bin shares one detection function
+      int n_sig = use_size_covar[l] == 1 ? nkb : 1;
+      for (c in 1:n_bft) {
+        if (A[c] == 0) continue;
+        for (b in 1:n_sig) {
+          real ls = log_sigma_bft[l][c] + (use_size_covar[l] == 1 ? beta_size[l] * dk[b] : 0);
+          real mass = use_size_covar[l] == 1 ? pb[b] : 1.0;
+          real e = det_esw(ls, det_key[l], b_hr[l], w[l], log_xq[l]);
+          if (use_size_covar[l] == 1) sz[b] += A[c] * mass * e;
+          else sz += A[c] * e * pb;
+          for (q in 1:n_xppc)
+            pdf[q] += A[c] * mass * (det_key[l] == 0
+                                     ? exp(-square(xq[q]) / (2 * square(hn_sigma(ls))))
+                                     : exp(hr_log_g(xq[q], ls, b_hr[l])));
+        }
+      }
+      real tot = sum(sz);                   // sum of cell weights x population-average ESW
+      det_pdf[l] = (pdf / tot)';
+      det_size[l] = rep_row_vector(0, n_kbin_max);
+      det_size[l, 1:nkb] = (sz / tot)';
+    }
+  }
 }
