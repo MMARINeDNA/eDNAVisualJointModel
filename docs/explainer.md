@@ -1,7 +1,7 @@
 ---
 title: "Joint eDNA and visual survey modelling: what we built and what we tested"
 subtitle: "An explainer for the eDNAVisualJointModel repository (draft for review)"
-date: "2026-10-27"
+date: "2026-10-28"
 toc: true
 toc-depth: 3
 number-sections: true
@@ -11,8 +11,8 @@ number-sections: true
 > code in this repository (`docs/explainer/`). **Section 5 (the joint model)
 > summarises results recorded in the repository by the Phase 5 work; I did not
 > re-run them for this document** (Section 5.2.2 adds the current set-up). The
-> joint model's real-data fits are under way: visual-only done, eDNA-only and
-> joint running. Items that need your input are marked **[REVIEW]**, and the
+> joint model's real-data fits: visual-only done; the first eDNA-only and
+> joint fits did not converge and are being re-run (Section 3.3.1). Items that need your input are marked **[REVIEW]**, and the
 > open questions are collected in Section 6.
 
 > **Out of date: set-up changed on 2026-10-12** (HSGP4eDNA v1.4,
@@ -74,6 +74,17 @@ number-sections: true
 >   the visual model (Section 4.5.2). **The real eDNA and joint fits are
 >   running** (on the stats3 server, about two more days) and are not in this
 >   document yet.
+
+> **Updated on 2026-10-28** (eDNAVisualJointModel #111).
+>
+> - **The first real eDNA-only and joint fits did not converge** (max R-hat
+>   1.25 and 2.03), all in hake's qPCR side. The likely cause is how the
+>   Ct noise is evaluated at very low copies; Section 3.3.1 explains it with
+>   two figures. Both fits are being re-run with the Ct noise bounded.
+> - **Seed 1:** stats3's re-runs of the joint fits turned out to be on a
+>   different simulated dataset from the laptop's (the same seed gives
+>   different GP fields on another machine). The laptop's four fits stay as
+>   the seed-1 demonstration, now final (Section 5.2.2).
 
 # What this document is
 
@@ -373,7 +384,7 @@ difference 3e-11 over random parameter values):
   sampled at the surface.
 - **Bounded Ct noise at very low copies** (v1.12): the Ct-noise SD is
   evaluated at the expected copies given detection, so it cannot grow without
-  limit as copies fall.
+  limit as copies fall. The real re-fits use it; Section 3.3.1 shows why.
 
 ![eDNA-only model. Each species' GP hyperparameters, intercept and bottom-depth spline set its density field. With fixed conversion factors, volumes and water-column offsets, the field sets each bottle's expected copies. The bottle's species copies (spread θ, shared by all species) and its junk copies (spread θ_junk) are unobserved negative-binomial draws. Its qPCR and metabarcoding replicates are observed and share those copies.](figures/model_edna.svg)
 
@@ -510,9 +521,10 @@ MarVer1 taxon table and the 2019 sample metadata, matched on sample number
 The model side is ready: HSGP4eDNA v1.8–v1.12 (the submodule since
 2026-10-23) and the joint model (since 2026-10-23) take the per-plate curves
 estimated from the standards, the dilution offsets, the per-bottle volumes and
-the sampling-depth smooth. **The real eDNA fit with them is running** (the
-joint model's eDNA-only mode, `R/fit_joint_real.r`, on the stats3 server); the
-fit shown further below is the earlier one, without them.
+the sampling-depth smooth. **The first real eDNA fit with them** (the joint
+model's eDNA-only mode, `R/fit_joint_real.r`, on the stats3 server) did not
+converge and is being re-run (Section 3.3.1); the fit shown further below is
+the earlier one, without them.
 
 **The hake standard curves on their own.** Before estimating them inside the
 model, the per-plate curves were fitted to the standards alone
@@ -540,6 +552,91 @@ standard, which leaves 659 (26 non-detects).
   72 lab-DI field-negative wells (about 1–2 copies per µL on average, up to
   12), against 1 of 174 extraction controls. The lab advises using the data as
   provided; Section 6 lists what this means for the cetacean estimates.
+
+### First fits with Ct, standards, dilutions and depth (2026-10-27): not converged
+
+The joint model fitted to the real data eDNA-only and jointly with the
+cetaceans' conversion factors free, with every eDNA option on: per-plate
+curves estimated from the standards, dilution offsets, volume per bottle,
+the sampling-depth smooth and non-centred junk noise (4 chains of 1000 +
+1000, budget 800, on stats3).
+
+| | eDNA only | Joint, conversion factors free | Visual only (for comparison) |
+|---|---|---|---|
+| Runtime | 37 h | 37 h | 21 h |
+| Divergences / max-treedepth hits | 0 / 0 | 0 / 0 | 0 / 0 |
+| Max R-hat | **1.25** | **2.03** | 1.004 |
+| Worst-mixing parameters (R-hat, bulk ESS) | hake's depth smooth (1.25, 12; 1.20, 15), bottle noise $\theta$ (1.07, 42) | Ct-noise $\gamma_0$ (2.03, 5) and $\gamma_1$ (1.81, 6), $\theta$ (1.67, 7), a hake bathymetry term (1.44, 8), hake's depth smooth (1.43, 8) | none |
+
+Every badly mixed parameter belongs to hake's qPCR side: the Ct noise, the
+bottle noise, hake's depth smooth and a hake bathymetry term. The cetaceans'
+fields, all visual parameters and the conversion factors mixed well (R-hat
+1.00–1.02). Until the re-fit converges, none of these fits' hake estimates
+should be read; the cetacean numbers are provisional.
+
+**The likely cause: Ct noise at very low copies.** A detected well's Ct is
+normal with mean $\alpha_p - \beta_p \log\lambda$ ($\lambda$ the expected
+copies in the well) and SD
+$\sqrt{\sigma_0^2 + e^{2(\gamma_0 + \gamma_1 \log\lambda)}}$: a floor
+$\sigma_0$ plus extra noise at low copies, growing as copies fall because
+$\gamma_1 < 0$. The real fit estimates $\gamma_0$ = 1.09, $\gamma_1$ = −0.73
+and $\sigma_0$ = 0.20.
+
+![Top: the Ct-noise SD against copies in the well, from the real eDNA fit, evaluated at the expected copies (blue, as in the first fits) or at the expected copies given detection (orange, HSGP4eDNA v1.12's `ct_sd = "conditional"`). Points: observed SD among replicate wells, for the standards (circles, median per plate) and the field triplicates (triangles, median per Ct band, placed at the copies their mean Ct implies). Shaded: below the lowest standard (2 copies in the well). Bottom: the detected hake field wells at the copies their Ct implies on their plate.](figures/ct_sd_options.png)
+
+- **Evaluated at the expected copies** (blue), the SD keeps rising below one
+  copy: about 5 cycles at 0.5 copies, 16 at 0.1 and 86 at 0.01.
+- **Nothing constrains the curve there.** The lowest standard holds 2 copies
+  in the well, so below it the curve is an extrapolation. Yet 18% of the
+  1,314 detected hake field wells have a Ct implying fewer than 2 copies, and
+  9% fewer than 1.
+- **The data do not show that growth.** Field triplicates with late Cts
+  (implied 0.4–1.5 copies) spread by 1.3–1.5 cycles, not 5–16.
+- **Conditional on detection** (orange), the SD is evaluated at
+  $\lambda / (1 - e^{-\lambda})$, the expected copies in a well that
+  amplified, which is never below 1. A detected well held at least one copy,
+  so the SD stops at its one-copy value, about 3 cycles. Above about 20 copies
+  the two are identical, and the mean Ct is unchanged.
+
+![The log-likelihood of one detected well against its expected copies, for an observed Ct of 36 (solid) and 40 (dashed), on a typical plate. Blue: SD at the expected copies; orange: conditional on detection.](figures/ct_sd_trap.png)
+
+**Why that can trap the sampler.** With the SD at the expected copies, once
+the copies are low enough the observed Ct stops mattering: below about 0.1
+copies, a Ct of 36 and a Ct of 40 give the same likelihood (the blue lines
+coincide), and only the falling chance of detection pulls the copies back
+up. So a bottle with late Cts has two explanations: modest copies with modest
+noise, or very few copies with very large noise. Which one the model uses
+moves with the bottle noise, hake's depth smooth and bathymetry terms, and
+$\gamma_0$ and $\gamma_1$ themselves, and below 2 copies only the field
+wells, whose copies are unknown, inform the curve. That is a long, flat
+ridge, and the parameters on it are the ones that mixed badly. HSGP4eDNA met
+the same trap in its own testing (its joint simulator's seed 1), which is why
+v1.12 added the conditional form. Conditional on detection, a Ct of 36 keeps
+arguing against near-zero copies.
+
+> **[REVIEW] What is not certain.** This is a hypothesis: the first fits did
+> not keep their draws, so the chains could not be compared directly. It fits
+> the joint fit best, where the Ct-noise terms are the worst; in the
+> eDNA-only fit they mixed well and hake's depth smooth was the worst, which
+> the same trade-off can explain (low-copy bottles sit at particular depths)
+> but does not prove. The conditional form is also not stricter everywhere:
+> for a very late well (Ct 40) it is more lenient between about 0.001 and 0.5
+> copies (second figure); what it removes is the region where the Ct stops
+> counting. The re-fits (eDNA-only and joint, on stats3 since 2026-10-28)
+> keep their chain files and log each chain's means, so if the problem
+> remains, the split between chains will show where it is. The next suspect
+> would be the depth smooth trading off against bathymetry.
+
+**Two other things the first fits show** (to be checked on the re-fits):
+
+- **Hake's length-scales sit below the floor** (27 × 44 km, against
+  40 × 70 km) in both fits, while the cetaceans' eDNA-only length-scales are
+  long and vague (humpback 84 × 110 km, PWSD 124 × 116 km). Hake's may be
+  tied up with the mixing problem.
+- **Field wells are noisier than the standards at high copies.** Above about
+  30 copies, field triplicates spread by 0.23–0.27 cycles against 0.08–0.11
+  for the standards, so the noise floor $\sigma_0$ (0.20) is set by the field
+  wells (Section 6, for Ole).
 
 **What is not.** The qPCR file holds copies per $\mu$L, not Ct, and there is no
 standard curve (slope, intercept, detection efficiency $\kappa$, Ct noise). The
@@ -1288,15 +1385,28 @@ showed the same pattern: joint best for both cetaceans, hake unchanged, and
 conversion factors recovered. One of its runs did not converge (one chain in a
 mode with very large junk noise), which is why joint fits now run 4 chains.
 
-### Seed 1 on the current set-up (2026-10-24; preliminary)
+### Seed 1 on the current set-up (2026-10-24)
 
 The same seed with sea state, on HSGP4eDNA v1.12 (junk redrawn per
 replicate, no Ct floor in the simulator, the wider GP SD prior), with
 negative-binomial segment counts for both cetaceans, non-centred junk noise
-and `adapt_delta` 0.9 (4 chains of 800 + 800). **Preliminary:** the joint and
-free-conversion fits were made before the bound on the NB size (Section 4.2)
-and are being re-run with it on stats3; the eDNA-only and visual-only fits are
-final. Seeds 2–5 follow.
+and `adapt_delta` 0.9 (4 chains of 800 + 800), all four fits on a laptop.
+The joint and free-conversion fits predate the bound on the NB size
+(Section 4.2), which was needed only for the real data; here the fits
+converged without it. Seeds 2–5 follow.
+
+**Why these fits were not replaced by stats3's re-runs (2026-10-28).** The
+same seed simulates a different dataset on another machine: the simulator
+draws the GP fields with `MASS::mvrnorm()`, which goes through `eigen()`, and
+that depends on the machine's linear-algebra library. stats3's re-runs of the
+joint and free-conversion fits were therefore on another dataset (for
+example, 1,893 simulated humpback sightings against 1,759), and cannot share
+a table with the laptop's eDNA-only and visual-only fits. On their own
+dataset they gave R² 0.951 / 0.930 / 0.698 (hake / humpback / PWSD) and
+conversion factors 5.31 [5.11, 5.52] and 4.57 [4.25, 4.88] (truth 5.30 and
+4.70), the same picture. `R/compare_joint.r` now refuses to fit a mode whose
+dataset differs from the one already in its folder, and the replicates run
+every mode of a seed on stats3.
 
 | Species | eDNA only | Visual only | Joint | Joint, conversion factor free | Earlier joint (v1.5, Poisson) |
 |---|---|---|---|---|---|
@@ -1326,8 +1436,8 @@ final. Seeds 2–5 follow.
 > (1) Prior and posterior predictive checks for the joint model, in the style of
 > Sections 3 and 4: not produced. (2) The real eDNA and joint fits are running
 > (eDNA-only, and joint with the cetaceans' conversion factors free; the
-> visual-only fit is in Section 4.5.2); they are the first fits with the real
-> Ct values, estimated standard curves, dilutions and depth smooth together.
+> visual-only fit is in Section 4.5.2). The first ones did not converge and
+> are being re-run with the Ct noise bounded at low copies (Section 3.3.1).
 
 ## What the real-data objects provide
 
@@ -1409,14 +1519,21 @@ ROADMAP_2026-10-21 (sections 5b and 6).
    litre per km², hake 10, humpback 200, PWSD 110) are placeholders. Do they
    give realistic copies and detection rates? The real joint fit will
    estimate the cetaceans' values.
+6. **Ct spread in field wells.** At high copies, replicate field wells spread
+   by about 0.25 Ct against about 0.1 for the standards on the same plates
+   (Section 3.3.1). What adds the extra spread: inhibition, pipetting of
+   extracts, something else? At low copies the two agree.
+7. **Very late Cts.** 9% of detected hake field wells have a Ct above their
+   plate's one-copy Ct (some above 40). Are these trusted as detections, or
+   is there a Ct cut-off the lab would apply?
 
 ## What is running
 
-On the stats3 server since 2026-10-26: the real eDNA-only fit and the real
-joint fit with free conversion factors (both 4 chains of 1000 + 1000; about
-two more days at the server's current load), and seed 1's joint and
-free-conversion fits with the NB bound. Seeds 2–5 of the simulation follow
-later in the week.
+On the stats3 server since 2026-10-28: the re-fits of the real eDNA-only fit
+and the real joint fit with free conversion factors, with the Ct noise
+bounded at low copies (both 4 chains of 1000 + 1000; about a day and a half
+at the server's current load). Seeds 2–5 of the simulation follow later in
+the week.
 
 # To do
 
@@ -1424,8 +1541,8 @@ Drawn from ROADMAP_2026-10-21 (item numbers in brackets), roughly in order.
 
 **Now**
 
-1. Finish the stats3 runs and write them up: the real eDNA-only and joint
-   fits (§5.7) and seed 1's joint fits with the NB bound (§3.2).
+1. Finish the real eDNA-only and joint re-fits on stats3 and write them up
+   (§5.7); if they still do not converge, find the split between chains.
 2. Simulation replicates, seeds 2–5 with sea state, plus the
    without-Beaufort contrast for seeds 1–2; a summary table across seeds
    (§3.2).
