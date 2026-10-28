@@ -18,7 +18,8 @@
 #      both cetaceans, "none" = Poisson), JUNK_NOISE_DIST (1 centred, 2
 #      non-centred; default 2: the centred form mixes badly on HSGP4eDNA
 #      v1.7+'s simulator, ROADMAP_2026-10-21 section 3 item 3), ADAPT_DELTA
-#      (default 0.9),
+#      (default 0.9), SIM_FILE (fit this saved simulate_joint() dataset
+#      instead of simulating SEED here),
 #      CHAINS, WARMUP, SAMPLE (default 4 x 800/800), REFRESH (sampler
 #      progress every REFRESH iterations; default 100, 0 = silent), OUT (default
 #      outputs/joint/compare_s<SEED>; with SEA_STATE=1 compare_sea_s<SEED>, or
@@ -50,12 +51,28 @@ OUT <- Sys.getenv("OUT", sprintf("outputs/joint/compare%s_s%d",
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 MODE_ORDER <- c("edna", "visual", "joint", "joint_conv")
 
-sim <- simulate_joint(seed = SEED, sea_state = SEA_STATE)
-# modes of one seed may run as parallel processes: write via a rename so a
-# reader never sees a half-written file
-tmp <- tempfile("sim", tmpdir = OUT, fileext = ".rds")
-saveRDS(sim, tmp); file.rename(tmp, file.path(OUT, "sim.rds"))
-if (length(MODES) && any(nzchar(MODES))) {
+FIT_MODES <- length(MODES) && any(nzchar(MODES))
+# The same seed gives a different dataset on another machine (MASS::mvrnorm
+# draws the GP fields through eigen(), whose output depends on the LAPACK
+# build), so every mode of a seed must be fitted to one sim.rds: a fit refuses
+# to start if <OUT>/sim.rds holds another dataset, and SIM_FILE fits a saved
+# dataset (e.g. one copied from the machine that fitted the other modes).
+sim_file <- file.path(OUT, "sim.rds")
+SIM_FILE <- Sys.getenv("SIM_FILE", "")
+sim <- if (nzchar(SIM_FILE)) readRDS(SIM_FILE) else simulate_joint(seed = SEED, sea_state = SEA_STATE)
+if (file.exists(sim_file) && !isTRUE(all.equal(sim, readRDS(sim_file)))) {
+  if (FIT_MODES)
+    stop(sim_file, " holds a different dataset from this seed's simulation here (another machine or ",
+         "simulator version): fit with SIM_FILE=", sim_file, " or use another OUT")
+  warning(sim_file, " differs from this seed's simulation here: the figure uses the saved one")
+  sim <- readRDS(sim_file)
+} else {
+  # modes of one seed may run as parallel processes: write via a rename so a
+  # reader never sees a half-written file
+  tmp <- tempfile("sim", tmpdir = OUT, fileext = ".rds")
+  saveRDS(sim, tmp); invisible(file.rename(tmp, sim_file))
+}
+if (FIT_MODES) {
   mod <- compile_joint()
   for (m in MODES) {
     cat(sprintf("\n=== %s (NB: %s; junk noise %s; adapt_delta %.2f) ===\n", m,

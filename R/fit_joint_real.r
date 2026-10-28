@@ -25,9 +25,11 @@
 #      "conditional"), JUNK_NOISE_DIST (2 non-centred, 1 centred), CONV_FREE
 #      (default "humpback,pwsd"), M_MAX (basis budget; 800), CHAINS, WARMUP,
 #      SAMPLE (4 x 1000/1000), ADAPT_DELTA (0.9), TREEDEPTH (12), REFRESH
-#      (100), OUT (outputs/joint/real)
+#      (100), OUT (outputs/joint/real), CSV_DIR (keep the CmdStan chain CSVs
+#      there; default: a temporary folder, deleted at the end)
 # Out: <OUT>/fit_<mode>.rds (summaries: field at stations and segments with
-#      90% intervals, parameters, floor check, diagnostics), and
+#      90% intervals, parameters, each chain's means, floor check,
+#      diagnostics), and
 #      <OUT>/real_{params,floor,runs}.csv over every mode found.
 # =============================================================================
 
@@ -41,6 +43,8 @@ OPTS <- list(qpcr_curve = Sys.getenv("QPCR_CURVE", "estimated"), zdepth = Sys.ge
              M_max = env_int("M_MAX", as.character(GP_BASIS_BUDGET)))
 OUT <- Sys.getenv("OUT", "outputs/joint/real")
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
+CSV_DIR <- Sys.getenv("CSV_DIR", "")
+if (nzchar(CSV_DIR)) dir.create(CSV_DIR, showWarnings = FALSE, recursive = TRUE)
 
 real <- real_joint_object()
 cat(sprintf("real data: %d bottles (%d stations), %d qPCR wells, %d standards, %d MB replicates; %d segments\n",
@@ -59,12 +63,15 @@ if (length(MODES) && any(nzchar(MODES))) {
                                    warmup = env_int("WARMUP", "1000"), sample = env_int("SAMPLE", "1000"),
                                    adapt_delta = as.numeric(Sys.getenv("ADAPT_DELTA", "0.9")),
                                    max_treedepth = env_int("TREEDEPTH", "12"),
-                                   refresh = env_int("REFRESH", "100"), seed = 42L), OPTS))
+                                   refresh = env_int("REFRESH", "100"), seed = 42L,
+                                   output_dir = if (nzchar(CSV_DIR)) CSV_DIR), OPTS))
     r$mode <- m; r$opts <- OPTS
     r$params$mode <- m; r$floor$mode <- m          # fit_joint() labels joint_conv "joint"
     cat(sprintf("%s: %.0f min | divergences %d | treedepth %d | max Rhat %.3f | E-BFMI %s\n",
                 m, r$runtime_min, r$divergences, r$treedepth_hits, r$max_rhat,
                 paste(sprintf("%.2f", r$ebfmi), collapse = ", ")))
+    slow <- r$params$variable[which(r$params$rhat > 1.05)]
+    if (length(slow)) { cat("chain means where R-hat > 1.05:\n"); print(r$chain_means[c("lp__", slow), ], digits = 3) }
     r$fit <- NULL; r$stan_data <- NULL
     saveRDS(r, file.path(OUT, sprintf("fit_%s.rds", m)))
   }

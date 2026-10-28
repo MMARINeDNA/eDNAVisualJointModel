@@ -212,12 +212,15 @@ summarise_joint_real <- function(fit, sim, sd, mode) {
   params <- cbind(mode = mode, as.data.frame(summarise_draws(fit$draws(vars), "mean", median = stats::median,
                   q05 = ~as.numeric(quantile(.x, 0.05)), q95 = ~as.numeric(quantile(.x, 0.95)),
                   rhat = posterior::rhat, ess_bulk = posterior::ess_bulk)))
+  # each chain's mean of every parameter and lp__ (variables x chains), to see
+  # which chain sits apart when R-hat is high
+  chain_means <- apply(posterior::as_draws_array(fit$draws(c("lp__", vars))), c(3, 2), mean)
   gp_prior <- attr(sd, "gp_prior")
   floor <- do.call(rbind, lapply(seq_len(S), function(s) cbind(mode = mode, species = sp[s],
              floor_check(fit$draws(sprintf("gp_l[%d,%d]", s, 1:2), format = "draws_matrix"), gp_prior))))
   diag <- fit$diagnostic_summary(quiet = TRUE)
   hyper_rhat <- fit$summary(joint_hyper_vars(sd), "rhat")$rhat
-  list(field = field, params = params, floor = floor,
+  list(field = field, params = params, floor = floor, chain_means = chain_means,
        divergences = sum(diag$num_divergent), treedepth_hits = sum(diag$num_max_treedepth),
        ebfmi = diag$ebfmi, max_rhat = max(hyper_rhat, na.rm = TRUE))
 }
