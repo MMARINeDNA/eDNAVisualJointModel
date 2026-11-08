@@ -127,7 +127,10 @@ are not copied into this repo. HSGP4eDNA is attached as a git submodule at
 `external/HSGP4eDNA`. This repo stores only a pointer to one commit of HSGP4eDNA,
 plus its URL in `.gitmodules`. On GitHub the folder shows as a link
 ("HSGP4eDNA @ <commit>"), not as files, and a plain clone or a ZIP download
-leaves it empty. `git submodule status` shows the pinned commit.
+leaves it empty. `git submodule status` shows the pinned commit. HSGP4eDNA's
+version numbers (v1.12 and so on) are recorded in its README and commit
+messages, not as git tags, so `git describe` names the last tag (v1.5) and a
+commit count instead.
 
 **How the code is found.** The Stan models include HSGP4eDNA's functions by
 bare file name:
@@ -275,7 +278,8 @@ fit_joint(sim, "joint", conv_free = c("humpback", "pwsd"))   # estimate conversi
 `stan/hsgp_joint.stan` gives each species one field: a 2-D HSGP plus a
 bottom-depth spline, in animals/km². Two observation models share it:
 
-- **eDNA:** HSGP4eDNA's eDNA observation model (the submodule is at v1.12):
+- **eDNA:** HSGP4eDNA's eDNA observation model (the submodule is at v1.12, commit
+  `5515a04`):
   qPCR for hake, zero-inflated beta-binomial metabarcoding for all species,
   and the between-bottle and junk noise terms. The metabarcoding assumes
   equal amplification efficiency across species, which holds for MarVer1 and
