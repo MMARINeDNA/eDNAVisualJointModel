@@ -101,6 +101,33 @@ job() {
       else
         MODES=${BASH_REMATCH[1]} Rscript R/fit_joint_real.r
       fi ;;
+    # ---- maps and predictive checks (2026-10-28)
+    # jreal_visual_b1: the real visual-only fit with the hazard-rate shape
+    #   bounded at b >= 1, the prediction grid and predictive checks
+    jreal_visual_b1)
+      MODES=visual OUT=outputs/joint/real_b1 CSV_DIR=outputs/joint/real_b1/csv_visual Rscript R/fit_joint_real.r ;;
+    # jreal_prior: the prior predictive on the real data (neither likelihood),
+    #   into the same folder, where it is drawn against the visual fit
+    jreal_prior)
+      MODES=prior OUT=outputs/joint/real_b1 Rscript R/fit_joint_real.r ;;
+    # jgq_<mode>: the grid and predictive checks added to a finished
+    #   jreal_<mode>_ctcond fit from its chain CSVs (minutes)
+    jgq_*)
+      [[ $1 =~ ^jgq_(edna|visual|joint|joint_conv)$ ]] ||
+        { echo "bad job name $1 (jgq_<edna|visual|joint|joint_conv>)"; exit 2; }
+      MODE=${BASH_REMATCH[1]} CSV_DIR=outputs/joint/real_ctcond/csv_${BASH_REMATCH[1]} \
+        OUT=outputs/joint/real_ctcond Rscript R/gq_joint.r ;;
+    # cmpgrid_s1_<mode>: seed 1 (sea state) refitted with the prediction grid
+    #   and predictive checks, on the laptop's seed-1 dataset (copy it to
+    #   outputs/joint/sim_sea_s1_mac.rds first; the same seed simulates other
+    #   data here), into outputs/joint/compare_sea_s1_grid
+    cmpgrid_s1_*)
+      [[ $1 =~ ^cmpgrid_s1_(edna|visual|joint|joint_conv|prior)$ ]] ||
+        { echo "bad job name $1 (cmpgrid_s1_<edna|visual|joint|joint_conv|prior>)"; exit 2; }
+      [ -f outputs/joint/sim_sea_s1_mac.rds ] ||
+        { echo "outputs/joint/sim_sea_s1_mac.rds missing: copy the laptop's outputs/joint/compare_sea_s1/sim.rds there"; exit 2; }
+      SEA_STATE=1 SEED=1 MODES=${BASH_REMATCH[1]} SIM_FILE=outputs/joint/sim_sea_s1_mac.rds \
+        OUT=outputs/joint/compare_sea_s1_grid Rscript R/compare_joint.r ;;
     # compile the visual and joint models once (no data needed), before
     # launching jobs that would otherwise all compile them at the same time
     compile)
@@ -211,6 +238,9 @@ stage 5  (after 3 and 4; minutes)                $STAGE5
 stage 6  (real data; 12 cores; visual ~20 h, eDNA and joint ~37 h on a busy stats3)
                                                  $(echo $STAGE6)
          launch jreal_<mode>_ctcond for the Ct SD bounded at low copies
+maps and predictive checks: cmpgrid_s1_<mode> (seed 1 with the grid; 4 cores, 1-28 h),
+         jreal_visual_b1 (b >= 1; 4 cores, ~21 h), jreal_prior (4 cores, hours),
+         jgq_<mode> (after jreal_<mode>_ctcond; minutes)
 not in a stage (needs the ROADMAP_2026-10-21 section 5 data): expl_edna_real
 EOF
     ;;

@@ -43,7 +43,7 @@ visual_init <- function(sd) {
     beta_size = rnorm(1, 0, 0.005),
     beta_bft = array(rnorm(sd$use_bft_covar, 0, 0.02), sd$use_bft_covar),
     beta_vis = array(rnorm(sd$use_vis_covar, 0, 0.02), sd$use_vis_covar),
-    log_b = array(sd$log_b_prior_mean + rnorm(sd$det_key, 0, 0.1), sd$det_key),
+    log_b = array(pmax(sd$log_b_prior_mean + rnorm(sd$det_key, 0, 0.1), log(sd$b_min) + 0.05), sd$det_key),
     inv_sqrt_phi_nb = array(runif(sd$use_nb, 0.3, 0.7), sd$use_nb),
     mu_s = sd$mu_s_prior_shape / sd$mu_s_prior_rate, phi_s = runif(1, 0.5, 2),
     mu_log_s = sd$mu_log_prior_mean + rnorm(1, 0, 0.1),

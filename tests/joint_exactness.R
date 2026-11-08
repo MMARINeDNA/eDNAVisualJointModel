@@ -23,6 +23,14 @@
 #      stan/hsgp_2d_bathysp.stan on the same data up to a constant. The eDNA
 #      parameters vary between points; the visual parameters are fixed.
 #
+#   4. The hazard-rate shape with b_min = 0 (humpback hazard-rate, visual
+#      only): the log density equals the joint model at BASE_REF, at points
+#      with b on both sides of 1.
+#   5. With b_min = 1 the log density differs from BASE_REF's by exactly the
+#      bound's log Jacobian, log(log b), in the joint and the visual models.
+#   The prediction grid and predictive summaries are generated quantities
+#   only, so they do not enter these checks.
+#
 #   Rscript tests/joint_exactness.R
 # Env: BASE_REF (git ref of the joint model before the NB and visibility
 #      options; default 0a60f03, the commit before that work), N_POINTS
@@ -57,7 +65,8 @@ d_old <- d_new[setdiff(names(d_new), c("use_nb", "prior_nb_inv_sqrt_sd", "use_vi
                                        "prior_alpha_ct", "prior_beta_ct", "beta_ct_min",
                                        "prior_gamma0_ct", "prior_gamma1_ct", "prior_sigma0_ct_sig",
                                        "prior_logit_kappa", "ct_sd_cond", "K_zdepth", "B_zdepth",
-                                       "prior_beta_zdepth_sig"))]
+                                       "prior_beta_zdepth_sig", "b_min", "N_pred", "pred_coords",
+                                       "B_bathy_pred", "use_ppc"))]
 d_vis <- format_stan_data_joint(sim1, use_edna = 0L, bft_species = "pwsd", vis_species = "pwsd",
                                 nb_species = "pwsd", M_max = 64L)
 stopifnot(all(d_vis$use_bft_covar == c(0L, 1L)), all(d_vis$use_nb == c(0L, 1L)),
@@ -120,6 +129,20 @@ shared3 <- c("qpcr_sample_idx", "qpcr_detect", "qpcr_ct", "mb_sample_idx", "mb_r
              "std_detect", "std_ct", "std_log_copies", "B_zdepth", "log_conv_factor", "log_vol_filtered")
 stopifnot(all(vapply(shared3, function(k) isTRUE(all.equal(as.vector(as.matrix(e3[[k]])),
                                                            as.vector(as.matrix(d3[[k]])))), logical(1))))
+
+# Hazard-rate humpback, visual only (checks 4-5), with the shape bound off and on
+sp4 <- lt_species_params()
+sp4$humpback <- modifyList(sp4$humpback, list(det_key = 1L, b_min = 0))
+sim4 <- simulate_joint(seed = 4L, n_stations = 60L, n_transects = 10L, sp_params = sp4)
+d4 <- format_stan_data_joint(sim4, use_edna = 0L, bft_species = character(0), vis_species = character(0),
+                             nb_species = character(0), M_max = 64L)
+stopifnot(d4$det_key[1] == 1L, d4$b_min[1] == 0)
+d4_old <- d4[names(d_old)]
+d4b <- modifyList(d4, list(b_min = as.array(c(1, 1))))
+v4 <- format_stan_data_visual(sim4$visual, "humpback", HSGP_M = apply(d4$INDICES, 2, max), use_bft = FALSE,
+                              use_vis = FALSE, use_nb = 0L)
+stopifnot(v4$det_key == 1L, v4$b_min == 0)
+v4b <- modifyList(v4, list(b_min = 1))
 
 # ---- Models with methods, in a temporary directory --------------------------
 tmp <- file.path(tempdir(), "joint_exactness"); dir.create(file.path(tmp, "old"), recursive = TRUE)
@@ -231,6 +254,40 @@ d3d <- vapply(seq_len(N_POINTS), function(k) {
 cat(sprintf("3. visual off, eDNA options on vs HSGP4eDNA's hsgp_2d_bathysp.stan: spread of the difference over %d points = %.2e\n",
             N_POINTS, diff(range(d3d))))
 if (diff(range(d3d)) > TOL) { cat("   FAIL\n"); fail <- TRUE }
+
+# ---- 4. Hazard-rate shape, b_min = 0: identical to BASE_REF ----------------
+p4 <- drop_empty(joint_init(d4)())
+f4_new <- carrier(m_new, d4, p4); f4_old <- carrier(m_old, d4_old, p4)
+f4_b1  <- carrier(m_new, d4b, p4)
+pts4 <- lapply(seq_len(N_POINTS), function(k) {
+  p <- jitter(p4, d4$lt_species_idx, seq_len(d4$L))
+  p$log_b <- array(if (k %% 2) runif(1, -0.6, -0.05) else runif(1, 0.05, 1.5))  # b on both sides of 1
+  p
+})
+d4d <- vapply(pts4, function(p) lp(f4_new, p) - lp(f4_old, p), numeric(1))
+cat(sprintf("4. hazard-rate shape, b_min = 0 vs %s (b from %.2f to %.2f): max |difference| = %.2e\n",
+            BASE_REF, min(sapply(pts4, function(p) exp(p$log_b))), max(sapply(pts4, function(p) exp(p$log_b))),
+            max(abs(d4d))))
+if (max(abs(d4d)) > TOL) { cat("   FAIL\n"); fail <- TRUE }
+
+# ---- 5. b_min = 1: BASE_REF plus the bound's log Jacobian ------------------
+m_vis_old_src <- system2("git", c("show", sprintf("%s:stan/hsgp_visual.stan", BASE_REF)), stdout = TRUE)
+writeLines(m_vis_old_src, file.path(tmp, "old", "hsgp_visual.stan"))
+m_vis_old <- mk(file.path(tmp, "old", "hsgp_visual.stan"))
+v4_old <- v4[setdiff(names(v4), c("b_min", "use_nb", "prior_nb_inv_sqrt_sd", "use_vis_covar", "vis_level",
+                                  "beta_vis_prior_mean", "beta_vis_prior_sd"))]
+to_vis_hr <- function(p) drop_empty(list(mu_sp = p$mu_sp[2], gp_sigma = array(p$gp_sigma[2]),
+  gp_l_raw = matrix(p$gp_l_raw[2, ], 1), z_beta = matrix(p$z_beta[2, ], 1), beta_bathy = array(p$beta_bathy[2, ]),
+  log_sigma = p$log_sigma[1], beta_size = p$beta_size[1], log_b = array(p$log_b[1]),
+  mu_s = p$mu_s[1], phi_s = p$phi_s[1], mu_log_s = p$mu_log_s[1], sigma_log_s = p$sigma_log_s[1]))
+pos4 <- Filter(function(p) p$log_b > 0, pts4)
+fv_b1 <- carrier(m_vis, v4b, to_vis_hr(pos4[[1]])); fv_old <- carrier(m_vis_old, v4_old, to_vis_hr(pos4[[1]]))
+d5 <- vapply(pos4, function(p) c(joint = lp(f4_b1, p) - lp(f4_old, p) - log(p$log_b),
+                                 visual = lp(fv_b1, to_vis_hr(p)) - lp(fv_old, to_vis_hr(p)) - log(p$log_b)),
+             numeric(2))
+cat(sprintf("5. b_min = 1 vs %s + log(log b), %d points with b > 1: max |difference| joint %.2e, visual %.2e\n",
+            BASE_REF, length(pos4), max(abs(d5["joint", ])), max(abs(d5["visual", ]))))
+if (max(abs(d5)) > TOL) { cat("   FAIL\n"); fail <- TRUE }
 
 if (fail) { cat("\nJOINT EXACTNESS FAILED\n"); quit(status = 1) }
 cat("\nJOINT EXACTNESS PASSED\n")

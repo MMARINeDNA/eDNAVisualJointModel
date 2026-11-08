@@ -19,7 +19,9 @@
 #      non-centred; default 2: the centred form mixes badly on HSGP4eDNA
 #      v1.7+'s simulator, ROADMAP_2026-10-21 section 3 item 3), ADAPT_DELTA
 #      (default 0.9), SIM_FILE (fit this saved simulate_joint() dataset
-#      instead of simulating SEED here),
+#      instead of simulating SEED here), GRID_KM (prediction grid spacing for
+#      the maps, default 20; 0 = none), PPC (1 = predictive-check summaries,
+#      default),
 #      CHAINS, WARMUP, SAMPLE (default 4 x 800/800), REFRESH (sampler
 #      progress every REFRESH iterations; default 100, 0 = silent), OUT (default
 #      outputs/joint/compare_s<SEED>; with SEA_STATE=1 compare_sea_s<SEED>, or
@@ -27,7 +29,13 @@
 # Each mode's summary is saved as <OUT>/fit_<mode>.rds, so modes can run in
 # separate processes; the tables and figure are (re)built from whatever
 # summaries exist.
-# Out: <OUT>/compare_{field,recovery,runs}.csv, <OUT>/compare_joint.{pdf,png}
+# MODES may include "prior" (neither likelihood: the prior predictive), saved
+# as fit_prior.rds and kept out of the tables.
+# Out: <OUT>/compare_{field,recovery,runs}.csv, <OUT>/compare_joint.{pdf,png};
+#      with a grid, <OUT>/compare_grid.csv (recovery on the grid against the
+#      truth completed there, truth_grid.rds) and compare_maps{,_sd}.png;
+#      with PPC, ppc_visual_<mode>.png, ppc_edna_<mode>.png and, with a prior
+#      fit, prior_pred.png
 # =============================================================================
 
 source("R/fit_joint.r")
@@ -45,6 +53,8 @@ NB_SPECIES <- Sys.getenv("NB_SPECIES", "humpback,pwsd")
 NB_SPECIES <- if (NB_SPECIES == "none") character(0) else strsplit(NB_SPECIES, ",")[[1]]
 JUNK_NOISE_DIST <- env_int("JUNK_NOISE_DIST", "2")
 ADAPT_DELTA <- as.numeric(Sys.getenv("ADAPT_DELTA", "0.9"))
+GRID_KM <- as.numeric(Sys.getenv("GRID_KM", "20"))
+PPC <- env_int("PPC", "1")
 OUT <- Sys.getenv("OUT", sprintf("outputs/joint/compare%s_s%d",
                                  if (!SEA_STATE) "" else if (identical(BFT_SPECIES, character(0)))
                                    "_sea_nobft" else "_sea", SEED))
@@ -72,6 +82,7 @@ if (file.exists(sim_file) && !isTRUE(all.equal(sim, readRDS(sim_file)))) {
   tmp <- tempfile("sim", tmpdir = OUT, fileext = ".rds")
   saveRDS(sim, tmp); invisible(file.rename(tmp, sim_file))
 }
+grid <- if (GRID_KM > 0) pred_grid_domain(sim$meta$domain, GRID_KM)
 if (FIT_MODES) {
   mod <- compile_joint()
   for (m in MODES) {
@@ -82,11 +93,12 @@ if (FIT_MODES) {
                    conv_free = if (m == "joint_conv") CONV_FREE else character(0),
                    bft_species = BFT_SPECIES, nb_species = NB_SPECIES,
                    junk_noise_dist = JUNK_NOISE_DIST, adapt_delta = ADAPT_DELTA,
+                   pred = grid, use_ppc = PPC,
                    mod = mod, chains = env_int("CHAINS", "4"),
                    warmup = env_int("WARMUP", "800"), sample = env_int("SAMPLE", "800"),
                    refresh = env_int("REFRESH", "100"),
                    seed = 42L + SEED)
-    r$field$mode <- m; r$recovery$mode <- m; r$mode <- m
+    r$field$mode <- m; r$recovery$mode <- m; r$mode <- m; r$pred <- grid
     cat(sprintf("%s: %.0f min | divergences %d | treedepth %d | max Rhat %.3f | E-BFMI %s\n",
                 m, r$runtime_min, r$divergences, r$treedepth_hits, r$max_rhat,
                 paste(sprintf("%.2f", r$ebfmi), collapse = ", ")))
@@ -153,3 +165,49 @@ g <- ggplot(pts, aes(truth, post, colour = source)) +
 ggsave(file.path(OUT, "compare_joint.pdf"), g, width = 10, height = 7.5)
 ggsave(file.path(OUT, "compare_joint.png"), g, width = 10, height = 7.5, dpi = 150)
 cat(sprintf("\nSaved %s/compare_{field,recovery,runs}.csv and compare_joint.{pdf,png}\n", OUT))
+
+# ---- Maps on the prediction grid and predictive checks ---------------------------
+source("R/plot_joint.r")
+sea_lab <- if (!SEA_STATE) "" else if (identical(BFT_SPECIES, character(0))) ", sea state, fitted without Beaufort" else ", sea state"
+gres <- Filter(function(r) !is.null(r$grid), res)
+if (length(gres)) {
+  pg <- gres[[1]]$pred
+  tg_file <- file.path(OUT, "truth_grid.rds")
+  tg <- if (file.exists(tg_file)) readRDS(tg_file) else NULL
+  if (is.null(tg) || !identical(tg$grid, pg[, c("X", "Y")])) {
+    tg <- c(truth_on_grid(sim, pg), list(grid = pg[, c("X", "Y")])); saveRDS(tg, tg_file)
+  }
+  gr <- grid_recovery(gres, tg, lt)
+  write.csv(gr, file.path(OUT, "compare_grid.csv"), row.names = FALSE)
+  cat("\n=== Field recovery on the grid (truth completed between the data) ===\n")
+  print(gr, digits = 3, row.names = FALSE)
+  ht <- 3.4 * length(gres[[1]]$grid) + 0.8
+  ggsave(file.path(OUT, "compare_maps.png"),
+         plot_field_maps(gres, pg, sim, truth = tg,
+                         title = sprintf("Log density on a %g km grid: truth and posterior means (seed %d%s)", GRID_KM, SEED, sea_lab),
+                         subtitle = paste("At the design-average bottom-depth effect. Truth between the data: drawn from the GP given the simulated field.",
+                                          "Dots: eDNA stations; orange: transect segments")),
+         width = 2.1 * (length(gres) + 1) + 1.2, height = ht, dpi = 160, bg = "white")
+  ggsave(file.path(OUT, "compare_maps_sd.png"),
+         plot_field_maps(gres, pg, sim, what = "sd",
+                         title = sprintf("Posterior SD of log density on the grid (seed %d%s)", SEED, sea_lab)),
+         width = 2.1 * length(gres) + 1.2, height = ht, dpi = 160, bg = "white")
+  cat(sprintf("Saved %s/compare_grid.csv, truth_grid.rds and compare_maps{,_sd}.png\n", OUT))
+}
+for (m in names(res)) {
+  r <- res[[m]]
+  if (!is.null(r$ppc$visual))
+    ggsave(file.path(OUT, sprintf("ppc_visual_%s.png", m)),
+           plot_ppc_visual(r, sprintf("Posterior predictive checks, visual data: %s fit (seed %d%s)", MODE_LABEL[[m]], SEED, sea_lab)),
+           width = 13, height = 3.3 * length(r$ppc$visual) + 0.8, dpi = 150, bg = "white")
+  if (!is.null(r$ppc$edna))
+    ggsave(file.path(OUT, sprintf("ppc_edna_%s.png", m)),
+           plot_ppc_edna(r, sprintf("Posterior predictive checks, eDNA data: %s fit (seed %d%s)", MODE_LABEL[[m]], SEED, sea_lab)),
+           width = 10, height = 6.5, dpi = 150, bg = "white")
+}
+if (file.exists(file.path(OUT, "fit_prior.rds"))) {
+  rp <- readRDS(file.path(OUT, "fit_prior.rds"))
+  ggsave(file.path(OUT, "prior_pred.png"),
+         plot_prior_pred(rp, res[["joint"]], sprintf("Prior predictive (seed %d%s); blue: joint posterior predictive", SEED, sea_lab)),
+         width = 10, height = 8, dpi = 150, bg = "white")
+}

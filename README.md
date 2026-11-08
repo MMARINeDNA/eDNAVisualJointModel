@@ -258,6 +258,33 @@ Exactness checks (`tests/joint_exactness.R`):
   `hsgp_2d_bathysp.stan` up to a constant.
 
 The spread is ≤ 3e-11 over random draws.
+- **Hazard-rate shape:** b ≥ 1 by default (b < 1 gives a cusp at 0;
+  `b_min` in `sp_params`, 0 = unbounded). With b_min = 0 the log density
+  equals the model before the bound exactly; with b_min = 1 it differs by
+  exactly the bound's log Jacobian (checks 4–5).
+
+**Maps and predictive checks** (generated quantities only, so they do not
+change the sampling):
+
+- `format_stan_data_joint(pred = ...)` puts the field on prediction points
+  (`log_lambda_pred`). `pred_grid_domain()` gives a grid over the simulated
+  domain (no bathymetry surface there, so the maps are at the design-average
+  bottom-depth effect); `pred_grid_real()` the real one, 1,931 open-ocean
+  cells of 20 km with ETOPO depth (`R/make_pred_grid.r`, in
+  `data/processed/`). `truth_on_grid()` completes the simulated truth on a
+  grid by drawing from the GP given the simulated field, so the dataset is
+  unchanged.
+- With `use_ppc = 1` (the default) the model also returns the predictive
+  density of detected distances and the predictive shares of detected group
+  sizes, and `fit_joint()` keeps compact posterior (and, with mode `"prior"`,
+  prior) predictive summaries: detections along the coast, segment-count
+  dispersion, metabarcoding and qPCR detection by sampling depth, and Ct
+  against its predictive interval.
+- `R/plot_joint.r` draws the maps (truth, eDNA only, visual only and joint
+  for each species, and posterior SDs) and the checks; `compare_joint.r` and
+  `fit_joint_real.r` write them with their tables (`GRID_KM`, `PPC`).
+  `R/gq_joint.r` adds the grid and checks to a finished real fit from its
+  chain CSVs, without refitting.
 
 `Rscript R/compare_joint.r` runs all four fits on one simulated dataset and
 writes the tables and the figure below to `outputs/joint/compare_s<SEED>/`

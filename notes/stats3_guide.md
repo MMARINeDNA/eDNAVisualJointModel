@@ -21,6 +21,10 @@ section 3). As with the FinWhale pipeline, the cleanest set-up is
 > tier-1 replicates". Everything else in this guide is the earlier set-up and
 > still applies.
 
+> **Also from 2026-10-28: maps and predictive checks** (Part 6, "Maps and
+> predictive checks"). These jobs run from a **second checkout**, so they
+> don't recompile the model the running re-fits use.
+
 **stats3 specs (from the IT FAQ):** Intel i9-13900K with 24 physical cores and
 32 hyperthreads, 128 GB RAM, RAID-1 NVMe (`/fast_raid`) and HDD (`/local_raid`).
 
@@ -251,6 +255,64 @@ whose dataset differs from the `sim.rds` already in its folder, and
 
 Steps 4–6 are for the replicates, later this week. Every mode of a seed must
 run on the same machine.
+
+### Maps and predictive checks (2026-10-28)
+
+The joint model now puts the field on a prediction grid and keeps
+predictive-check summaries (README, "Joint model"). Three sets of jobs use
+them:
+
+| Job | What | Cores, time |
+|---|---|---|
+| `cmpgrid_s1_<mode>` (`edna`, `visual`, `joint`, `joint_conv`, `prior`) | seed 1 refitted on the laptop's dataset with the grid and checks: the 12-panel maps (truth, eDNA only, visual only, joint) and the predictive checks | 4 each; visual ~3 h, prior a few hours, the others ~1 day |
+| `jreal_visual_b1`, `jreal_prior` | the real visual-only fit with the hazard-rate shape bounded at b >= 1 (Len), with the real maps and checks; the real prior predictive | 4 each; ~21 h, a few hours |
+| `jgq_<mode>` (`edna`, `joint_conv`) | the grid and checks added to the finished `jreal_<mode>_ctcond` fits from their chain CSVs, without refitting | 1 each, minutes |
+
+**1. A second checkout** (one time). The `_ctcond` re-fits are running the
+compiled model in the main checkout; recompiling it there could fail
+("text file busy") or disturb them. After the PR is merged into `main`:
+
+```bash
+cd /fast_raid/ej45
+git clone --recurse-submodules https://github.com/MMARINeDNA/eDNAVisualJointModel.git eDNAVisualJointModel_grid
+cd eDNAVisualJointModel_grid
+tools/stats3_reruns.sh run compile            # ends with "DONE compile"
+mkdir -p outputs/joint
+```
+
+**2. Copy the laptop's seed-1 dataset** (the same seed simulates different
+data on stats3; Part 6, "Getting ready"). On the Mac:
+
+```bash
+scp /Users/ej45/Documents/MMARINeDNA/eDNAVisualJointModel/.claude/worktrees/ednavisualjointmodel-restructure-e82b82/outputs/joint/compare_sea_s1/sim.rds stats3:/fast_raid/ej45/eDNAVisualJointModel_grid/outputs/joint/sim_sea_s1_mac.rds
+```
+
+**3. Launch**, from the second checkout, in their own tmux session
+(16 cores, plus the re-fits' 8):
+
+```bash
+cd /fast_raid/ej45/eDNAVisualJointModel_grid
+export SESSION=grid
+for m in edna visual joint; do tools/stats3_reruns.sh launch cmpgrid_s1_$m; done
+tools/stats3_reruns.sh launch jreal_visual_b1
+tools/stats3_reruns.sh status
+```
+
+When `cmpgrid_s1_visual` ends (a few hours), launch `cmpgrid_s1_prior` and
+`jreal_prior` in its place; `cmpgrid_s1_joint_conv` is optional (its maps
+match the joint fit's) and can wait for free cores. Check on them with
+`tmux attach -t grid`.
+
+**4. When the `_ctcond` re-fits end**, in the main checkout:
+
+```bash
+cd /fast_raid/ej45/eDNAVisualJointModel
+git checkout main && git pull && git submodule update --init
+tools/stats3_reruns.sh run compile
+tools/stats3_reruns.sh run jgq_edna && tools/stats3_reruns.sh run jgq_joint_conv
+```
+
+Pull everything back with Part 9.
 
 ### The tier-1 replicates (later this week)
 
@@ -488,6 +550,15 @@ rsync -av $R/logs/ logs/
 ```bash
 rsync -av "$X" --exclude='csv_*/' $R/outputs/joint/real_ctcond/ outputs/joint/real_ctcond/
 rsync -av $R/logs/ logs/
+```
+
+**For the maps and predictive checks** (the second checkout):
+
+```bash
+G=stats3:/fast_raid/ej45/eDNAVisualJointModel_grid
+rsync -av "$X" --exclude='csv_*/' $G/outputs/joint/compare_sea_s1_grid/ outputs/joint/compare_sea_s1_grid/
+rsync -av "$X" --exclude='csv_*/' $G/outputs/joint/real_b1/ outputs/joint/real_b1/
+rsync -av $G/logs/ logs/
 ```
 
 **Seed 1** is the Mac's `outputs/joint/compare_sea_s1/` (Part 6). Pull only

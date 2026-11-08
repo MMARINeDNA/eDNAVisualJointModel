@@ -255,7 +255,9 @@ simulate_visual <- function(seed = 1L, species = c("humpback", "pwsd"),
 #   use_nb    1 = negative-binomial segment counts (default: the species'
 #             `use_nb` in sp_params, else 0 = Poisson); nb_inv_sqrt_sd is the
 #             half-normal prior sd on 1 / sqrt(phi_nb)
-#   Detection key: sp_params$det_key (0 half-normal, 1 hazard-rate).
+#   Detection key: sp_params$det_key (0 half-normal, 1 hazard-rate). The
+#   hazard-rate shape is bounded below at sp_params$b_min (default 1: b < 1
+#   gives a cusp at 0; 0 = unbounded).
 #   Truncation: sim$meta$w, one value or named per species. Detections beyond
 #   it are dropped here and seg_count is rebuilt, so objects may carry all
 #   sightings while each species gets its own w.
@@ -315,6 +317,7 @@ format_stan_data_visual <- function(sim, sp, HSGP_M = NULL, HSGP_C = c(1.5, 1.5)
     n = nrow(ob$obs), x = ob$obs$distance, s = as.integer(ob$obs$size), w = w,
     det_key = as.integer(p$det_key %||% 0L),
     log_b_prior_mean = p$log_b_prior_mean %||% log(3), log_b_prior_sd = p$log_b_prior_sd %||% 0.7,
+    b_min = p$b_min %||% 1,
     log_sigma_prior_mean = p$log_sigma_prior_mean, log_sigma_prior_sd = p$log_sigma_prior_sd,
     use_size_covar = p$use_size_covar, s_centre = p$s_centre,
     beta_size_prior_mean = p$beta_size_prior_mean, beta_size_prior_sd = p$beta_size_prior_sd,

@@ -201,6 +201,15 @@ joint_field_agreement <- function(sim, max_km = 10) {
 #                         counts. Default: each species' `use_nb` setting in
 #                         sp_params (none if unset). character(0) = none.
 #   nb_inv_sqrt_sd        half-normal prior sd on 1 / sqrt(phi_nb)
+#   pred                  prediction points (data frame with X, Y in km and,
+#                         optionally, Z_bathy in m) for log_lambda_pred; without
+#                         Z_bathy the bottom-depth term is its average over the
+#                         design (the spline is centred), as for the simulated
+#                         maps. NULL = none
+#   use_ppc               1 = the detected-distance and group-size predictive
+#                         summaries in the generated quantities
+#   The hazard-rate shape's lower bound comes from each species' b_min in
+#   sp_params (format_stan_data_visual(); default 1).
 #
 # Coordinates of both sources are normalised by the DOMAIN extents, and the
 # design-based GP prior is built from the union of station and segment
@@ -223,6 +232,7 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
                                    zdepth = c("none", "smooth"),
                                    ct_sd = c("expected", "conditional"),
                                    junk_noise_dist = NULL,
+                                   pred = NULL, use_ppc = 1L,
                                    HSGP_M = NULL, HSGP_C = c(1.5, 1.5),
                                    M_max = GP_BASIS_BUDGET) {
   qpcr_curve <- match.arg(qpcr_curve); zdepth <- match.arg(zdepth); ct_sd <- match.arg(ct_sd)
@@ -290,7 +300,18 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
 
   conv_idx <- match(conv_free, sp_all)
   stopifnot(!anyNA(conv_idx))
-  noise_on <- as.integer(use_edna == 1L)
+  # the eDNA noise terms only when the eDNA data are used, or for the prior
+  # predictive (neither likelihood), where they are drawn from their priors
+  noise_on <- as.integer(use_edna == 1L || use_visual == 0L)
+
+  # Prediction points: normalised coordinates and the bottom-depth basis (0 =
+  # the design average when the points carry no depth). Depths are clamped to
+  # the spline's boundary knots, where the natural spline would extrapolate.
+  if (is.null(pred)) pred <- data.frame(X = numeric(0), Y = numeric(0))
+  B_pred <- if (is.null(pred$Z_bathy) || !nrow(pred)) matrix(0, nrow(pred), ed$K_bathy) else {
+    setup <- sim$visual$truth$spline_setup
+    bathy_spline_basis(pmin(pmax(pred$Z_bathy, setup$bknots[1]), setup$bknots[2]), setup = setup)$B
+  }
 
   sd <- list(
     use_edna = as.integer(use_edna), use_visual = as.integer(use_visual),
@@ -375,9 +396,73 @@ format_stan_data_joint <- function(sim, use_edna = 1L, use_visual = 1L,
     mu_log_prior_mean = as.array(pick("mu_log_prior_mean")),
     mu_log_prior_sd = as.array(pick("mu_log_prior_sd")),
     sigma_log_prior_shape = as.array(pick("sigma_log_prior_shape")),
-    sigma_log_prior_rate = as.array(pick("sigma_log_prior_rate"))
+    sigma_log_prior_rate = as.array(pick("sigma_log_prior_rate")),
+    b_min = as.array(pick("b_min")),
+    # prediction grid and predictive summaries (generated quantities only)
+    N_pred = nrow(pred), pred_coords = matrix(norm(pred[, c("X", "Y")]), nrow(pred), 2),
+    B_bathy_pred = matrix(B_pred, nrow(pred), ed$K_bathy), use_ppc = as.integer(use_ppc)
   )
   attr(sd, "gp_prior") <- gp_prior
   attr(sd, "species") <- sp_all
   sd
+}
+
+# -----------------------------------------------------------------------------
+# Prediction grids for maps (format_stan_data_joint(pred = ...)).
+#
+# pred_grid_domain(): cell centres of a regular grid over the domain box, in
+# km. The simulated domain has no bathymetry surface (draw_bathy() is drawn
+# per location), so its grid carries no depth and the maps show the field at
+# the design-average bottom-depth effect.
+# pred_grid_real(): the same grid for the real domain, cells over water only,
+# with ETOPO bottom depth; built once by R/make_pred_grid.r into
+# data/processed/ (it needs sf, terra and the ETOPO cache).
+# -----------------------------------------------------------------------------
+pred_grid_domain <- function(domain = LT_DOMAIN, spacing = 20) {
+  xs <- seq(spacing / 2, domain$X_km_max, by = spacing)
+  ys <- seq(spacing / 2, domain$Y_km_max, by = spacing)
+  g <- expand.grid(X = xs, Y = ys)
+  attr(g, "spacing") <- spacing
+  g
+}
+
+pred_grid_real <- function(spacing = 20) {
+  f <- sprintf("data/processed/pred_grid_real_%gkm.rds", spacing)
+  if (!file.exists(f)) stop(f, " not found: build it with Rscript R/make_pred_grid.r")
+  readRDS(f)
+}
+
+# -----------------------------------------------------------------------------
+# truth_on_grid(): the simulated truth at grid points. The simulator draws the
+# GP only at the stations and segments, so the grid values are drawn from the
+# GP conditional on that realisation (kriging mean plus a conditional draw):
+# the same field, completed between the data, and the simulated dataset is
+# unchanged. Drawn with Cholesky factors (not MASS::mvrnorm(), whose eigen()
+# makes draws machine-dependent), from its own seed.
+#   log lambda_grid = mu_s + f_s(grid), i.e. at the design-average bottom-depth
+#   effect, as pred_grid_domain()'s maps
+# Returns a list: log_lambda (grid x species), gp_field, dist_km (distance from
+# each grid point to the nearest station or segment).
+# -----------------------------------------------------------------------------
+truth_on_grid <- function(sim, grid, seed = sim$meta$seed + 7919L, jitter = 1e-6) {
+  locs <- as.matrix(sim$field$locations[, c("X", "Y")])
+  g <- as.matrix(grid[, c("X", "Y")])
+  gp <- sim$edna$truth$gp_params
+  cross <- function(a, b, p) p$sigma^2 * exp(-0.5 * (outer(a[, 1], b[, 1], "-")^2 / p$lx^2 +
+                                                     outer(a[, 2], b[, 2], "-")^2 / p$ly^2))
+  set.seed(seed)
+  f <- matrix(NA_real_, nrow(g), length(gp), dimnames = list(NULL, names(gp)))
+  for (s in seq_along(gp)) {
+    p <- gp[[s]]
+    R <- chol(aniso_cov_2d(locs, p$sigma, p$lx, p$ly))           # as the simulator (with its jitter)
+    A <- backsolve(R, t(cross(g, locs, p)), transpose = TRUE)    # R^-T K_obs,grid
+    m <- crossprod(A, backsolve(R, sim$field$gp_field_si[, s], transpose = TRUE))
+    V <- cross(g, g, p) - crossprod(A)
+    Rg <- chol(V + diag(jitter * p$sigma^2 + 1e-8, nrow(g)), pivot = TRUE)
+    z <- numeric(nrow(g)); z[attr(Rg, "pivot")] <- crossprod(Rg, rnorm(nrow(g)))
+    f[, s] <- as.vector(m) + z
+  }
+  mu <- vapply(gp, `[[`, 0, "mu")
+  d <- sqrt(outer(g[, 1], locs[, 1], "-")^2 + outer(g[, 2], locs[, 2], "-")^2)
+  list(log_lambda = sweep(f, 2, mu, "+"), gp_field = f, dist_km = apply(d, 1, min))
 }
