@@ -120,6 +120,62 @@ Requirements: R with `cmdstanr` + CmdStan, `tidyverse`, `posterior`, `MASS`,
 `splines`, `patchwork`, `viridis`, `knitr`. All scripts run from the
 **repo root**.
 
+### How HSGP4eDNA is included
+
+The eDNA observation model, the HSGP basis functions, and the eDNA simulators
+are not copied into this repo. HSGP4eDNA is attached as a git submodule at
+`external/HSGP4eDNA`. This repo stores only a pointer to one commit of HSGP4eDNA,
+plus its URL in `.gitmodules`. On GitHub the folder shows as a link
+("HSGP4eDNA @ <commit>"), not as files, and a plain clone or a ZIP download
+leaves it empty. `git submodule status` shows the pinned commit. HSGP4eDNA's
+version numbers (v1.12 and so on) are recorded in its README and commit
+messages, not as git tags, so `git describe` names the last tag (v1.5) and a
+commit count instead.
+
+**How the code is found.** The Stan models include HSGP4eDNA's functions by
+bare file name:
+
+```stan
+#include hsgp_functions.stan     // HSGP4eDNA: basis functions and spectral densities
+#include edna_functions.stan     // HSGP4eDNA: eDNA observation model
+#include visual_functions.stan   // this repo: detection functions
+```
+
+The folders come from R at compile time. `R/fit_joint.r` and `R/fit_visual.r`
+pass `include_paths = c("stan/include", "external/HSGP4eDNA/stan/include")` to
+`cmdstan_model()`, and the Stan compiler searches those folders in order. On
+the R side, `R/functions_visual.R` sources `external/HSGP4eDNA/R/functions.R`,
+which provides the GP and spline helpers, and the joint simulator calls
+HSGP4eDNA's eDNA simulator.
+
+**Changes to HSGP4eDNA are not picked up automatically.** The models always
+use the pinned commit. To move to a newer HSGP4eDNA (a "submodule bump"):
+
+```bash
+cd external/HSGP4eDNA
+git fetch
+git checkout <commit or branch>
+cd ../..
+Rscript tests/smoke.R
+git add external/HSGP4eDNA
+git commit
+```
+
+Commit the bump only if the smoke test (below) passes. The models recompile themselves when an included file is newer than the compiled
+executable, so a bump never runs stale functions.
+
+Two things to watch:
+
+- **Pulling a bump doesn't update the files.** After a `git pull` that moves
+  the pointer, `external/HSGP4eDNA/` still holds the old commit until you run
+  `git submodule update`. Until then, `git status` shows the submodule as
+  modified. This applies to every clone, stats3 included.
+- **Local changes inside the submodule are used but not recorded.** If
+  `external/HSGP4eDNA/` is checked out at a different commit, or its files are
+  edited, the models compile against that local state. This repo does not
+  record that change until it is committed as a bump. `git status` flags it.
+  Develop HSGP4eDNA in its own clone, and bump here once the changes are pushed.
+
 ### Smoke test
 
 Run this before committing any change to `R/`, `stan/`, or a submodule bump. It takes about 1.5 hours (44 checks; the joint cases are the longest), and the exit status is non-zero on
@@ -222,7 +278,8 @@ fit_joint(sim, "joint", conv_free = c("humpback", "pwsd"))   # estimate conversi
 `stan/hsgp_joint.stan` gives each species one field: a 2-D HSGP plus a
 bottom-depth spline, in animals/km². Two observation models share it:
 
-- **eDNA:** HSGP4eDNA's eDNA observation model (the submodule is at v1.12):
+- **eDNA:** HSGP4eDNA's eDNA observation model (the submodule is at v1.12, commit
+  `5515a04`):
   qPCR for hake, zero-inflated beta-binomial metabarcoding for all species,
   and the between-bottle and junk noise terms. The metabarcoding assumes
   equal amplification efficiency across species, which holds for MarVer1 and
